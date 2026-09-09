@@ -1,6 +1,6 @@
 # Klippapp
 
-Webbapp (React + Vite) för att skapa, publicera och analysera korta videoklipp (TikTok-format). Byggs stegvis enligt projektspecen — **alla 10 steg i byggordningen är nu klara**: projekt-scaffold, datamodell i Supabase, Bibliotek-vyn, Claude API-koppling, Whisper-transkribering, Shotstack-rendering, Idébank med trenddata, TikTok-koppling som mock, few-shot-kontext, och pgvector-retrieval.
+Webbapp (React + Vite) för att skapa, publicera och analysera korta videoklipp (TikTok-format). Byggs stegvis enligt projektspecen — **alla 10 steg i byggordningen är klara**: projekt-scaffold, datamodell i Supabase, Bibliotek-vyn, Claude API-koppling, Whisper-transkribering, Shotstack-rendering, Idébank med trenddata, TikTok-koppling som mock, few-shot-kontext, och pgvector-retrieval. Plus ett valfritt tillval utöver planen: AI-genererad B-roll (se nedan).
 
 ## Kom igång
 
@@ -30,8 +30,9 @@ netlify dev
    - `0001_init_schema.sql` — skapar tabellerna `clips` och `trend_snapshots`
    - `0002_storage_bucket.sql` — skapar en publik storage-bucket `raw-clips` för uppladdat råmaterial (Shotstack behöver en URL till videon, inte råa bytes)
    - `0003_pgvector_retrieval.sql` — aktiverar `pgvector`, lägger till `embedding vector(1536)` på `clips`, och skapar `match_clips`-funktionen för semantisk sökning
+   - `0004_broll.sql` — lägger till `broll_enabled`, `broll_prompt`, `broll_video_url` och `ai_generated_content` på `clips` (valfritt B-roll-tillval, se nedan)
 
-   Alla tre är idempotenta och ofarliga att köra mot ett projekt som redan har annat innehåll.
+   Alla är idempotenta och ofarliga att köra mot ett projekt som redan har annat innehåll.
 3. Kopiera projektets URL och anon-nyckel till `.env`.
 
 ## Sidor
@@ -130,3 +131,36 @@ embeddade rader:
 create index clips_embedding_idx on clips
 using ivfflat (embedding vector_cosine_ops) with (lists = 100);
 ```
+
+## AI-genererad B-roll (valfritt tillval, opt-in)
+
+Utöver de 10 planerade byggstegen: ett kryssruta i Klippstudio ("AI-genererad B-roll,
+valfritt") låter dig lägga till en kort atmosfärisk bakgrundsvideo (natur, ljus, stämning)
+via [Runway](https://runwayml.com)s API — **aldrig av**, eller ens som ersättning för,
+Christoffer själv i bild. Kontots trovärdighet bygger på att det faktiskt är honom, så
+B-roll är bara stämningshöjande extra material, aldrig standard, alltid ett aktivt val per
+klipp.
+
+**Flöde:** `netlify/edge-functions/generate-broll.ts` ber Claude formulera en kort, filmisk,
+uttryckligen person-fri visuell prompt utifrån klippets kategori/underämne/hook, skickar den
+till Runways `text_to_video`-endpoint, och `broll-status.ts` pollas tills videon är klar.
+Runways samma endpoint ger även tillgång till Googles Veo-modeller (styr med
+`RUNWAY_MODEL=veo3.1` i Netlify) — Kling (ett annat vanligt nämnt alternativ) är ett separat
+bolag utan gemensam endpoint och skulle behöva en egen adapter efter samma mönster som
+`tiktokAdapter.js` om det blir aktuellt.
+
+**TikTok-taggning:** `ai_generated_content` sätts automatiskt till `true` när B-roll används
+(aldrig manuellt valbart av användaren) — Bibliotek visar en tydlig "AI-genererat
+innehåll"-badge på sådana klipp. Kom ihåg när TikTok-kopplingen blir skarp: TikToks regler
+kräver att den här flaggan skickas med i själva Content Posting API-anropet, inte bara sparas
+i vår databas — se kommentaren i `tiktokAdapter.js`s `publishClip`.
+
+**Miljövariabler:** `RUNWAY_API_KEY` (krävs för att funktionen ska gå att använda —
+kryssrutan finns kvar även utan nyckel, men genereringen felar tydligt tills den är satt) och
+valfri `RUNWAY_MODEL` (default `gen4.5`).
+
+**Viktigt att veta:** Runways exakta API-fältnamn ovan är byggda utifrån deras publika
+dokumentation (kunde inte verifieras direkt mot ett Runway-konto i den här miljön pga
+nätverksbegränsningar) — precis som Shotstack-integrationen ursprungligen behövde justeras
+efter första skarpa testet, räkna med att samma kan gälla här första gången du kör det mot
+ett riktigt Runway-konto.

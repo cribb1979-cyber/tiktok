@@ -6,6 +6,7 @@ import { transcribeMedia, transcribeFromUrl } from '../lib/whisperClient.js'
 import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
+import { generateBroll } from '../lib/runwayClient.js'
 import { CATEGORIES } from '../constants.js'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
@@ -15,6 +16,11 @@ const RENDER_STATUS_LABELS = {
   fetching: 'Hämtar källvideo…',
   rendering: 'Renderar…',
   saving: 'Sparar…',
+}
+
+const BROLL_STATUS_LABELS = {
+  PENDING: 'I kö…',
+  RUNNING: 'Genererar video…',
 }
 
 export default function Klippstudio() {
@@ -40,6 +46,13 @@ export default function Klippstudio() {
   const [rendering, setRendering] = useState(false)
   const [renderStatus, setRenderStatus] = useState(null)
   const [renderedVideoUrl, setRenderedVideoUrl] = useState(null)
+
+  // AI-genererad B-roll — valfritt tillval, aldrig standard (se generate-broll.ts).
+  const [brollEnabled, setBrollEnabled] = useState(false)
+  const [brollGenerating, setBrollGenerating] = useState(false)
+  const [brollStatus, setBrollStatus] = useState(null)
+  const [brollVideoUrl, setBrollVideoUrl] = useState(null)
+  const [brollPrompt, setBrollPrompt] = useState(null)
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -115,6 +128,9 @@ export default function Klippstudio() {
     setError(null)
     setPlan(null)
     setRenderedVideoUrl(null)
+    setBrollEnabled(false)
+    setBrollVideoUrl(null)
+    setBrollPrompt(null)
     setSaved(false)
 
     // Few-shot-kontext: semantiskt liknande tidigare publicerade klipp (steg 10, pgvector)
@@ -172,6 +188,30 @@ export default function Klippstudio() {
     }
   }
 
+  async function handleGenerateBroll() {
+    if (!plan) return
+    setBrollGenerating(true)
+    setBrollStatus('PENDING')
+    setError(null)
+
+    const selectedHook = plan.hook_variants?.[selectedHookIndex]
+
+    try {
+      const result = await generateBroll({
+        category: plan.category || category,
+        subtopic: plan.subtopic || subtopic,
+        hookText: selectedHook?.text,
+        onStatus: setBrollStatus,
+      })
+      setBrollVideoUrl(result.url)
+      setBrollPrompt(result.prompt)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBrollGenerating(false)
+    }
+  }
+
   async function handleSaveDraft() {
     if (!plan) return
     setSaving(true)
@@ -192,6 +232,12 @@ export default function Klippstudio() {
         segments_plan: plan.segments_plan ?? null,
         status: 'draft',
         video_url: renderedVideoUrl,
+        broll_enabled: brollEnabled,
+        broll_prompt: brollPrompt,
+        broll_video_url: brollVideoUrl,
+        // Aldrig manuellt valbart — sätts automatiskt när B-roll används, enligt TikToks
+        // regler om taggning av AI-genererat innehåll.
+        ai_generated_content: brollEnabled,
       })
       .select()
       .single()
@@ -391,6 +437,49 @@ export default function Klippstudio() {
               kunna rendera undertexter och effekter.
             </p>
           )}
+
+          <div className="clip-card" style={{ margin: 0 }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={brollEnabled}
+                onChange={(e) => {
+                  setBrollEnabled(e.target.checked)
+                  if (!e.target.checked) {
+                    setBrollVideoUrl(null)
+                    setBrollPrompt(null)
+                  }
+                }}
+                style={{ marginTop: 4 }}
+              />
+              <span>
+                <span className="clip-hook" style={{ display: 'block' }}>
+                  AI-genererad B-roll (valfritt)
+                </span>
+                <span className="clip-prompt" style={{ display: 'block' }}>
+                  Atmosfärisk bakgrundsvideo (natur, ljus, stämning) — visar ALDRIG Christoffer
+                  själv. Taggas automatiskt som AI-genererat innehåll enligt TikToks regler.
+                </span>
+              </span>
+            </label>
+
+            {brollEnabled &&
+              (brollVideoUrl ? (
+                <div style={{ marginTop: 12 }}>
+                  <video src={brollVideoUrl} controls style={{ width: '100%', borderRadius: 12 }} />
+                  {brollPrompt && <p className="clip-prompt">Prompt: {brollPrompt}</p>}
+                </div>
+              ) : (
+                <button
+                  className="btn-primary"
+                  style={{ marginTop: 12 }}
+                  onClick={handleGenerateBroll}
+                  disabled={brollGenerating}
+                >
+                  {brollGenerating ? BROLL_STATUS_LABELS[brollStatus] ?? 'Genererar…' : 'Generera B-roll'}
+                </button>
+              ))}
+          </div>
 
           {saved ? (
             <p style={{ color: 'var(--success)' }}>Sparat i Bibliotek som utkast.</p>

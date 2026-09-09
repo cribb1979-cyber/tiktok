@@ -64,7 +64,10 @@ const mockAdapter = {
     writeConnection(null)
   },
 
-  // Riktig implementation: TikTok Content Posting API.
+  // Riktig implementation: TikTok Content Posting API. VIKTIGT när klippet har
+  // ai_generated_content: true (B-roll använt, se generate-broll.ts) — TikToks regler
+  // kräver att posten flaggas som AI-genererat innehåll i själva API-anropet (disclosure/
+  // "AI-generated content"-fältet i Content Posting API), inte bara i vår egen databas.
   async publishClip(clip) {
     const fakePostId = `mock_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     const { error } = await supabase

@@ -285,6 +285,9 @@ export default function Bibliotek() {
                 <span className={`status-pill status-${clip.status}`}>
                   {STATUS_LABELS[clip.status] ?? clip.status}
                 </span>
+                {clip.ai_generated_content && (
+                  <span className="status-pill status-scheduled">AI-genererat innehåll</span>
+                )}
                 <span className="clip-category">{clip.category}</span>
               </div>
               {clip.hook_text && <p className="clip-hook">"{clip.hook_text}"</p>}
