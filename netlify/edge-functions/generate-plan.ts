@@ -175,9 +175,9 @@ Klippningsplan: ${JSON.stringify(c.segments_plan ?? [])}`
 
 function buildTranscriptBlock(transcript: unknown) {
   if (!Array.isArray(transcript) || transcript.length === 0) {
-    return 'Transkript: inget uppladdat ännu (kopplas på i steg 5 via Whisper). Basera planen på prompten.'
+    return 'Transkript: inget bifogat för det här klippet. Basera planen på prompten istället.'
   }
-  return `Transkript (tidsstämplat):\n${JSON.stringify(transcript)}`
+  return `Transkript (segment med start/end i sekunder, från Whisper):\n${JSON.stringify(transcript)}`
 }
 
 function buildTrendBlock(trendContext: unknown) {

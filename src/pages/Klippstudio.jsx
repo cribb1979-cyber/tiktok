@@ -1,12 +1,20 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { supabase } from '../lib/supabaseClient.js'
 import { generateClipPlan } from '../lib/claudeClient.js'
+import { transcribeMedia } from '../lib/whisperClient.js'
 import { CATEGORIES } from '../constants.js'
+
+const MAX_FILE_BYTES = 25 * 1024 * 1024
 
 export default function Klippstudio() {
   const [prompt, setPrompt] = useState('')
   const [category, setCategory] = useState(CATEGORIES[0])
   const [subtopic, setSubtopic] = useState('')
+
+  const fileInputRef = useRef(null)
+  const [mediaFile, setMediaFile] = useState(null)
+  const [transcribing, setTranscribing] = useState(false)
+  const [transcript, setTranscript] = useState(null)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -15,6 +23,38 @@ export default function Klippstudio() {
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  async function handleFileChange(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (file.size > MAX_FILE_BYTES) {
+      setError('Filen är för stor (max 25 MB). Korta ner klippet och försök igen.')
+      event.target.value = ''
+      return
+    }
+
+    setError(null)
+    setMediaFile(file)
+    setTranscript(null)
+    setTranscribing(true)
+
+    try {
+      const result = await transcribeMedia(file)
+      setTranscript(result)
+    } catch (err) {
+      setError(err.message)
+      setMediaFile(null)
+    } finally {
+      setTranscribing(false)
+    }
+  }
+
+  function clearMedia() {
+    setMediaFile(null)
+    setTranscript(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
 
   async function handleGenerate(event) {
     event.preventDefault()
@@ -32,7 +72,7 @@ export default function Klippstudio() {
         prompt,
         category,
         subtopic,
-        transcript: [],
+        transcript: transcript?.segments ?? [],
         trendContext: [],
         previousBestClips: [],
       })
@@ -84,6 +124,32 @@ export default function Klippstudio() {
 
       <form className="clip-form" onSubmit={handleGenerate}>
         <label>
+          Råmaterial (video/ljud, valfritt)
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/*,audio/*"
+            onChange={handleFileChange}
+            disabled={transcribing}
+          />
+        </label>
+
+        {transcribing && <p className="placeholder-note">Transkriberar…</p>}
+
+        {mediaFile && transcript && (
+          <div className="clip-card" style={{ margin: 0 }}>
+            <div className="clip-card-header">
+              <span className="status-pill status-posted">Transkriberat</span>
+              <span className="clip-category">{mediaFile.name}</span>
+            </div>
+            <p className="clip-prompt">{transcript.text || 'Inget tal upptäcktes.'}</p>
+            <button type="button" className="btn-danger" onClick={clearMedia}>
+              Ta bort
+            </button>
+          </div>
+        )}
+
+        <label>
           Prompt / klippidé
           <textarea
             value={prompt}
@@ -116,11 +182,12 @@ export default function Klippstudio() {
         </label>
 
         <p className="placeholder-note">
-          Uppladdning av råmaterial och transkribering (Whisper) kopplas på i steg 5. Planen
-          nedan baseras just nu enbart på din prompt.
+          {transcript
+            ? 'Klippningsplanen baseras på transkriptet ovan tillsammans med din prompt.'
+            : 'Ladda upp råmaterial för tidsstämplad transkribering, eller lämna tomt och basera planen enbart på prompten.'}
         </p>
 
-        <button className="btn-primary" type="submit" disabled={loading}>
+        <button className="btn-primary" type="submit" disabled={loading || transcribing}>
           {loading ? 'Genererar…' : 'Föreslå klippningsplan'}
         </button>
       </form>
