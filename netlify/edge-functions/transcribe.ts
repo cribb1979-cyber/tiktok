@@ -35,16 +35,20 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Filen är för stor (max 25 MB). Korta ner klippet och försök igen.' }, 413)
   }
 
-  // Whisper-endpointen stöder inte .mov (standardformatet från iPhone/iPad) som filändelse,
-  // trots att kodeken (H.264/HEVC + AAC) i praktiken är kompatibel. Byt bara ändelsen till
-  // .mp4 — inga bytes ändras, men det får API:t att acceptera filen.
-  let filename = file.name || 'upload'
-  if (/\.mov$/i.test(filename) || file.type === 'video/quicktime') {
-    filename = filename.replace(/\.mov$/i, '') + '.mp4'
+  // Whisper-endpointen avvisar .mov (standardformatet från iPhone/iPad), trots att kodeken
+  // (H.264/HEVC + AAC) i praktiken är kompatibel. Det räcker inte att bara byta filnamnets
+  // ändelse — multipart-anropets Content-Type för filen sätts från Blob/File-objektets egen
+  // `type`-egenskap (video/quicktime), inte från filnamnet. Bygg därför om filen med rätt
+  // `type` också. Inga bytes ändras.
+  let uploadFile: File = file
+  if (/\.mov$/i.test(file.name) || file.type === 'video/quicktime') {
+    const filename = (file.name || 'upload').replace(/\.mov$/i, '') + '.mp4'
+    const bytes = await file.arrayBuffer()
+    uploadFile = new File([bytes], filename, { type: 'video/mp4' })
   }
 
   const whisperForm = new FormData()
-  whisperForm.set('file', file, filename)
+  whisperForm.set('file', uploadFile)
   whisperForm.set('model', 'whisper-1')
   whisperForm.set('response_format', 'verbose_json')
   whisperForm.append('timestamp_granularities[]', 'segment')
