@@ -5,6 +5,7 @@ import { generateClipPlan } from '../lib/claudeClient.js'
 import { transcribeMedia, transcribeFromUrl } from '../lib/whisperClient.js'
 import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
+import { fetchBestPreviousClips } from '../lib/clipHistory.js'
 import { CATEGORIES } from '../constants.js'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
@@ -34,6 +35,7 @@ export default function Klippstudio() {
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null)
   const [selectedHookIndex, setSelectedHookIndex] = useState(0)
+  const [fewShotCount, setFewShotCount] = useState(0)
 
   const [rendering, setRendering] = useState(false)
   const [renderStatus, setRenderStatus] = useState(null)
@@ -115,16 +117,25 @@ export default function Klippstudio() {
     setRenderedVideoUrl(null)
     setSaved(false)
 
+    // Few-shot-kontext: tidigare bäst presterande publicerade klipp i samma kategori (steg
+    // 9). Icke-kritiskt — om det failar (t.ex. inga publicerade klipp än) fortsätter vi ändå
+    // med en tom lista istället för att blockera hela genereringen.
+    let previousBestClips = []
     try {
-      // Few-shot-kontext (tidigare bäst presterande klipp) skickas som tom lista tills
-      // retrieval kopplas på i steg 9-10 — anropsformatet är redan förberett för det.
+      previousBestClips = await fetchBestPreviousClips(category)
+    } catch (err) {
+      console.warn('Kunde inte hämta tidigare bästa klipp för few-shot-kontext:', err)
+    }
+    setFewShotCount(previousBestClips.length)
+
+    try {
       const result = await generateClipPlan({
         prompt,
         category,
         subtopic,
         transcript: transcript?.segments ?? [],
         trendContext: [],
-        previousBestClips: [],
+        previousBestClips,
       })
       setPlan(result)
       setSelectedHookIndex(0)
@@ -276,6 +287,13 @@ export default function Klippstudio() {
       {plan && (
         <div className="clip-form">
           <h2 style={{ margin: 0 }}>Förslag</h2>
+
+          {fewShotCount > 0 && (
+            <p className="placeholder-note">
+              Byggd med hjälp av {fewShotCount} tidigare bäst presterande klipp i samma
+              kategori.
+            </p>
+          )}
 
           <div>
             <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Välj hook</p>

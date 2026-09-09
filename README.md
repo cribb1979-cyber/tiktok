@@ -1,6 +1,6 @@
 # Klippapp
 
-Webbapp (React + Vite) för att skapa, publicera och analysera korta videoklipp (TikTok-format). Byggs stegvis enligt projektspecen — nu klart t.o.m. **steg 8**: projekt-scaffold, datamodell i Supabase, Bibliotek-vyn, Claude API-koppling, Whisper-transkribering, Shotstack-rendering, Idébank med trenddata, och TikTok-koppling som mock.
+Webbapp (React + Vite) för att skapa, publicera och analysera korta videoklipp (TikTok-format). Byggs stegvis enligt projektspecen — nu klart t.o.m. **steg 9**: projekt-scaffold, datamodell i Supabase, Bibliotek-vyn, Claude API-koppling, Whisper-transkribering, Shotstack-rendering, Idébank med trenddata, TikTok-koppling som mock, och few-shot-kontext från riktig historik.
 
 ## Kom igång
 
@@ -50,10 +50,8 @@ netlify dev
 `output_config.format` (JSON-schema) istället för att be modellen "svara med ren JSON-text" —
 garanterat parseable, inget beroende av att modellen undviker markdown-kodblock.
 
-Anropsformatet innehåller redan nu ett `previousBestClips`-fält för few-shot-kontext
-(tidigare bäst presterande klipp i samma kategori) — det skickas som tom lista tills manuell
-historik (steg 9) och pgvector-retrieval (steg 10) kopplas på, så anropsformatet inte behöver
-byggas om senare.
+Anropsformatet innehåller ett `previousBestClips`-fält för few-shot-kontext (tidigare bäst
+presterande klipp i samma kategori) — fyllt sedan steg 9 (se nedan), tom lista dessförinnan.
 
 ## Whisper-integration (steg 5)
 
@@ -101,7 +99,18 @@ API för publicering, Display API för resultat, OAuth för kopplingen) — byt 
 `tiktokAdapter`-exporten mot en riktig implementation med samma metodnamn, ingen annan kod
 behöver ändras.
 
+## Few-shot-kontext (steg 9)
+
+`src/lib/clipHistory.js` hämtar de tre bäst presterande *publicerade* klippen (`status:
+'posted'`, sorterat på `views_24h`) i samma kategori som valts i Klippstudio, och skickar dem
+som `previousBestClips` till `/api/generate-plan`. Icke-kritiskt — om inga publicerade klipp
+finns än (eller frågan failar) genereras planen ändå, bara utan few-shot-exempel. En liten
+notis i Klippstudio visar hur många tidigare klipp som användes.
+
+Detta är enkel filtrering/sortering, inte semantisk sökning — riktig retrieval (hitta
+klipp som liknar *den här* prompten specifikt, inte bara samma kategori) kräver `pgvector`
+och embeddings, vilket är steg 10.
+
 ## Nästa steg
 
-9. Few-shot-kontext i Claude-anropen (fylla `previousBestClips` med riktig historik)
 10. Retrieval via pgvector
