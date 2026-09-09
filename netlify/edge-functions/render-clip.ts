@@ -69,7 +69,7 @@ export default async (request: Request) => {
       captionClips.push({
         asset: {
           type: 'title',
-          text: caption,
+          text: wrapText(caption, 40),
           style: 'minimal',
           color: '#ffffff',
           size: 'small',
@@ -83,15 +83,18 @@ export default async (request: Request) => {
     timelineCursor += length
   }
 
+  // "large"/"blockbuster" utan radbrytning gick utanför bildkanten (1080 px bredd) för
+  // längre hook-meningar — texten klipptes av istället för att synas i sin helhet.
+  // Bryt manuellt till flera rader och kör en mindre storlek så den faktiskt får plats.
   const hookClip = hookText
     ? [
         {
           asset: {
             type: 'title',
-            text: hookText,
+            text: wrapText(hookText, 22),
             style: 'blockbuster',
             color: '#ffffff',
-            size: 'large',
+            size: 'medium',
             position: 'center',
           },
           start: 0,
@@ -136,6 +139,28 @@ export default async (request: Request) => {
   }
 
   return jsonResponse({ id: data.response.id }, 200)
+}
+
+// Shotstacks title-klipp radbryter inte text automatiskt — lång text på en rad går utanför
+// bildkanten istället för att synas. Bryt manuellt till flera rader baserat på ett ungefärligt
+// antal tecken per rad (beror på typsnittsstorlek).
+function wrapText(text: string, maxCharsPerLine: number): string {
+  const words = text.split(/\s+/).filter(Boolean)
+  const lines: string[] = []
+  let current = ''
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word
+    if (candidate.length > maxCharsPerLine && current) {
+      lines.push(current)
+      current = word
+    } else {
+      current = candidate
+    }
+  }
+  if (current) lines.push(current)
+
+  return lines.join('\n')
 }
 
 function parseTimecode(tc: string): number {
