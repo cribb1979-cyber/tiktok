@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Netlify Edge Functions (Claude/Whisper/Shotstack/TikTok-anrop) läggs till
+# under netlify/edge-functions/ i senare steg (server-side API-nycklar).
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
