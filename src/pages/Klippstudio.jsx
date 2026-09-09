@@ -178,6 +178,7 @@ export default function Klippstudio() {
         transcript: transcript?.segments ?? [],
         hookText: selectedHook?.text ?? '',
         suggestedSubtitles: plan.suggested_subtitles ?? [],
+        brollVideoUrl,
         onStatus: setRenderStatus,
       })
       setRenderedVideoUrl(url)
@@ -416,6 +417,53 @@ export default function Klippstudio() {
             </div>
           )}
 
+          {mediaPublicUrl && (
+            <div className="clip-card" style={{ margin: 0 }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={brollEnabled}
+                  onChange={(e) => {
+                    setBrollEnabled(e.target.checked)
+                    if (!e.target.checked) {
+                      setBrollVideoUrl(null)
+                      setBrollPrompt(null)
+                    }
+                  }}
+                  style={{ marginTop: 4 }}
+                />
+                <span>
+                  <span className="clip-hook" style={{ display: 'block' }}>
+                    AI-genererad B-roll (valfritt)
+                  </span>
+                  <span className="clip-prompt" style={{ display: 'block' }}>
+                    Atmosfärisk bakgrundsvideo (natur, ljus, stämning) klipps in mellan
+                    huvudklippen — visar ALDRIG Christoffer själv. Taggas automatiskt som
+                    AI-genererat innehåll enligt TikToks regler. Generera den här innan du
+                    renderar om du vill att den ska vara med i videon.
+                  </span>
+                </span>
+              </label>
+
+              {brollEnabled &&
+                (brollVideoUrl ? (
+                  <div style={{ marginTop: 12 }}>
+                    <video src={brollVideoUrl} controls style={{ width: '100%', borderRadius: 12 }} />
+                    {brollPrompt && <p className="clip-prompt">Prompt: {brollPrompt}</p>}
+                  </div>
+                ) : (
+                  <button
+                    className="btn-primary"
+                    style={{ marginTop: 12 }}
+                    onClick={handleGenerateBroll}
+                    disabled={brollGenerating}
+                  >
+                    {brollGenerating ? BROLL_STATUS_LABELS[brollStatus] ?? 'Genererar…' : 'Generera B-roll'}
+                  </button>
+                ))}
+            </div>
+          )}
+
           {mediaPublicUrl ? (
             <>
               {renderedVideoUrl ? (
@@ -437,49 +485,6 @@ export default function Klippstudio() {
               kunna rendera undertexter och effekter.
             </p>
           )}
-
-          <div className="clip-card" style={{ margin: 0 }}>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={brollEnabled}
-                onChange={(e) => {
-                  setBrollEnabled(e.target.checked)
-                  if (!e.target.checked) {
-                    setBrollVideoUrl(null)
-                    setBrollPrompt(null)
-                  }
-                }}
-                style={{ marginTop: 4 }}
-              />
-              <span>
-                <span className="clip-hook" style={{ display: 'block' }}>
-                  AI-genererad B-roll (valfritt)
-                </span>
-                <span className="clip-prompt" style={{ display: 'block' }}>
-                  Atmosfärisk bakgrundsvideo (natur, ljus, stämning) — visar ALDRIG Christoffer
-                  själv. Taggas automatiskt som AI-genererat innehåll enligt TikToks regler.
-                </span>
-              </span>
-            </label>
-
-            {brollEnabled &&
-              (brollVideoUrl ? (
-                <div style={{ marginTop: 12 }}>
-                  <video src={brollVideoUrl} controls style={{ width: '100%', borderRadius: 12 }} />
-                  {brollPrompt && <p className="clip-prompt">Prompt: {brollPrompt}</p>}
-                </div>
-              ) : (
-                <button
-                  className="btn-primary"
-                  style={{ marginTop: 12 }}
-                  onClick={handleGenerateBroll}
-                  disabled={brollGenerating}
-                >
-                  {brollGenerating ? BROLL_STATUS_LABELS[brollStatus] ?? 'Genererar…' : 'Generera B-roll'}
-                </button>
-              ))}
-          </div>
 
           {saved ? (
             <p style={{ color: 'var(--success)' }}>Sparat i Bibliotek som utkast.</p>

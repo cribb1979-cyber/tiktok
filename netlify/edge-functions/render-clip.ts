@@ -1,6 +1,7 @@
 // Steg 6: startar en rendering hos Shotstack — bränner in korta textöverlägg (nyckelfraser,
-// inte hela meningar — enligt spec: "textöverlägg vid nyckelord"), en zoom-effekt per segment
-// med tydliga övergångar mellan klippen, och hook-texten i början.
+// inte hela meningar — enligt spec: "textöverlägg vid nyckelord") med bakgrundsruta för
+// läsbarhet, varierande effekter/övergångar mellan segmenten, hook-texten i början, och
+// (valfritt) ett inklippt AI-genererat B-roll-segment mellan huvudklippen.
 // SHOTSTACK_API_KEY exponeras aldrig i klienten.
 
 // "stage" = Shotstack sandbox (gratis, vattenstämplat) — säkert default tills du har en
@@ -19,8 +20,19 @@ const CAPTION_CHARS_PER_LINE = 15
 const HOOK_MAX_CHARS = 26
 const HOOK_CHARS_PER_LINE = 11
 
-// Alternerande effekter ger mer synlig rörelse/klippkänsla än samma svaga zoom hela tiden.
-const SEGMENT_EFFECTS = ['zoomInFast', 'zoomOutFast']
+// Halvgenomskinlig svart bakgrundsruta bakom text — TikTok-typisk captionstil, och ett extra
+// skyddsnät för läsbarhet oavsett underliggande footage. Shotstack anger alpha FÖRST i
+// hex-strängen (#AARRGGBB), omvänt mot vanlig CSS — "CC" ≈ 80% opacitet.
+const TEXT_BACKGROUND = '#CC000000'
+
+// Fler effekttyper ger mer visuell variation än samma zoom hela tiden.
+const SEGMENT_EFFECTS = ['zoomIn', 'zoomInFast', 'zoomOut', 'zoomOutFast', 'slideLeft', 'slideRight']
+const SEGMENT_TRANSITIONS_IN = ['fade', 'wipeLeft', 'wipeRight', 'slideLeft', 'slideRight']
+
+// B-roll-segmentet klipps in direkt efter det första huvudsegmentet (ett klassiskt
+// "cutaway"-snitt: shot → cutaway → tillbaka till shot) istället för att bara vara en
+// fristående, oanvänd fil.
+const BROLL_DEFAULT_DURATION = 5
 
 type Segment = { start: string; end: string; description?: string; order?: number }
 type TranscriptSegment = { start: number; end: number; text: string }
@@ -49,6 +61,11 @@ export default async (request: Request) => {
   const suggestedSubtitles = Array.isArray(body.suggestedSubtitles)
     ? (body.suggestedSubtitles as string[]).filter((s) => typeof s === 'string' && s.trim())
     : []
+  const brollVideoUrl = typeof body.brollVideoUrl === 'string' ? body.brollVideoUrl : null
+  const brollDuration =
+    typeof body.brollDurationSeconds === 'number' && body.brollDurationSeconds > 0
+      ? body.brollDurationSeconds
+      : BROLL_DEFAULT_DURATION
 
   if (!videoUrl || typeof videoUrl !== 'string') {
     return jsonResponse({ error: 'videoUrl krävs (publik URL till källvideon).' }, 400)
@@ -72,7 +89,10 @@ export default async (request: Request) => {
       length,
       fit: 'crop',
       effect: SEGMENT_EFFECTS[index % SEGMENT_EFFECTS.length],
-      transition: { in: index === 0 ? 'fade' : 'wipeLeft', out: 'fade' },
+      transition: {
+        in: index === 0 ? 'fade' : SEGMENT_TRANSITIONS_IN[index % SEGMENT_TRANSITIONS_IN.length],
+        out: 'fade',
+      },
     })
 
     // Nyckelfras framför allt — matchar spec ("textöverlägg vid nyckelord") och är
@@ -94,6 +114,7 @@ export default async (request: Request) => {
           text: wrapText(truncateForOverlay(rawCaption, CAPTION_MAX_CHARS), CAPTION_CHARS_PER_LINE),
           style: 'minimal',
           color: '#ffffff',
+          background: TEXT_BACKGROUND,
           size: 'small',
           position: 'bottom',
         },
@@ -103,6 +124,20 @@ export default async (request: Request) => {
     }
 
     timelineCursor += length
+
+    // B-roll klipps in som ett eget, kortare segment direkt efter första huvudklippet —
+    // inget textöverlägg här, bara atmosfärisk bild mellan de faktiska klippen.
+    if (index === 0 && brollVideoUrl) {
+      videoClips.push({
+        asset: { type: 'video', src: brollVideoUrl, trim: 0, volume: 0 },
+        start: timelineCursor,
+        length: brollDuration,
+        fit: 'crop',
+        effect: 'zoomIn',
+        transition: { in: 'fade', out: 'fade' },
+      })
+      timelineCursor += brollDuration
+    }
   })
 
   const hookClip = hookText
@@ -113,6 +148,7 @@ export default async (request: Request) => {
             text: wrapText(truncateForOverlay(hookText, HOOK_MAX_CHARS), HOOK_CHARS_PER_LINE),
             style: 'blockbuster',
             color: '#ffffff',
+            background: TEXT_BACKGROUND,
             size: 'medium',
             position: 'center',
           },

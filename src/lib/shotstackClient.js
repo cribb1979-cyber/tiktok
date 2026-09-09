@@ -3,11 +3,11 @@ import { errorMessage } from './apiError.js'
 // Anropar Netlify Edge Functions /api/render-clip och /api/render-status — aldrig
 // Shotstack API direkt från klienten.
 
-async function submitRender({ videoUrl, segmentsPlan, transcript, hookText, suggestedSubtitles }) {
+async function submitRender({ videoUrl, segmentsPlan, transcript, hookText, suggestedSubtitles, brollVideoUrl }) {
   const response = await fetch('/api/render-clip', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ videoUrl, segmentsPlan, transcript, hookText, suggestedSubtitles }),
+    body: JSON.stringify({ videoUrl, segmentsPlan, transcript, hookText, suggestedSubtitles, brollVideoUrl }),
   })
 
   const data = await response.json()
@@ -31,8 +31,16 @@ const MAX_POLL_ATTEMPTS = 60 // ~3 minuter
 
 // Startar en rendering och pollar tills den är klar. onStatus(status) anropas vid varje
 // pollning så anroparen kan visa förlopp.
-export async function renderClip({ videoUrl, segmentsPlan, transcript, hookText, suggestedSubtitles, onStatus }) {
-  const id = await submitRender({ videoUrl, segmentsPlan, transcript, hookText, suggestedSubtitles })
+export async function renderClip({
+  videoUrl,
+  segmentsPlan,
+  transcript,
+  hookText,
+  suggestedSubtitles,
+  brollVideoUrl,
+  onStatus,
+}) {
+  const id = await submitRender({ videoUrl, segmentsPlan, transcript, hookText, suggestedSubtitles, brollVideoUrl })
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))

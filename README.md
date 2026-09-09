@@ -76,14 +76,27 @@ via `src/lib/storage.js`) — Shotstack är en extern tjänst som hämtar källv
 kan inte ta emot råa bytes direkt.
 
 `netlify/edge-functions/render-clip.ts` bygger en Shotstack-"edit" utifrån `segments_plan`
-(klipper/sekvenserar källvideon enligt Claudes plan), bränner in undertexter (från
-transkriptets text inom respektive segments tidsspann, annars segmentets `description` som
-fallback), lägger på en zoom-effekt per segment, och visar vald hook-text som textöverlägg i
-början. `netlify/edge-functions/render-status.ts` pollas tills renderingen är klar.
+(klipper/sekvenserar källvideon enligt Claudes plan), bränner in korta textöverlägg
+(nyckelfraser från `suggested_subtitles`, med en halvgenomskinlig bakgrundsruta för
+läsbarhet), och visar vald hook-text i början på samma sätt. `netlify/edge-functions/render-status.ts` pollas tills renderingen är klar.
+
+**Effekter och övergångar:** varje segment cyklar igenom en lista effekter (`zoomIn`,
+`zoomInFast`, `zoomOut`, `zoomOutFast`, `slideLeft`, `slideRight`) och övergångar (`fade`,
+`wipeLeft`, `wipeRight`, `slideLeft`, `slideRight`) istället för samma svaga zoom hela tiden —
+ger en mer "klippt", redigerad känsla. Om B-roll genererats (se nedan) klipps det in som ett
+eget segment direkt efter det första huvudklippet (ett "cutaway"-snitt), inte bara som en
+fristående fil vid sidan av.
 
 `SHOTSTACK_ENV` styr miljö: `stage` (default) är Shotstacks gratis sandbox och
 vattenstämplar videon — bra för att testa flödet. Sätt `SHOTSTACK_ENV=v1` i Netlify med en
 produktionsnyckel för skarpa renderingar.
+
+Shotstacks `title`-asset (som används för alla textöverlägg) är enligt Shotstacks egen
+dokumentation markerad som föråldrad till förmån för ett nyare `rich-text`/`rich-caption`-API
+med bättre automatisk radbrytning och ord-för-ord-highlighting — inte migrerat hit än
+eftersom det inte gick att verifiera det nya schemat mot Shotstacks dokumentationssajt från
+den här miljön (nätverksbegränsningar). `title` fungerar fortfarande och är inte borttaget,
+men värt att byta till om Shotstack någon gång fasar ut det helt.
 
 ## TikTok-koppling (steg 8, mock)
 
