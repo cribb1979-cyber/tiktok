@@ -1,6 +1,8 @@
 // Steg 5: transkribering med tidsstämplar via Whisper API (OpenAI).
 // Körs server-side som Netlify Edge Function — WHISPER_API_KEY exponeras aldrig i klienten.
 
+import { submitShotstackRender, pollShotstackRender } from './_lib/shotstack.ts'
+
 const WHISPER_API_URL = 'https://api.openai.com/v1/audio/transcriptions'
 
 // OpenAIs whisper-1-endpoint har en hård gräns på 25 MB per fil.
@@ -11,37 +13,95 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Method not allowed' }, 405)
   }
 
-  const apiKey = Deno.env.get('WHISPER_API_KEY')
-  if (!apiKey) {
+  const whisperApiKey = Deno.env.get('WHISPER_API_KEY')
+  if (!whisperApiKey) {
     return jsonResponse({ error: 'WHISPER_API_KEY saknas i Netlify-miljövariabler.' }, 500)
   }
 
-  let incomingForm: FormData
-  try {
-    incomingForm = await request.formData()
-  } catch {
-    return jsonResponse(
-      { error: 'Kunde inte läsa uppladdad fil (förväntar multipart/form-data med fältet "file").' },
-      400
-    )
+  const contentType = request.headers.get('content-type') ?? ''
+  let fileToTranscribe: File
+
+  if (contentType.includes('application/json')) {
+    // Format Whisper inte accepterar direkt (t.ex. .mov från iPhone/iPad — Safari på iOS
+    // saknar både decodeAudioData-stöd för videocontainrar och captureStream, så
+    // client-side konvertering är inte möjlig där). Klienten skickar istället en publik
+    // URL till källvideon (redan uppladdad till Supabase Storage för renderingssteget) —
+    // Shotstack (server-side, riktig omkodning) gör en enkel passthrough-rendering till
+    // mp4 innan vi skickar resultatet vidare till Whisper.
+    const shotstackApiKey = Deno.env.get('SHOTSTACK_API_KEY')
+    if (!shotstackApiKey) {
+      return jsonResponse({ error: 'SHOTSTACK_API_KEY saknas i Netlify-miljövariabler.' }, 500)
+    }
+
+    let body: Record<string, unknown>
+    try {
+      body = await request.json()
+    } catch {
+      return jsonResponse({ error: 'Ogiltig JSON i request-body.' }, 400)
+    }
+
+    const videoUrl = body.videoUrl
+    if (!videoUrl || typeof videoUrl !== 'string') {
+      return jsonResponse({ error: 'videoUrl krävs.' }, 400)
+    }
+
+    let mp4Url: string
+    try {
+      const renderId = await submitShotstackRender(shotstackApiKey, {
+        timeline: {
+          tracks: [{ clips: [{ asset: { type: 'video', src: videoUrl }, start: 0, length: 'auto' }] }],
+        },
+        output: { format: 'mp4' },
+      })
+      mp4Url = await pollShotstackRender(shotstackApiKey, renderId)
+    } catch (err) {
+      return jsonResponse({ error: 'Kunde inte konvertera videon (Shotstack).', detail: String(err) }, 502)
+    }
+
+    let mp4Response: Response
+    try {
+      mp4Response = await fetch(mp4Url)
+    } catch (err) {
+      return jsonResponse({ error: 'Kunde inte hämta den konverterade videon.', detail: String(err) }, 502)
+    }
+    if (!mp4Response.ok) {
+      return jsonResponse(
+        { error: 'Kunde inte hämta den konverterade videon.', detail: `HTTP ${mp4Response.status}` },
+        502
+      )
+    }
+
+    const mp4Bytes = await mp4Response.arrayBuffer()
+    if (mp4Bytes.byteLength > MAX_FILE_BYTES) {
+      return jsonResponse({ error: 'Den konverterade filen är för stor (max 25 MB) för transkribering.' }, 413)
+    }
+
+    fileToTranscribe = new File([mp4Bytes], 'converted.mp4', { type: 'video/mp4' })
+  } else {
+    // Redan Whisper-kompatibelt format — vanlig direktuppladdning.
+    let incomingForm: FormData
+    try {
+      incomingForm = await request.formData()
+    } catch {
+      return jsonResponse(
+        { error: 'Kunde inte läsa uppladdad fil (förväntar multipart/form-data med fältet "file").' },
+        400
+      )
+    }
+
+    const file = incomingForm.get('file')
+    if (!(file instanceof File)) {
+      return jsonResponse({ error: 'Ingen fil hittades i fältet "file".' }, 400)
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      return jsonResponse({ error: 'Filen är för stor (max 25 MB). Korta ner klippet och försök igen.' }, 413)
+    }
+
+    fileToTranscribe = file
   }
 
-  const file = incomingForm.get('file')
-  if (!(file instanceof File)) {
-    return jsonResponse({ error: 'Ingen fil hittades i fältet "file".' }, 400)
-  }
-
-  if (file.size > MAX_FILE_BYTES) {
-    return jsonResponse({ error: 'Filen är för stor (max 25 MB). Korta ner klippet och försök igen.' }, 413)
-  }
-
-  // .mov (standardformatet från iPhone/iPad) avvisas av Whisper-endpointen — OpenAI
-  // validerar den faktiska containern, så att bara byta filnamn/mime-typ här räcker inte.
-  // Klienten (src/lib/mediaConvert.js) extraherar därför ljudspåret till WAV innan
-  // uppladdning för .mov-filer, så den här funktionen tar bara emot redan Whisper-kompatibla
-  // format.
   const whisperForm = new FormData()
-  whisperForm.set('file', file, file.name || 'upload')
+  whisperForm.set('file', fileToTranscribe, fileToTranscribe.name || 'upload')
   whisperForm.set('model', 'whisper-1')
   whisperForm.set('response_format', 'verbose_json')
   whisperForm.append('timestamp_granularities[]', 'segment')
@@ -50,7 +110,7 @@ export default async (request: Request) => {
   try {
     whisperResponse = await fetch(WHISPER_API_URL, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: { Authorization: `Bearer ${whisperApiKey}` },
       body: whisperForm,
     })
   } catch (err) {

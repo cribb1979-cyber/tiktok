@@ -1,10 +1,9 @@
 import { useRef, useState } from 'react'
 import { supabase } from '../lib/supabaseClient.js'
 import { generateClipPlan } from '../lib/claudeClient.js'
-import { transcribeMedia } from '../lib/whisperClient.js'
+import { transcribeMedia, transcribeFromUrl } from '../lib/whisperClient.js'
 import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
-import { extractAudioAsWav, reencodeViaMediaRecorder } from '../lib/mediaConvert.js'
 import { CATEGORIES } from '../constants.js'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
@@ -56,43 +55,39 @@ export default function Klippstudio() {
     setRenderedVideoUrl(null)
     setTranscribing(true)
 
-    // .mov (standard från iPhone/iPad) avvisas av Whisper — konvertera client-side innan
-    // transkribering. Källvideon laddas ändå upp oförändrad för rendering. Två metoder
-    // provas: snabb ljudextrahering (decodeAudioData) först, och om WebKit inte klarar att
-    // packa upp ljudet ur den specifika videocontainern (vanligt för HEVC/.mov), en
-    // omkodning via MediaRecorder (spelar upp klippet i realtid och spelar in det på nytt).
-    const needsAudioExtraction = /\.mov$/i.test(file.name) || file.type === 'video/quicktime'
-    let conversionError = null
-    let transcribeSource = file
-    if (needsAudioExtraction) {
+    // .mov (standard från iPhone/iPad) avvisas av Whisper, och Safari på iOS saknar både
+    // stöd för att packa upp ljud ur videocontainrar via decodeAudioData och för
+    // captureStream — client-side konvertering är inte möjlig där. Ladda därför upp filen
+    // först (Shotstack, som konverterar server-side, behöver en URL) och transkribera sedan
+    // via den URL:en istället för att skicka bytes direkt.
+    const needsServerTranscode = /\.mov$/i.test(file.name) || file.type === 'video/quicktime'
+
+    if (needsServerTranscode) {
       try {
-        transcribeSource = await extractAudioAsWav(file)
+        const publicUrl = await uploadRawClip(file)
+        setMediaPublicUrl(publicUrl)
+        const result = await transcribeFromUrl(publicUrl)
+        setTranscript(result)
       } catch (err) {
-        console.warn('decodeAudioData misslyckades, provar MediaRecorder-omkodning:', err)
-        try {
-          transcribeSource = await reencodeViaMediaRecorder(file)
-        } catch (fallbackErr) {
-          conversionError = fallbackErr
-        }
+        setError(err.message)
       }
-    }
-
-    const [transcriptResult, uploadResult] = await Promise.allSettled([
-      conversionError ? Promise.reject(conversionError) : transcribeMedia(transcribeSource),
-      uploadRawClip(file),
-    ])
-
-    if (transcriptResult.status === 'fulfilled') {
-      setTranscript(transcriptResult.value)
     } else {
-      const prefix = conversionError ? 'Kunde inte konvertera video till ljud: ' : ''
-      setError(prefix + transcriptResult.reason.message)
-    }
+      const [transcriptResult, uploadResult] = await Promise.allSettled([
+        transcribeMedia(file),
+        uploadRawClip(file),
+      ])
 
-    if (uploadResult.status === 'fulfilled') {
-      setMediaPublicUrl(uploadResult.value)
-    } else {
-      setError((prev) => prev ?? uploadResult.reason.message)
+      if (transcriptResult.status === 'fulfilled') {
+        setTranscript(transcriptResult.value)
+      } else {
+        setError(transcriptResult.reason.message)
+      }
+
+      if (uploadResult.status === 'fulfilled') {
+        setMediaPublicUrl(uploadResult.value)
+      } else {
+        setError((prev) => prev ?? uploadResult.reason.message)
+      }
     }
 
     setTranscribing(false)
@@ -210,8 +205,8 @@ export default function Klippstudio() {
 
         {transcribing && (
           <p className="placeholder-note">
-            Transkriberar och laddar upp… (för .mov-filer kan konverteringen ta ungefär lika
-            lång tid som klippets längd — lämna inte sidan)
+            Transkriberar och laddar upp… (för .mov-filer konverteras videon server-side
+            först, vilket kan ta ytterligare någon minut — lämna inte sidan)
           </p>
         )}
 

@@ -63,6 +63,14 @@ gräns som OpenAIs whisper-1-endpoint) och returnerar tidsstämplade segment. Ny
 vidare som `transcript` till `/api/generate-plan` så klippningsplanen kan baseras på faktiskt
 videoinnehåll, inte bara prompten.
 
+**.mov (iPhone/iPad):** Whisper accepterar inte .mov, och Safari på iOS saknar stöd för att
+konvertera videon i webbläsaren (varken `decodeAudioData` för videocontainrar eller
+`captureStream` fungerar där). För `.mov`-filer laddas videon istället upp till Supabase
+Storage först (samma bucket som används för rendering), och `/api/transcribe` konverterar den
+server-side via Shotstack (en enkel passthrough-rendering till mp4) innan den skickas till
+Whisper. Detta kostar en liten extra Shotstack-rendering och några extra sekunders väntetid
+för just .mov-uppladdningar.
+
 ## Shotstack-integration (steg 6)
 
 Vid uppladdning sparas råmaterialet även i Supabase Storage-bucketen `raw-clips` (publik URL,
