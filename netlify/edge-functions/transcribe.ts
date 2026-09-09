@@ -35,8 +35,16 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Filen är för stor (max 25 MB). Korta ner klippet och försök igen.' }, 413)
   }
 
+  // Whisper-endpointen stöder inte .mov (standardformatet från iPhone/iPad) som filändelse,
+  // trots att kodeken (H.264/HEVC + AAC) i praktiken är kompatibel. Byt bara ändelsen till
+  // .mp4 — inga bytes ändras, men det får API:t att acceptera filen.
+  let filename = file.name || 'upload'
+  if (/\.mov$/i.test(filename) || file.type === 'video/quicktime') {
+    filename = filename.replace(/\.mov$/i, '') + '.mp4'
+  }
+
   const whisperForm = new FormData()
-  whisperForm.set('file', file, file.name || 'upload')
+  whisperForm.set('file', file, filename)
   whisperForm.set('model', 'whisper-1')
   whisperForm.set('response_format', 'verbose_json')
   whisperForm.append('timestamp_granularities[]', 'segment')
