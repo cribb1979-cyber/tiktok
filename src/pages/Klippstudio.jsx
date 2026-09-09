@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient.js'
 import { generateClipPlan } from '../lib/claudeClient.js'
 import { transcribeMedia, transcribeFromUrl } from '../lib/whisperClient.js'
@@ -16,8 +17,11 @@ const RENDER_STATUS_LABELS = {
 }
 
 export default function Klippstudio() {
-  const [prompt, setPrompt] = useState('')
-  const [category, setCategory] = useState(CATEGORIES[0])
+  // Förifyllt från Idébanken ("Bygg vidare") via navigate(..., { state }) — bara läst en
+  // gång vid mount, precis som ett vanligt formulär man kommer till med startvärden.
+  const location = useLocation()
+  const [prompt, setPrompt] = useState(location.state?.prefillPrompt ?? '')
+  const [category, setCategory] = useState(location.state?.prefillCategory ?? CATEGORIES[0])
   const [subtopic, setSubtopic] = useState('')
 
   const fileInputRef = useRef(null)

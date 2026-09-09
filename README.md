@@ -1,6 +1,6 @@
 # Klippapp
 
-Webbapp (React + Vite) för att skapa, publicera och analysera korta videoklipp (TikTok-format). Byggs stegvis enligt projektspecen — nu klart t.o.m. **steg 6**: projekt-scaffold, datamodell i Supabase, Bibliotek-vyn, Claude API-koppling, Whisper-transkribering, och Shotstack-rendering.
+Webbapp (React + Vite) för att skapa, publicera och analysera korta videoklipp (TikTok-format). Byggs stegvis enligt projektspecen — nu klart t.o.m. **steg 7**: projekt-scaffold, datamodell i Supabase, Bibliotek-vyn, Claude API-koppling, Whisper-transkribering, Shotstack-rendering, och Idébank med trenddata.
 
 ## Kom igång
 
@@ -37,7 +37,7 @@ netlify dev
 
 ## Sidor
 
-- **Idébank** – platshållare, trenddata kopplas på senare
+- **Idébank** – fungerande: manuellt inklistrad trenddata (hashtags/ljud/kategori) visas ett kort i taget — "Hoppa över" eller "Bygg vidare" (skickar dig till Klippstudio med prompt/kategori förifyllda utifrån trenden). Riktig skrapning av trenddata (TikTok Creative Center e.dyl.) kopplas på senare.
 - **Klippstudio** – fungerande: ladda upp råmaterial (video/ljud, valfritt) för tidsstämplad transkribering, skriv prompt + kategori/underämne → Claude föreslår klippningsplan och 2-3 hook-alternativ. Om råmaterial laddats upp kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek.
 - **Bibliotek** – fungerande: lista, lägg till och ta bort klipp manuellt, sortera på bäst presterande, filtrera på kategori
 - **Kalender** – platshållare
@@ -89,7 +89,6 @@ produktionsnyckel för skarpa renderingar.
 
 ## Nästa steg
 
-7. Idébank med trenddata
 8. TikTok-koppling som stub/mock
 9. Few-shot-kontext i Claude-anropen (fylla `previousBestClips` med riktig historik)
 10. Retrieval via pgvector
