@@ -4,6 +4,7 @@ import { generateClipPlan } from '../lib/claudeClient.js'
 import { transcribeMedia } from '../lib/whisperClient.js'
 import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
+import { extractAudioAsWav } from '../lib/mediaConvert.js'
 import { CATEGORIES } from '../constants.js'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
@@ -55,8 +56,20 @@ export default function Klippstudio() {
     setRenderedVideoUrl(null)
     setTranscribing(true)
 
+    // .mov (standard från iPhone/iPad) avvisas av Whisper — extrahera ljudet till WAV
+    // client-side innan transkribering. Källvideon laddas ändå upp oförändrad för rendering.
+    const needsAudioExtraction = /\.mov$/i.test(file.name) || file.type === 'video/quicktime'
+    let transcribeSource = file
+    if (needsAudioExtraction) {
+      try {
+        transcribeSource = await extractAudioAsWav(file)
+      } catch (err) {
+        console.warn('Kunde inte konvertera .mov till WAV, försöker skicka originalfilen:', err)
+      }
+    }
+
     const [transcriptResult, uploadResult] = await Promise.allSettled([
-      transcribeMedia(file),
+      transcribeMedia(transcribeSource),
       uploadRawClip(file),
     ])
 
