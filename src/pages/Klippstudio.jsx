@@ -2,9 +2,18 @@ import { useRef, useState } from 'react'
 import { supabase } from '../lib/supabaseClient.js'
 import { generateClipPlan } from '../lib/claudeClient.js'
 import { transcribeMedia } from '../lib/whisperClient.js'
+import { uploadRawClip } from '../lib/storage.js'
+import { renderClip } from '../lib/shotstackClient.js'
 import { CATEGORIES } from '../constants.js'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
+
+const RENDER_STATUS_LABELS = {
+  queued: 'I kö…',
+  fetching: 'Hämtar källvideo…',
+  rendering: 'Renderar…',
+  saving: 'Sparar…',
+}
 
 export default function Klippstudio() {
   const [prompt, setPrompt] = useState('')
@@ -13,6 +22,7 @@ export default function Klippstudio() {
 
   const fileInputRef = useRef(null)
   const [mediaFile, setMediaFile] = useState(null)
+  const [mediaPublicUrl, setMediaPublicUrl] = useState(null)
   const [transcribing, setTranscribing] = useState(false)
   const [transcript, setTranscript] = useState(null)
 
@@ -20,6 +30,10 @@ export default function Klippstudio() {
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null)
   const [selectedHookIndex, setSelectedHookIndex] = useState(0)
+
+  const [rendering, setRendering] = useState(false)
+  const [renderStatus, setRenderStatus] = useState(null)
+  const [renderedVideoUrl, setRenderedVideoUrl] = useState(null)
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -36,23 +50,36 @@ export default function Klippstudio() {
 
     setError(null)
     setMediaFile(file)
+    setMediaPublicUrl(null)
     setTranscript(null)
+    setRenderedVideoUrl(null)
     setTranscribing(true)
 
-    try {
-      const result = await transcribeMedia(file)
-      setTranscript(result)
-    } catch (err) {
-      setError(err.message)
-      setMediaFile(null)
-    } finally {
-      setTranscribing(false)
+    const [transcriptResult, uploadResult] = await Promise.allSettled([
+      transcribeMedia(file),
+      uploadRawClip(file),
+    ])
+
+    if (transcriptResult.status === 'fulfilled') {
+      setTranscript(transcriptResult.value)
+    } else {
+      setError(transcriptResult.reason.message)
     }
+
+    if (uploadResult.status === 'fulfilled') {
+      setMediaPublicUrl(uploadResult.value)
+    } else {
+      setError((prev) => prev ?? uploadResult.reason.message)
+    }
+
+    setTranscribing(false)
   }
 
   function clearMedia() {
     setMediaFile(null)
+    setMediaPublicUrl(null)
     setTranscript(null)
+    setRenderedVideoUrl(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -63,6 +90,7 @@ export default function Klippstudio() {
     setLoading(true)
     setError(null)
     setPlan(null)
+    setRenderedVideoUrl(null)
     setSaved(false)
 
     try {
@@ -85,6 +113,30 @@ export default function Klippstudio() {
     }
   }
 
+  async function handleRender() {
+    if (!plan || !mediaPublicUrl) return
+    setRendering(true)
+    setRenderStatus('queued')
+    setError(null)
+
+    const selectedHook = plan.hook_variants?.[selectedHookIndex]
+
+    try {
+      const url = await renderClip({
+        videoUrl: mediaPublicUrl,
+        segmentsPlan: plan.segments_plan ?? [],
+        transcript: transcript?.segments ?? [],
+        hookText: selectedHook?.text ?? '',
+        onStatus: setRenderStatus,
+      })
+      setRenderedVideoUrl(url)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setRendering(false)
+    }
+  }
+
   async function handleSaveDraft() {
     if (!plan) return
     setSaving(true)
@@ -100,8 +152,7 @@ export default function Klippstudio() {
       hook_variants: plan.hook_variants ?? null,
       segments_plan: plan.segments_plan ?? null,
       status: 'draft',
-      // Video-rendering är stubbad till en placeholder tills Shotstack kopplas på (steg 6).
-      video_url: null,
+      video_url: renderedVideoUrl,
     })
 
     setSaving(false)
@@ -134,15 +185,17 @@ export default function Klippstudio() {
           />
         </label>
 
-        {transcribing && <p className="placeholder-note">Transkriberar…</p>}
+        {transcribing && <p className="placeholder-note">Transkriberar och laddar upp…</p>}
 
-        {mediaFile && transcript && (
+        {mediaFile && (transcript || mediaPublicUrl) && (
           <div className="clip-card" style={{ margin: 0 }}>
             <div className="clip-card-header">
-              <span className="status-pill status-posted">Transkriberat</span>
+              <span className="status-pill status-posted">
+                {mediaPublicUrl ? 'Uppladdat' : 'Transkriberat'}
+              </span>
               <span className="clip-category">{mediaFile.name}</span>
             </div>
-            <p className="clip-prompt">{transcript.text || 'Inget tal upptäcktes.'}</p>
+            {transcript && <p className="clip-prompt">{transcript.text || 'Inget tal upptäcktes.'}</p>}
             <button type="button" className="btn-danger" onClick={clearMedia}>
               Ta bort
             </button>
@@ -255,10 +308,27 @@ export default function Klippstudio() {
             </div>
           )}
 
-          <p className="placeholder-note">
-            Rendering (undertexter, effekter) kopplas på i steg 6 via Shotstack. Just nu sparas
-            klippet som utkast med planen — förhandsgranskning kommer senare.
-          </p>
+          {mediaPublicUrl ? (
+            <>
+              {renderedVideoUrl ? (
+                <div>
+                  <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Förhandsgranskning</p>
+                  <video src={renderedVideoUrl} controls style={{ width: '100%', borderRadius: 12 }} />
+                </div>
+              ) : (
+                <button className="btn-primary" onClick={handleRender} disabled={rendering}>
+                  {rendering
+                    ? RENDER_STATUS_LABELS[renderStatus] ?? 'Renderar…'
+                    : 'Rendera video (undertexter + effekter)'}
+                </button>
+              )}
+            </>
+          ) : (
+            <p className="placeholder-note">
+              Rendering kräver uppladdat råmaterial (video/ljud) — ladda upp en fil ovan för att
+              kunna rendera undertexter och effekter.
+            </p>
+          )}
 
           {saved ? (
             <p style={{ color: 'var(--success)' }}>Sparat i Bibliotek som utkast.</p>
