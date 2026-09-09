@@ -4,7 +4,7 @@ import { generateClipPlan } from '../lib/claudeClient.js'
 import { transcribeMedia } from '../lib/whisperClient.js'
 import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
-import { extractAudioAsWav } from '../lib/mediaConvert.js'
+import { extractAudioAsWav, reencodeViaMediaRecorder } from '../lib/mediaConvert.js'
 import { CATEGORIES } from '../constants.js'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
@@ -56,8 +56,11 @@ export default function Klippstudio() {
     setRenderedVideoUrl(null)
     setTranscribing(true)
 
-    // .mov (standard från iPhone/iPad) avvisas av Whisper — extrahera ljudet till WAV
-    // client-side innan transkribering. Källvideon laddas ändå upp oförändrad för rendering.
+    // .mov (standard från iPhone/iPad) avvisas av Whisper — konvertera client-side innan
+    // transkribering. Källvideon laddas ändå upp oförändrad för rendering. Två metoder
+    // provas: snabb ljudextrahering (decodeAudioData) först, och om WebKit inte klarar att
+    // packa upp ljudet ur den specifika videocontainern (vanligt för HEVC/.mov), en
+    // omkodning via MediaRecorder (spelar upp klippet i realtid och spelar in det på nytt).
     const needsAudioExtraction = /\.mov$/i.test(file.name) || file.type === 'video/quicktime'
     let conversionError = null
     let transcribeSource = file
@@ -65,7 +68,12 @@ export default function Klippstudio() {
       try {
         transcribeSource = await extractAudioAsWav(file)
       } catch (err) {
-        conversionError = err
+        console.warn('decodeAudioData misslyckades, provar MediaRecorder-omkodning:', err)
+        try {
+          transcribeSource = await reencodeViaMediaRecorder(file)
+        } catch (fallbackErr) {
+          conversionError = fallbackErr
+        }
       }
     }
 
@@ -200,7 +208,12 @@ export default function Klippstudio() {
           />
         </label>
 
-        {transcribing && <p className="placeholder-note">Transkriberar och laddar upp…</p>}
+        {transcribing && (
+          <p className="placeholder-note">
+            Transkriberar och laddar upp… (för .mov-filer kan konverteringen ta ungefär lika
+            lång tid som klippets längd — lämna inte sidan)
+          </p>
+        )}
 
         {mediaFile && (transcript || mediaPublicUrl) && (
           <div className="clip-card" style={{ margin: 0 }}>
