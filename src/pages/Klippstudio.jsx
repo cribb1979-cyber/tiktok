@@ -470,6 +470,20 @@ export default function Klippstudio() {
                 <div>
                   <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Förhandsgranskning</p>
                   <video src={renderedVideoUrl} controls style={{ width: '100%', borderRadius: 12 }} />
+                  <a
+                    href={renderedVideoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary"
+                    style={{ display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: 10 }}
+                  >
+                    Öppna & spara video
+                  </a>
+                  <p className="placeholder-note">
+                    Öppnas i en ny flik — tryck dela-ikonen och välj "Spara video" för att lägga
+                    den i Bilder. Sen kan du lägga till ljud/trendande sound och publicera
+                    direkt i TikTok-appen (tills den riktiga TikTok-kopplingen är på plats).
+                  </p>
                 </div>
               ) : (
                 <button className="btn-primary" onClick={handleRender} disabled={rendering}>

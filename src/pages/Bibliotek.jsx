@@ -300,6 +300,17 @@ export default function Bibliotek() {
                 <span>💬 {clip.comments ?? '–'}</span>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {clip.video_url && (
+                  <a
+                    href={clip.video_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    Öppna & spara video
+                  </a>
+                )}
                 {clip.status === 'draft' && (
                   <button
                     className="btn-primary"
