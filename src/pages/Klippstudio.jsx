@@ -59,24 +59,26 @@ export default function Klippstudio() {
     // .mov (standard från iPhone/iPad) avvisas av Whisper — extrahera ljudet till WAV
     // client-side innan transkribering. Källvideon laddas ändå upp oförändrad för rendering.
     const needsAudioExtraction = /\.mov$/i.test(file.name) || file.type === 'video/quicktime'
+    let conversionError = null
     let transcribeSource = file
     if (needsAudioExtraction) {
       try {
         transcribeSource = await extractAudioAsWav(file)
       } catch (err) {
-        console.warn('Kunde inte konvertera .mov till WAV, försöker skicka originalfilen:', err)
+        conversionError = err
       }
     }
 
     const [transcriptResult, uploadResult] = await Promise.allSettled([
-      transcribeMedia(transcribeSource),
+      conversionError ? Promise.reject(conversionError) : transcribeMedia(transcribeSource),
       uploadRawClip(file),
     ])
 
     if (transcriptResult.status === 'fulfilled') {
       setTranscript(transcriptResult.value)
     } else {
-      setError(transcriptResult.reason.message)
+      const prefix = conversionError ? 'Kunde inte konvertera video till ljud: ' : ''
+      setError(prefix + transcriptResult.reason.message)
     }
 
     if (uploadResult.status === 'fulfilled') {
