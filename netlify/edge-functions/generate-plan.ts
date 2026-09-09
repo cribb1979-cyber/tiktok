@@ -7,23 +7,55 @@ const CLAUDE_MODEL = 'claude-sonnet-5'
 const SYSTEM_PROMPT = `Du är en TikTok-klippstrateg för kontot @stoffe_medium (andlighet/medium-nisch, ~15k följare).
 Ditt jobb: föreslå en klippningsplan för ett kort videoklipp, baserat på användarens idé.
 
-Svara ENDAST med giltig JSON i exakt detta format, utan markdown-kodblock eller extra text:
-{
-  "segments_plan": [
-    { "start": "mm:ss", "end": "mm:ss", "description": "vad segmentet visar/säger", "order": 1 }
-  ],
-  "hook_variants": [
-    { "text": "hook-text 1", "rationale": "varför den fungerar" },
-    { "text": "hook-text 2", "rationale": "..." },
-    { "text": "hook-text 3", "rationale": "..." }
-  ],
-  "suggested_subtitles": ["nyckelfras 1", "nyckelfras 2"],
-  "category": "en av: Kärlek/relationer, Paranormalt/andevärlden, Personlig reflektion/citat, Vardag/bakom kulisserna",
-  "subtopic": "kort fritext"
-}
+Föreslå 2-3 hook-alternativ i hook_variants. Om inget transkript finns än, basera segmentplanen
+på användarens promptbeskrivning istället och märk segmentens tider som preliminära
+uppskattningar (t.ex. "00:00"–"00:05").`
 
-Föreslå 2-3 hook-alternativ. Om inget transkript finns än, basera segmentplanen på användarens
-promptbeskrivning istället och märk segmentens tider som preliminära uppskattningar.`
+// Svarsformatet tvingas fram strukturellt via output_config.format (json_schema) — modellen
+// kan inte avvika från detta, så inget behov av att be den "bara svara med JSON" i prompten.
+const RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    segments_plan: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          start: { type: 'string', description: 'Starttid, mm:ss' },
+          end: { type: 'string', description: 'Sluttid, mm:ss' },
+          description: { type: 'string' },
+          order: { type: 'integer' },
+        },
+        required: ['start', 'end', 'description', 'order'],
+        additionalProperties: false,
+      },
+    },
+    hook_variants: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+          rationale: { type: 'string' },
+        },
+        required: ['text', 'rationale'],
+        additionalProperties: false,
+      },
+    },
+    suggested_subtitles: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+    category: {
+      type: 'string',
+      description:
+        'En av: Kärlek/relationer, Paranormalt/andevärlden, Personlig reflektion/citat, Vardag/bakom kulisserna',
+    },
+    subtopic: { type: 'string' },
+  },
+  required: ['segments_plan', 'hook_variants', 'suggested_subtitles', 'category', 'subtopic'],
+  additionalProperties: false,
+}
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -82,9 +114,15 @@ export default async (request: Request) => {
       },
       body: JSON.stringify({
         model: CLAUDE_MODEL,
-        max_tokens: 1500,
+        max_tokens: 2048,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userMessage }],
+        output_config: {
+          format: {
+            type: 'json_schema',
+            schema: RESPONSE_SCHEMA,
+          },
+        },
       }),
     })
   } catch (err) {
@@ -97,6 +135,14 @@ export default async (request: Request) => {
   }
 
   const claudeData = await claudeResponse.json()
+
+  if (claudeData.stop_reason === 'refusal') {
+    return jsonResponse({ error: 'Claude avböjde att svara på den här förfrågan.' }, 502)
+  }
+  if (claudeData.stop_reason === 'max_tokens') {
+    return jsonResponse({ error: 'Svaret blev avbrutet (max_tokens nått) och kan vara ofullständigt.' }, 502)
+  }
+
   const textBlock = (claudeData?.content ?? []).find((block: { type: string }) => block.type === 'text')
   const rawText = textBlock?.text ?? ''
 
