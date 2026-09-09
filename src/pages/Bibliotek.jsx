@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient.js'
+import { tiktokAdapter } from '../lib/tiktokAdapter.js'
 import { CATEGORIES, STATUSES, STATUS_LABELS } from '../constants.js'
 
 const EMPTY_FORM = {
@@ -29,6 +30,7 @@ export default function Bibliotek() {
   const [saving, setSaving] = useState(false)
   const [sortKey, setSortKey] = useState('newest')
   const [filterCategory, setFilterCategory] = useState('alla')
+  const [busyClipId, setBusyClipId] = useState(null)
 
   async function loadClips(sort = sortKey) {
     setLoading(true)
@@ -99,6 +101,32 @@ export default function Bibliotek() {
       return
     }
     setClips((prev) => prev.filter((clip) => clip.id !== id))
+  }
+
+  async function handlePublish(clip) {
+    setBusyClipId(clip.id)
+    setError(null)
+    try {
+      await tiktokAdapter.publishClip(clip)
+      await loadClips()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusyClipId(null)
+    }
+  }
+
+  async function handleFetchStats(clip) {
+    setBusyClipId(clip.id)
+    setError(null)
+    try {
+      await tiktokAdapter.fetchStats(clip)
+      await loadClips()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusyClipId(null)
+    }
   }
 
   return (
@@ -255,9 +283,29 @@ export default function Bibliotek() {
                 <span>🔁 {clip.shares ?? '–'}</span>
                 <span>💬 {clip.comments ?? '–'}</span>
               </div>
-              <button className="btn-danger" onClick={() => handleDelete(clip.id)}>
-                Ta bort
-              </button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {clip.status === 'draft' && (
+                  <button
+                    className="btn-primary"
+                    onClick={() => handlePublish(clip)}
+                    disabled={busyClipId === clip.id}
+                  >
+                    {busyClipId === clip.id ? 'Publicerar…' : 'Publicera (mock)'}
+                  </button>
+                )}
+                {clip.status === 'posted' && (
+                  <button
+                    className="btn-primary"
+                    onClick={() => handleFetchStats(clip)}
+                    disabled={busyClipId === clip.id}
+                  >
+                    {busyClipId === clip.id ? 'Hämtar…' : 'Uppdatera resultat (mock)'}
+                  </button>
+                )}
+                <button className="btn-danger" onClick={() => handleDelete(clip.id)}>
+                  Ta bort
+                </button>
+              </div>
             </li>
           ))}
         </ul>

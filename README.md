@@ -1,6 +1,6 @@
 # Klippapp
 
-Webbapp (React + Vite) för att skapa, publicera och analysera korta videoklipp (TikTok-format). Byggs stegvis enligt projektspecen — nu klart t.o.m. **steg 7**: projekt-scaffold, datamodell i Supabase, Bibliotek-vyn, Claude API-koppling, Whisper-transkribering, Shotstack-rendering, och Idébank med trenddata.
+Webbapp (React + Vite) för att skapa, publicera och analysera korta videoklipp (TikTok-format). Byggs stegvis enligt projektspecen — nu klart t.o.m. **steg 8**: projekt-scaffold, datamodell i Supabase, Bibliotek-vyn, Claude API-koppling, Whisper-transkribering, Shotstack-rendering, Idébank med trenddata, och TikTok-koppling som mock.
 
 ## Kom igång
 
@@ -39,9 +39,9 @@ netlify dev
 
 - **Idébank** – fungerande: manuellt inklistrad trenddata (hashtags/ljud/kategori) visas ett kort i taget — "Hoppa över" eller "Bygg vidare" (skickar dig till Klippstudio med prompt/kategori förifyllda utifrån trenden). Riktig skrapning av trenddata (TikTok Creative Center e.dyl.) kopplas på senare.
 - **Klippstudio** – fungerande: ladda upp råmaterial (video/ljud, valfritt) för tidsstämplad transkribering, skriv prompt + kategori/underämne → Claude föreslår klippningsplan och 2-3 hook-alternativ. Om råmaterial laddats upp kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek.
-- **Bibliotek** – fungerande: lista, lägg till och ta bort klipp manuellt, sortera på bäst presterande, filtrera på kategori
+- **Bibliotek** – fungerande: lista, lägg till och ta bort klipp manuellt, sortera på bäst presterande, filtrera på kategori. Utkast kan "Publiceras (mock)" och publicerade klipp kan få simulerade resultat via "Uppdatera resultat (mock)".
 - **Kalender** – platshållare
-- **Inställningar** – platshållare, TikTok-koppling kopplas på senare
+- **Inställningar** – fungerande: TikTok-koppling (mock, se nedan). API-nycklar hanteras i Netlify, inte här.
 
 ## Claude API-integration (steg 4)
 
@@ -87,8 +87,21 @@ början. `netlify/edge-functions/render-status.ts` pollas tills renderingen är 
 vattenstämplar videon — bra för att testa flödet. Sätt `SHOTSTACK_ENV=v1` i Netlify med en
 produktionsnyckel för skarpa renderingar.
 
+## TikTok-koppling (steg 8, mock)
+
+`src/lib/tiktokAdapter.js` är ett adapter-lager: `connectAccount`, `disconnectAccount`,
+`publishClip`, `schedulePost`, `fetchStats`. Bara mock-implementationen finns hittills —
+"ansluten" state sparas i `localStorage`, publicering skriver ett fejkat `tiktok_post_id` +
+`status: 'posted'` till klippet i Supabase, och "resultat" är slumpade siffror. Inställningar
+har en "Anslut TikTok (mock)"-knapp, Bibliotek har "Publicera (mock)" (utkast) och
+"Uppdatera resultat (mock)" (publicerade klipp).
+
+Kräver ett godkänt TikTok Developer-konto + appgranskning för att bli skarpt (Content Posting
+API för publicering, Display API för resultat, OAuth för kopplingen) — byt då bara ut
+`tiktokAdapter`-exporten mot en riktig implementation med samma metodnamn, ingen annan kod
+behöver ändras.
+
 ## Nästa steg
 
-8. TikTok-koppling som stub/mock
 9. Few-shot-kontext i Claude-anropen (fylla `previousBestClips` med riktig historik)
 10. Retrieval via pgvector
