@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient.js'
 import { tiktokAdapter } from '../lib/tiktokAdapter.js'
+import { embedAndStoreClip } from '../lib/clipHistory.js'
 import { CATEGORIES, STATUSES, STATUS_LABELS } from '../constants.js'
 
 const EMPTY_FORM = {
@@ -80,7 +81,11 @@ export default function Bibliotek() {
       comments: form.comments === '' ? null : Number(form.comments),
     }
 
-    const { error: insertError } = await supabase.from('clips').insert(payload)
+    const { data: inserted, error: insertError } = await supabase
+      .from('clips')
+      .insert(payload)
+      .select()
+      .single()
 
     setSaving(false)
 
@@ -92,6 +97,14 @@ export default function Bibliotek() {
     setForm(EMPTY_FORM)
     setShowForm(false)
     loadClips()
+
+    // Embedding för framtida retrieval (steg 10) — icke-kritiskt.
+    embedAndStoreClip(inserted.id, {
+      prompt: payload.prompt,
+      hookText: payload.hook_text,
+      category: payload.category,
+      subtopic: payload.subtopic,
+    }).catch((err) => console.warn('Kunde inte spara embedding för klippet:', err))
   }
 
   async function handleDelete(id) {

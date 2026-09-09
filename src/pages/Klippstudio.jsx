@@ -5,7 +5,7 @@ import { generateClipPlan } from '../lib/claudeClient.js'
 import { transcribeMedia, transcribeFromUrl } from '../lib/whisperClient.js'
 import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
-import { fetchBestPreviousClips } from '../lib/clipHistory.js'
+import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { CATEGORIES } from '../constants.js'
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
@@ -117,12 +117,13 @@ export default function Klippstudio() {
     setRenderedVideoUrl(null)
     setSaved(false)
 
-    // Few-shot-kontext: tidigare bäst presterande publicerade klipp i samma kategori (steg
-    // 9). Icke-kritiskt — om det failar (t.ex. inga publicerade klipp än) fortsätter vi ändå
-    // med en tom lista istället för att blockera hela genereringen.
+    // Few-shot-kontext: semantiskt liknande tidigare publicerade klipp (steg 10, pgvector)
+    // när det finns tillräckligt med embeddad data, annars enkel kategorisortering (steg 9).
+    // Icke-kritiskt — om det failar fortsätter vi ändå med en tom lista istället för att
+    // blockera hela genereringen.
     let previousBestClips = []
     try {
-      previousBestClips = await fetchBestPreviousClips(category)
+      previousBestClips = await fetchSimilarPreviousClips(prompt, category)
     } catch (err) {
       console.warn('Kunde inte hämta tidigare bästa klipp för few-shot-kontext:', err)
     }
@@ -177,17 +178,23 @@ export default function Klippstudio() {
     setError(null)
 
     const selectedHook = plan.hook_variants?.[selectedHookIndex]
+    const finalCategory = plan.category || category
+    const finalSubtopic = plan.subtopic || subtopic || null
 
-    const { error: insertError } = await supabase.from('clips').insert({
-      prompt,
-      category: plan.category || category,
-      subtopic: plan.subtopic || subtopic || null,
-      hook_text: selectedHook?.text ?? null,
-      hook_variants: plan.hook_variants ?? null,
-      segments_plan: plan.segments_plan ?? null,
-      status: 'draft',
-      video_url: renderedVideoUrl,
-    })
+    const { data: inserted, error: insertError } = await supabase
+      .from('clips')
+      .insert({
+        prompt,
+        category: finalCategory,
+        subtopic: finalSubtopic,
+        hook_text: selectedHook?.text ?? null,
+        hook_variants: plan.hook_variants ?? null,
+        segments_plan: plan.segments_plan ?? null,
+        status: 'draft',
+        video_url: renderedVideoUrl,
+      })
+      .select()
+      .single()
 
     setSaving(false)
 
@@ -197,6 +204,15 @@ export default function Klippstudio() {
     }
 
     setSaved(true)
+
+    // Embedding för framtida retrieval (steg 10) — icke-kritiskt, ska aldrig påverka att
+    // klippet redan sparats.
+    embedAndStoreClip(inserted.id, {
+      prompt,
+      hookText: selectedHook?.text,
+      category: finalCategory,
+      subtopic: finalSubtopic,
+    }).catch((err) => console.warn('Kunde inte spara embedding för klippet:', err))
   }
 
   return (

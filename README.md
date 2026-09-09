@@ -1,6 +1,6 @@
 # Klippapp
 
-Webbapp (React + Vite) för att skapa, publicera och analysera korta videoklipp (TikTok-format). Byggs stegvis enligt projektspecen — nu klart t.o.m. **steg 9**: projekt-scaffold, datamodell i Supabase, Bibliotek-vyn, Claude API-koppling, Whisper-transkribering, Shotstack-rendering, Idébank med trenddata, TikTok-koppling som mock, och few-shot-kontext från riktig historik.
+Webbapp (React + Vite) för att skapa, publicera och analysera korta videoklipp (TikTok-format). Byggs stegvis enligt projektspecen — **alla 10 steg i byggordningen är nu klara**: projekt-scaffold, datamodell i Supabase, Bibliotek-vyn, Claude API-koppling, Whisper-transkribering, Shotstack-rendering, Idébank med trenddata, TikTok-koppling som mock, few-shot-kontext, och pgvector-retrieval.
 
 ## Kom igång
 
@@ -29,11 +29,10 @@ netlify dev
 2. Kör migrationerna i `supabase/migrations/` i ordning (SQL Editor eller `supabase db push`):
    - `0001_init_schema.sql` — skapar tabellerna `clips` och `trend_snapshots`
    - `0002_storage_bucket.sql` — skapar en publik storage-bucket `raw-clips` för uppladdat råmaterial (Shotstack behöver en URL till videon, inte råa bytes)
+   - `0003_pgvector_retrieval.sql` — aktiverar `pgvector`, lägger till `embedding vector(1536)` på `clips`, och skapar `match_clips`-funktionen för semantisk sökning
 
-   Båda är idempotenta och ofarliga att köra mot ett projekt som redan har annat innehåll.
+   Alla tre är idempotenta och ofarliga att köra mot ett projekt som redan har annat innehåll.
 3. Kopiera projektets URL och anon-nyckel till `.env`.
-
-`pgvector`-extensionen och embedding-kolumnen på `clips` läggs till i ett senare steg (retrieval av liknande klipp), enligt byggordningen.
 
 ## Sidor
 
@@ -107,10 +106,27 @@ som `previousBestClips` till `/api/generate-plan`. Icke-kritiskt — om inga pub
 finns än (eller frågan failar) genereras planen ändå, bara utan few-shot-exempel. En liten
 notis i Klippstudio visar hur många tidigare klipp som användes.
 
-Detta är enkel filtrering/sortering, inte semantisk sökning — riktig retrieval (hitta
-klipp som liknar *den här* prompten specifikt, inte bara samma kategori) kräver `pgvector`
-och embeddings, vilket är steg 10.
+Detta är enkel filtrering/sortering, inte semantisk sökning — se steg 10 nedan för det.
 
-## Nästa steg
+## Retrieval via pgvector (steg 10)
 
-10. Retrieval via pgvector
+`netlify/edge-functions/embed-text.ts` genererar embeddings (OpenAI `text-embedding-3-small`,
+1536 dimensioner — samma `WHISPER_API_KEY` som Whisper, Anthropic har inget eget
+embeddings-API). Varje klipp som sparas (Klippstudio eller Bibliotek) får automatiskt en
+embedding sparad på `embedding`-kolumnen, icke-blockerande.
+
+`fetchSimilarPreviousClips` i `src/lib/clipHistory.js` räknar hur många publicerade klipp som
+har en embedding. Färre än 20 (spec: ">20-30 rader" innan retrieval ger nytta) → faller
+tillbaka på steg 9:s enkla kategorisortering. Annars: embeddar den aktuella prompten och
+anropar Postgres-funktionen `match_clips` (cosine similarity, `<=>`-operatorn) för att hitta
+de tre semantiskt mest liknande tidigare klippen i samma kategori — oavsett hur populär
+kategorin råkar vara, bara hur *likt just den här idén* de är.
+
+Ett `ivfflat`-index för snabbare sökning är medvetet inte med i migrationen (ger varken nytta
+eller pålitlig kvalitet på ett nästan tomt bord) — kör separat när det finns tillräckligt med
+embeddade rader:
+
+```sql
+create index clips_embedding_idx on clips
+using ivfflat (embedding vector_cosine_ops) with (lists = 100);
+```
