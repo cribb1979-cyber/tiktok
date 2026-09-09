@@ -1,6 +1,7 @@
-// Steg 6: startar en rendering hos Shotstack — bränner in undertexter (från transkriptet
-// eller segmentens beskrivning), en enkel zoom-effekt per segment, och hook-texten som
-// textöverlägg i början. SHOTSTACK_API_KEY exponeras aldrig i klienten.
+// Steg 6: startar en rendering hos Shotstack — bränner in korta textöverlägg (nyckelfraser,
+// inte hela meningar — enligt spec: "textöverlägg vid nyckelord"), en zoom-effekt per segment
+// med tydliga övergångar mellan klippen, och hook-texten i början.
+// SHOTSTACK_API_KEY exponeras aldrig i klienten.
 
 // "stage" = Shotstack sandbox (gratis, vattenstämplat) — säkert default tills du har en
 // produktionsnyckel. Sätt SHOTSTACK_ENV=v1 i Netlify när du vill rendera skarpt.
@@ -8,6 +9,18 @@ const SHOTSTACK_HOST =
   Deno.env.get('SHOTSTACK_ENV') === 'v1' ? 'https://api.shotstack.io/v1' : 'https://api.shotstack.io/stage'
 
 const OUTPUT_SIZE = { width: 1080, height: 1920 } // 9:16, TikTok-format
+
+// Shotstacks title-klipp radbryter inte text automatiskt, och "minimal"/"blockbuster" har
+// bred bokstavsspaltning — långa rader (även efter radbrytning på ordantal) gick fortfarande
+// utanför bildkanten. Håll överlägg korta (nyckelfraser, inte hela meningar) och räkna
+// konservativt med få tecken per rad.
+const CAPTION_MAX_CHARS = 34
+const CAPTION_CHARS_PER_LINE = 15
+const HOOK_MAX_CHARS = 26
+const HOOK_CHARS_PER_LINE = 11
+
+// Alternerande effekter ger mer synlig rörelse/klippkänsla än samma svaga zoom hela tiden.
+const SEGMENT_EFFECTS = ['zoomInFast', 'zoomOutFast']
 
 type Segment = { start: string; end: string; description?: string; order?: number }
 type TranscriptSegment = { start: number; end: number; text: string }
@@ -33,6 +46,9 @@ export default async (request: Request) => {
   const segmentsPlan = Array.isArray(body.segmentsPlan) ? (body.segmentsPlan as Segment[]) : []
   const transcript = Array.isArray(body.transcript) ? (body.transcript as TranscriptSegment[]) : []
   const hookText = typeof body.hookText === 'string' ? body.hookText : ''
+  const suggestedSubtitles = Array.isArray(body.suggestedSubtitles)
+    ? (body.suggestedSubtitles as string[]).filter((s) => typeof s === 'string' && s.trim())
+    : []
 
   if (!videoUrl || typeof videoUrl !== 'string') {
     return jsonResponse({ error: 'videoUrl krävs (publik URL till källvideon).' }, 400)
@@ -45,7 +61,7 @@ export default async (request: Request) => {
   const captionClips = []
   let timelineCursor = 0
 
-  for (const seg of segmentsPlan) {
+  segmentsPlan.forEach((seg, index) => {
     const trimStart = parseTimecode(seg.start)
     const trimEnd = parseTimecode(seg.end)
     const length = Math.max(trimEnd - trimStart, 0.5)
@@ -55,21 +71,27 @@ export default async (request: Request) => {
       start: timelineCursor,
       length,
       fit: 'crop',
-      effect: 'zoomIn',
+      effect: SEGMENT_EFFECTS[index % SEGMENT_EFFECTS.length],
+      transition: { in: index === 0 ? 'fade' : 'wipeLeft', out: 'fade' },
     })
 
-    const caption =
-      transcript
-        .filter((t) => t.start >= trimStart && t.start < trimEnd)
-        .map((t) => t.text)
-        .join(' ')
-        .trim() || seg.description || ''
+    // Nyckelfras framför allt — matchar spec ("textöverlägg vid nyckelord") och är
+    // strukturellt kort nog att aldrig gå utanför bildkanten. Faller tillbaka till
+    // transkript/segmentbeskrivning (hårt förkortat) om inga nyckelfraser finns.
+    const rawCaption =
+      suggestedSubtitles.length > 0
+        ? suggestedSubtitles[index % suggestedSubtitles.length]
+        : transcript
+            .filter((t) => t.start >= trimStart && t.start < trimEnd)
+            .map((t) => t.text)
+            .join(' ')
+            .trim() || seg.description || ''
 
-    if (caption) {
+    if (rawCaption) {
       captionClips.push({
         asset: {
           type: 'title',
-          text: wrapText(caption, 40),
+          text: wrapText(truncateForOverlay(rawCaption, CAPTION_MAX_CHARS), CAPTION_CHARS_PER_LINE),
           style: 'minimal',
           color: '#ffffff',
           size: 'small',
@@ -81,17 +103,14 @@ export default async (request: Request) => {
     }
 
     timelineCursor += length
-  }
+  })
 
-  // "large"/"blockbuster" utan radbrytning gick utanför bildkanten (1080 px bredd) för
-  // längre hook-meningar — texten klipptes av istället för att synas i sin helhet.
-  // Bryt manuellt till flera rader och kör en mindre storlek så den faktiskt får plats.
   const hookClip = hookText
     ? [
         {
           asset: {
             type: 'title',
-            text: wrapText(hookText, 22),
+            text: wrapText(truncateForOverlay(hookText, HOOK_MAX_CHARS), HOOK_CHARS_PER_LINE),
             style: 'blockbuster',
             color: '#ffffff',
             size: 'medium',
@@ -141,9 +160,14 @@ export default async (request: Request) => {
   return jsonResponse({ id: data.response.id }, 200)
 }
 
-// Shotstacks title-klipp radbryter inte text automatiskt — lång text på en rad går utanför
-// bildkanten istället för att synas. Bryt manuellt till flera rader baserat på ett ungefärligt
-// antal tecken per rad (beror på typsnittsstorlek).
+// Korta ner text innan radbrytning — håller textöverlägg vid nyckelfraser istället för
+// hela meningar, oavsett källa (nyckelfras, transkript eller segmentbeskrivning).
+function truncateForOverlay(text: string, maxChars: number): string {
+  const trimmed = text.trim().replace(/\s+/g, ' ')
+  if (trimmed.length <= maxChars) return trimmed
+  return trimmed.slice(0, maxChars - 1).trimEnd() + '…'
+}
+
 function wrapText(text: string, maxCharsPerLine: number): string {
   const words = text.split(/\s+/).filter(Boolean)
   const lines: string[] = []

@@ -149,6 +149,7 @@ export default function Klippstudio() {
         segmentsPlan: plan.segments_plan ?? [],
         transcript: transcript?.segments ?? [],
         hookText: selectedHook?.text ?? '',
+        suggestedSubtitles: plan.suggested_subtitles ?? [],
         onStatus: setRenderStatus,
       })
       setRenderedVideoUrl(url)
