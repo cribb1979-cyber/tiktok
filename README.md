@@ -100,6 +100,12 @@ kan inte ta emot råa bytes direkt.
 (nyckelfraser från `suggested_subtitles`, med en halvgenomskinlig bakgrundsruta för
 läsbarhet), och visar vald hook-text i början på samma sätt. `netlify/edge-functions/render-status.ts` pollas tills renderingen är klar.
 
+**Textlängd:** `suggested_subtitles`/hook-text kortas av (`truncateForOverlay`,
+`CAPTION_MAX_CHARS`/`HOOK_MAX_CHARS`) om de är längre än vad som får plats utan att gå utanför
+bildkanten — kapas vid senaste ordgränsen inom gränsen, aldrig mitt i ett ord (t.ex. "Lugnet
+ger…" inte "Lugnet ger energin plats att flö…"). `generate-plan.ts` instrueras dessutom att
+hålla `suggested_subtitles` under ~30 tecken från början, så avkortning sällan triggas alls.
+
 **Effekter och övergångar:** varje segment cyklar igenom en lista effekter (`zoomInFast`,
 `zoomOutFast`, `slideLeftFast`, `slideRightFast`, `slideUpFast`, `slideDownFast`) och
 övergångar (`fadeFast`, `wipeLeft`, `wipeRight`, `slideLeft`, `slideRight`) — bara "Fast"-

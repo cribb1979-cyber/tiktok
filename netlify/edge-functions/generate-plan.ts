@@ -21,7 +21,14 @@ Engagemang: TikToks algoritm belönar kommentarer och delningar mer än bara vis
 därför minst ett hook-alternativ, eller det sista segmentets description, avsluta med en öppen
 fråga till tittaren istället för ett rent påstående (t.ex. "Skulle du testa detta?" eller
 "Har du upplevt något liknande?") när innehållet naturligt tillåter det — inte tvingat om
-ämnet inte passar en fråga.`
+ämnet inte passar en fråga.
+
+suggested_subtitles bränns in som textöverlägg i videon och MÅSTE vara korta nyckelfraser,
+max ca 30 tecken vardera (t.ex. "Lugnet ger energin plats" — inte hela meningar som "Lugnet
+ger energin plats att flöda fritt genom kroppen"). Längre fraser klipps av i renderingen.
+(hook_variants.text ska fortsatt vara en fullständig, säljande hook-mening — den återanvänds
+som klippets huvudrubrik i Bibliotek, inte bara som textöverlägg, och kortas av separat bara
+i själva videoöverlägget om den är för lång.)`
 
 // Svarsformatet tvingas fram strukturellt via output_config.format (json_schema) — modellen
 // kan inte avvika från detta, så inget behov av att be den "bara svara med JSON" i prompten.
@@ -57,6 +64,7 @@ const RESPONSE_SCHEMA = {
     suggested_subtitles: {
       type: 'array',
       items: { type: 'string' },
+      description: 'Korta nyckelfraser, max ca 30 tecken vardera — bränns in som textöverlägg, klipps av om längre.',
     },
     suggested_hashtags: {
       type: 'array',

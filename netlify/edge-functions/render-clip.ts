@@ -265,11 +265,16 @@ export default async (request: Request) => {
 }
 
 // Korta ner text innan radbrytning — håller textöverlägg vid nyckelfraser istället för
-// hela meningar, oavsett källa (nyckelfras, transkript eller segmentbeskrivning).
+// hela meningar, oavsett källa (nyckelfras, transkript eller segmentbeskrivning). Kapar vid
+// senaste ordgränsen inom gränsen, inte mitt i ett ord (t.ex. "FLÖD…" istället för "FLÖDA…")
+// — en ren teckengräns såg trasig/oavsiktlig ut i skarpa klipp.
 function truncateForOverlay(text: string, maxChars: number): string {
   const trimmed = text.trim().replace(/\s+/g, ' ')
   if (trimmed.length <= maxChars) return trimmed
-  return trimmed.slice(0, maxChars - 1).trimEnd() + '…'
+  const sliced = trimmed.slice(0, maxChars - 1)
+  const lastSpace = sliced.lastIndexOf(' ')
+  const cut = lastSpace > 0 ? sliced.slice(0, lastSpace) : sliced
+  return cut.trimEnd() + '…'
 }
 
 function wrapText(text: string, maxCharsPerLine: number): string {
