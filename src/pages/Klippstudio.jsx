@@ -59,6 +59,7 @@ export default function Klippstudio() {
   // Satt så fort klippet finns i Supabase (auto-sparat direkt efter rendering, se
   // handleRender) — gör efterföljande sparningar till uppdateringar istället för dubbletter.
   const [savedClipId, setSavedClipId] = useState(null)
+  const [autoSaveError, setAutoSaveError] = useState(null)
 
   async function handleFileChange(event) {
     const file = event.target.files?.[0]
@@ -136,6 +137,7 @@ export default function Klippstudio() {
     setBrollPrompt(null)
     setSaved(false)
     setSavedClipId(null)
+    setAutoSaveError(null)
 
     // Few-shot-kontext: semantiskt liknande tidigare publicerade klipp (steg 10, pgvector)
     // när det finns tillräckligt med embeddad data, annars enkel kategorisortering (steg 9).
@@ -246,8 +248,10 @@ export default function Klippstudio() {
       // explicit eftersom setRenderedVideoUrl ovan inte hunnit uppdatera state än här.
       try {
         await persistClip({ video_url: url })
+        setAutoSaveError(null)
       } catch (saveErr) {
         console.warn('Kunde inte spara klippet automatiskt efter rendering:', saveErr)
+        setAutoSaveError(saveErr.message)
       }
     } catch (err) {
       setError(err.message)
@@ -509,8 +513,9 @@ export default function Klippstudio() {
                     </p>
                   ) : (
                     <p className="error-banner">
-                      Kunde inte spara klippet automatiskt. Tryck "Godkänn och spara som
-                      utkast" nedan INNAN du öppnar videon, annars kan den försvinna.
+                      Kunde inte spara klippet automatiskt{autoSaveError ? `: ${autoSaveError}` : '.'}{' '}
+                      Tryck "Godkänn och spara som utkast" nedan INNAN du öppnar videon, annars
+                      kan den försvinna.
                     </p>
                   )}
                   <a

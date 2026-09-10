@@ -51,7 +51,9 @@ export default async (request: Request) => {
         timeline: {
           tracks: [{ clips: [{ asset: { type: 'video', src: videoUrl }, start: 0, length: 'auto' }] }],
         },
-        output: { format: 'mp4' },
+        // Shotstack kräver antingen "resolution" eller "size" i output — glömdes här
+        // (render-clip.ts hade det redan rätt), vilket gav ett Bad Request-fel.
+        output: { format: 'mp4', resolution: 'sd' },
       })
       mp4Url = await pollShotstackRender(shotstackApiKey, renderId)
     } catch (err) {
