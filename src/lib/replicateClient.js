@@ -1,7 +1,8 @@
 import { errorMessage } from './apiError.js'
 
 // Anropar Netlify Edge Functions /api/generate-broll och /api/broll-status — aldrig
-// Runway/Claude direkt från klienten.
+// Replicate/Claude direkt från klienten. Byggd mot Replicate (Wan 2.1) — tidigare Runway,
+// bytt för lägre kostnad. Se generate-broll.ts för detaljer om leverantören.
 
 async function submitBroll({ category, subtopic, hookText }) {
   const response = await fetch('/api/generate-broll', {
@@ -40,7 +41,7 @@ export async function generateBroll({ category, subtopic, hookText, onStatus }) 
 
     if (result.status === 'SUCCEEDED') return { url: result.url, prompt }
     if (result.status === 'FAILED') {
-      throw new Error(result.error ?? 'B-roll-genereringen misslyckades hos Runway.')
+      throw new Error(result.error ?? 'B-roll-genereringen misslyckades hos Replicate.')
     }
   }
 

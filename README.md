@@ -208,18 +208,23 @@ using ivfflat (embedding vector_cosine_ops) with (lists = 100);
 
 Utöver de 10 planerade byggstegen: ett kryssruta i Klippstudio ("AI-genererad B-roll,
 valfritt") låter dig lägga till en kort atmosfärisk bakgrundsvideo (natur, ljus, stämning)
-via [Runway](https://runwayml.com)s API — **aldrig av**, eller ens som ersättning för,
-Christoffer själv i bild. Kontots trovärdighet bygger på att det faktiskt är honom, så
-B-roll är bara stämningshöjande extra material, aldrig standard, alltid ett aktivt val per
-klipp.
+via [Replicate](https://replicate.com)s API (modellen Wan 2.1, öppen källkod) — **aldrig av**,
+eller ens som ersättning för, Christoffer själv i bild. Kontots trovärdighet bygger på att det
+faktiskt är honom, så B-roll är bara stämningshöjande extra material, aldrig standard, alltid
+ett aktivt val per klipp.
+
+**Leverantör:** byggdes ursprungligen mot Runway, bytt 2026-09 till Replicate/Wan 2.1 — samma
+sorts video-AI men betydligt billigare (~$0.05-0.09 per klipp mot Runways väsentligt högre
+pris), öppen källkod. `src/lib/replicateClient.js` (döpt om från `runwayClient.js`) har samma
+funktionssignatur (`generateBroll`) så resten av koden (Klippstudio.jsx) inte behövde ändras.
 
 **Flöde:** `netlify/edge-functions/generate-broll.ts` ber Claude formulera en kort, filmisk,
 uttryckligen person-fri visuell prompt utifrån klippets kategori/underämne/hook, skickar den
-till Runways `text_to_video`-endpoint, och `broll-status.ts` pollas tills videon är klar.
-Runways samma endpoint ger även tillgång till Googles Veo-modeller (styr med
-`RUNWAY_MODEL=veo3.1` i Netlify) — Kling (ett annat vanligt nämnt alternativ) är ett separat
-bolag utan gemensam endpoint och skulle behöva en egen adapter efter samma mönster som
-`tiktokAdapter.js` om det blir aktuellt.
+till Replicates `models/{model}/predictions`-endpoint (modellen `wavespeedai/wan-2.1-t2v-720p`
+som default, styrbart via `REPLICATE_MODEL`), med `negative_prompt` som extra skyddsnät mot
+att personer dyker upp i bild. `broll-status.ts` pollas (Replicates statusvärden
+starting/processing/succeeded/failed normaliseras internt till samma PENDING/RUNNING/
+SUCCEEDED/FAILED-kontrakt som tidigare, så klientkoden är oförändrad) tills videon är klar.
 
 **TikTok-taggning:** `ai_generated_content` sätts automatiskt till `true` när B-roll används
 (aldrig manuellt valbart av användaren) — Bibliotek visar en tydlig "AI-genererat
@@ -227,15 +232,16 @@ innehåll"-badge på sådana klipp. Kom ihåg när TikTok-kopplingen blir skarp:
 kräver att den här flaggan skickas med i själva Content Posting API-anropet, inte bara sparas
 i vår databas — se kommentaren i `tiktokAdapter.js`s `publishClip`.
 
-**Miljövariabler:** `RUNWAY_API_KEY` (krävs för att funktionen ska gå att använda —
+**Miljövariabler:** `REPLICATE_API_TOKEN` (krävs för att funktionen ska gå att använda —
 kryssrutan finns kvar även utan nyckel, men genereringen felar tydligt tills den är satt) och
-valfri `RUNWAY_MODEL` (default `gen4.5`).
+valfri `REPLICATE_MODEL` (default `wavespeedai/wan-2.1-t2v-720p`).
 
-**Viktigt att veta:** Runways exakta API-fältnamn ovan är byggda utifrån deras publika
-dokumentation (kunde inte verifieras direkt mot ett Runway-konto i den här miljön pga
-nätverksbegränsningar) — precis som Shotstack-integrationen ursprungligen behövde justeras
-efter första skarpa testet, räkna med att samma kan gälla här första gången du kör det mot
-ett riktigt Runway-konto.
+**Viktigt att veta:** fältnamnen ovan (`prompt`/`negative_prompt`/`aspect_ratio`/`fast_mode`)
+är verifierade mot Replicates publika modellsida, men själva anropet är INTE testat mot ett
+riktigt Replicate-konto i den här miljön (nätverksbegränsningar hindrade direkt verifiering av
+ett live-svar) — precis som Shotstack-integrationen ursprungligen behövde justeras efter
+första skarpa testet, räkna med att samma kan gälla här första gången du kör det mot ett
+riktigt Replicate-konto.
 
 ## Att göra: Remotion som växlingsbart renderingsalternativ (pausat, påbörjat)
 

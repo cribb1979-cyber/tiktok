@@ -1,20 +1,20 @@
-// Valfritt tillval: AI-genererad B-roll (atmosfäriska bakgrundssekvenser) via Runway API
-// (samma endpoint ger även tillgång till Googles Veo-modeller, styrbart via RUNWAY_MODEL).
+// Valfritt tillval: AI-genererad B-roll (atmosfäriska bakgrundssekvenser) via Replicate API,
+// modellen Wan 2.1 (öppen källkod, mycket billigare än Runway — ~$0.05-0.09 per klipp mot
+// Runways betydligt högre pris, bytt 2026-09 efter användarens önskemål).
 // Genererar ALDRIG bilder/video av personer — B-roll är bara stämningshöjande bakgrund,
 // aldrig en ersättning för Christoffer själv i bild, eftersom kontots trovärdighet bygger på
-// att det är honom. CLAUDE_API_KEY och RUNWAY_API_KEY exponeras aldrig i klienten.
+// att det är honom. CLAUDE_API_KEY och REPLICATE_API_TOKEN exponeras aldrig i klienten.
 //
-// OBS: Runways exakta fältnamn nedan är byggda utifrån deras publika API-dokumentation
-// (api.dev.runwayml.com/v1, X-Runway-Version: 2024-11-06) men är INTE testade mot ett
-// riktigt Runway-konto i den här miljön (nätverksbegränsningar hindrade direkt verifiering
-// mot dokumentationen). Precis som Shotstack-integrationen: räkna med att mindre
-// justeringar (fältnamn, statusvärden) kan behövas första gången det körs skarpt mot ett
-// riktigt konto — samma mönster, samma sätt att felsöka (visa hela felmeddelandet, justera).
+// OBS: fältnamnen nedan (prompt/negative_prompt/aspect_ratio/fast_mode) är verifierade mot
+// Replicates publika modell-sida för wavespeedai/wan-2.1-t2v-720p, men själva anropet är INTE
+// testat mot ett riktigt Replicate-konto i den här miljön (nätverksbegränsningar hindrade
+// direkt verifiering av live-svar). Samma mönster som Shotstack/Runway-integrationerna:
+// räkna med att mindre justeringar kan behövas första gången det körs skarpt — visa hela
+// felmeddelandet, justera.
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
 const CLAUDE_MODEL = 'claude-sonnet-5'
-const RUNWAY_API_URL = 'https://api.dev.runwayml.com/v1/text_to_video'
-const RUNWAY_VERSION = '2024-11-06'
+const REPLICATE_PREDICTIONS_URL = 'https://api.replicate.com/v1/models'
 
 const PROMPT_SYSTEM = `Du skriver korta, visuella prompts för AI-genererad B-roll
 (atmosfärisk bakgrundsvideo) till TikTok-klipp om andlighet/medium-tema.
@@ -31,12 +31,12 @@ export default async (request: Request) => {
   }
 
   const claudeApiKey = Deno.env.get('CLAUDE_API_KEY')
-  const runwayApiKey = Deno.env.get('RUNWAY_API_KEY')
+  const replicateApiToken = Deno.env.get('REPLICATE_API_TOKEN')
   if (!claudeApiKey) {
     return jsonResponse({ error: 'CLAUDE_API_KEY saknas i Netlify-miljövariabler.' }, 500)
   }
-  if (!runwayApiKey) {
-    return jsonResponse({ error: 'RUNWAY_API_KEY saknas i Netlify-miljövariabler.' }, 500)
+  if (!replicateApiToken) {
+    return jsonResponse({ error: 'REPLICATE_API_TOKEN saknas i Netlify-miljövariabler.' }, 500)
   }
 
   let body: Record<string, unknown>
@@ -57,7 +57,7 @@ export default async (request: Request) => {
     )
   }
 
-  const runwayModel = Deno.env.get('RUNWAY_MODEL') || 'gen4.5'
+  const replicateModel = Deno.env.get('REPLICATE_MODEL') || 'wavespeedai/wan-2.1-t2v-720p'
 
   // Steg 1: Claude formulerar en filmisk, person-fri visuell prompt utifrån klippets tema.
   let visualPrompt: string
@@ -90,43 +90,41 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Kunde inte generera B-roll-prompt.', detail: String(err) }, 502)
   }
 
-  // Steg 2: skicka prompten till Runway för videogenerering (asynkront, task-baserat).
-  const runwayBody: Record<string, unknown> = {
-    model: runwayModel,
-    promptText: visualPrompt,
-    ratio: '720:1280', // 9:16, TikTok-format
-    duration: 5,
+  // Steg 2: skicka prompten till Replicate (Wan 2.1) för videogenerering (asynkront,
+  // prediction-baserat). negative_prompt är ett extra skyddsnät mot att personer dyker upp i
+  // bild, utöver instruktionen i Claude-prompten. fast_mode: true för lägre kostnad/kortare
+  // väntetid — bra avvägning för atmosfärisk bakgrund som inte behöver perfekt detaljrikedom.
+  const replicateBody = {
+    input: {
+      prompt: visualPrompt,
+      negative_prompt:
+        'people, person, human face, human figure, man, woman, portrait, crowd, text, watermark',
+      aspect_ratio: '9:16', // TikTok-format
+      fast_mode: true,
+    },
   }
 
-  // negativePrompt är bekräftat stöd på veo3/veo3.1 — extra skyddsnät mot att personer
-  // dyker upp i bild, utöver instruktionen i Claude-prompten.
-  if (runwayModel.startsWith('veo')) {
-    runwayBody.negativePrompt =
-      'people, person, human face, human figure, man, woman, portrait, crowd, text, watermark'
-  }
-
-  let runwayResponse: Response
+  let replicateResponse: Response
   try {
-    runwayResponse = await fetch(RUNWAY_API_URL, {
+    replicateResponse = await fetch(`${REPLICATE_PREDICTIONS_URL}/${replicateModel}/predictions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${runwayApiKey}`,
-        'X-Runway-Version': RUNWAY_VERSION,
+        Authorization: `Bearer ${replicateApiToken}`,
       },
-      body: JSON.stringify(runwayBody),
+      body: JSON.stringify(replicateBody),
     })
   } catch (err) {
-    return jsonResponse({ error: 'Kunde inte nå Runway API.', detail: String(err) }, 502)
+    return jsonResponse({ error: 'Kunde inte nå Replicate API.', detail: String(err) }, 502)
   }
 
-  const runwayData = await runwayResponse.json()
+  const replicateData = await replicateResponse.json()
 
-  if (!runwayResponse.ok || !runwayData?.id) {
-    return jsonResponse({ error: 'Runway API-fel', detail: runwayData }, 502)
+  if (!replicateResponse.ok || !replicateData?.id) {
+    return jsonResponse({ error: 'Replicate API-fel', detail: replicateData }, 502)
   }
 
-  return jsonResponse({ taskId: runwayData.id, prompt: visualPrompt }, 200)
+  return jsonResponse({ taskId: replicateData.id, prompt: visualPrompt }, 200)
 }
 
 function jsonResponse(data: unknown, status: number) {
