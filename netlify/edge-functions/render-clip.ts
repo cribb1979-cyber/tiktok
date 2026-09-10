@@ -26,8 +26,10 @@ const HOOK_CHARS_PER_LINE = 11
 const TEXT_BACKGROUND = '#CC000000'
 
 // Fler effekttyper ger mer visuell variation än samma zoom hela tiden.
-const SEGMENT_EFFECTS = ['zoomIn', 'zoomInFast', 'zoomOut', 'zoomOutFast', 'slideLeft', 'slideRight']
-const SEGMENT_TRANSITIONS_IN = ['fade', 'wipeLeft', 'wipeRight', 'slideLeft', 'slideRight']
+// Bara "Fast"-varianter — de långsamma presets (zoomIn/zoomOut/slideLeft/slideRight utan
+// suffix) var för subtila för att märkas i ett kort TikTok-klipp.
+const SEGMENT_EFFECTS = ['zoomInFast', 'zoomOutFast', 'slideLeftFast', 'slideRightFast', 'slideUpFast', 'slideDownFast']
+const SEGMENT_TRANSITIONS_IN = ['fadeFast', 'wipeLeft', 'wipeRight', 'slideLeft', 'slideRight']
 
 // B-roll-segmentet klipps in direkt efter det första huvudsegmentet (ett klassiskt
 // "cutaway"-snitt: shot → cutaway → tillbaka till shot) istället för att bara vara en
@@ -90,8 +92,8 @@ export default async (request: Request) => {
       fit: 'crop',
       effect: SEGMENT_EFFECTS[index % SEGMENT_EFFECTS.length],
       transition: {
-        in: index === 0 ? 'fade' : SEGMENT_TRANSITIONS_IN[index % SEGMENT_TRANSITIONS_IN.length],
-        out: 'fade',
+        in: index === 0 ? 'fadeFast' : SEGMENT_TRANSITIONS_IN[index % SEGMENT_TRANSITIONS_IN.length],
+        out: 'fadeFast',
       },
     })
 
@@ -133,8 +135,8 @@ export default async (request: Request) => {
         start: timelineCursor,
         length: brollDuration,
         fit: 'crop',
-        effect: 'zoomIn',
-        transition: { in: 'fade', out: 'fade' },
+        effect: 'zoomInFast',
+        transition: { in: 'fadeFast', out: 'fadeFast' },
       })
       timelineCursor += brollDuration
     }
