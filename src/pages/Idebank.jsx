@@ -37,20 +37,26 @@ const PASTE_NOISE_WORDS = new Set([
 ])
 
 // Tolkar inklistrad text (t.ex. kopierad direkt från TikTok Creative Centers hashtag-lista)
-// till en lista av kandidat-hashtags — en per rad eller kommaseparerat, "#" och
-// statistik-/rubrikrader (t.ex. "12.3M", "Views") filtreras bort.
+// till en lista av kandidat-hashtags. TikTok Creative Center kopierar ofta hashtags helt utan
+// mellanslag mellan varje ("#Tag1#Tag2#Tag3"), så vi delar både på vanliga skiljetecken OCH
+// direkt framför varje "#"-tecken — inte bara radbrytning/komma. Statistik-/rubrikord (t.ex.
+// "12.3M", "Views") filtreras bort.
 function parsePastedHashtags(text) {
-  const lines = text
-    .split(/[\n,]+/)
-    .map((line) => line.trim().replace(/^#/, ''))
+  const chunks = text
+    .split(/[\n,;|/]+|(?=#)/)
+    .map((chunk) => chunk.trim().replace(/^#/, ''))
     .filter(Boolean)
 
-  const cleaned = lines.filter((word) => {
-    if (/^[\d.,]+[kmb]?%?$/i.test(word)) return false
-    if (PASTE_NOISE_WORDS.has(word.toLowerCase())) return false
-    if (!/^[\p{L}\p{N}_]+$/u.test(word)) return false
-    return true
-  })
+  const cleaned = chunks
+    // ta bara den inledande ord-delen av varje bit — plockar bort ev. skräp som råkade
+    // hänga kvar (t.ex. mellanslag/snedstreck) istället för att kasta hela biten
+    .map((chunk) => chunk.match(/^[\p{L}\p{N}_]+/u)?.[0] ?? '')
+    .filter((word) => {
+      if (!word) return false
+      if (/^[\d.,]+[kmb]?%?$/i.test(word)) return false
+      if (PASTE_NOISE_WORDS.has(word.toLowerCase())) return false
+      return true
+    })
 
   return Array.from(new Set(cleaned.map((w) => w.toLowerCase())))
 }
