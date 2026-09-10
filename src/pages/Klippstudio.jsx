@@ -56,6 +56,9 @@ export default function Klippstudio() {
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  // Satt så fort klippet finns i Supabase (auto-sparat direkt efter rendering, se
+  // handleRender) — gör efterföljande sparningar till uppdateringar istället för dubbletter.
+  const [savedClipId, setSavedClipId] = useState(null)
 
   async function handleFileChange(event) {
     const file = event.target.files?.[0]
@@ -132,6 +135,7 @@ export default function Klippstudio() {
     setBrollVideoUrl(null)
     setBrollPrompt(null)
     setSaved(false)
+    setSavedClipId(null)
 
     // Few-shot-kontext: semantiskt liknande tidigare publicerade klipp (steg 10, pgvector)
     // när det finns tillräckligt med embeddad data, annars enkel kategorisortering (steg 9).
@@ -163,6 +167,61 @@ export default function Klippstudio() {
     }
   }
 
+  // Sparar (eller uppdaterar, om klippet redan finns i Supabase) klippet. Anropas
+  // automatiskt direkt efter en lyckad rendering — INNAN användaren öppnar
+  // "Öppna & spara video"-länken — så att klippet aldrig bara finns i webbläsarens
+  // tillfälliga state. iOS Safari kan ladda om appens flik i bakgrunden när en video öppnas
+  // i en ny flik (minneshantering), vilket annars nollställer allt osparat.
+  async function persistClip(overrides = {}) {
+    const selectedHook = plan.hook_variants?.[selectedHookIndex]
+    const finalCategory = plan.category || category
+    const finalSubtopic = plan.subtopic || subtopic || null
+
+    const payload = {
+      prompt,
+      category: finalCategory,
+      subtopic: finalSubtopic,
+      hook_text: selectedHook?.text ?? null,
+      hook_variants: plan.hook_variants ?? null,
+      segments_plan: plan.segments_plan ?? null,
+      status: 'draft',
+      video_url: renderedVideoUrl,
+      broll_enabled: brollEnabled,
+      broll_prompt: brollPrompt,
+      broll_video_url: brollVideoUrl,
+      // Aldrig manuellt valbart — sätts automatiskt när B-roll används, enligt TikToks
+      // regler om taggning av AI-genererat innehåll.
+      ai_generated_content: brollEnabled,
+      ...overrides,
+    }
+
+    if (savedClipId) {
+      const { error: updateError } = await supabase.from('clips').update(payload).eq('id', savedClipId)
+      if (updateError) throw new Error(updateError.message)
+      return savedClipId
+    }
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('clips')
+      .insert(payload)
+      .select()
+      .single()
+    if (insertError) throw new Error(insertError.message)
+
+    setSavedClipId(inserted.id)
+
+    // Embedding för framtida retrieval (steg 10) — icke-kritiskt, ska aldrig påverka att
+    // klippet redan sparats.
+    embedAndStoreClip(inserted.id, {
+      prompt,
+      hookText: selectedHook?.text,
+      category: finalCategory,
+      subtopic: finalSubtopic,
+    }).catch((err) => console.warn('Kunde inte spara embedding för klippet:', err))
+
+    return inserted.id
+  }
+
   async function handleRender() {
     if (!plan || !mediaPublicUrl) return
     setRendering(true)
@@ -182,6 +241,14 @@ export default function Klippstudio() {
         onStatus: setRenderStatus,
       })
       setRenderedVideoUrl(url)
+
+      // Spara direkt — se kommentaren på persistClip för varför. video_url skickas
+      // explicit eftersom setRenderedVideoUrl ovan inte hunnit uppdatera state än här.
+      try {
+        await persistClip({ video_url: url })
+      } catch (saveErr) {
+        console.warn('Kunde inte spara klippet automatiskt efter rendering:', saveErr)
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -218,48 +285,14 @@ export default function Klippstudio() {
     setSaving(true)
     setError(null)
 
-    const selectedHook = plan.hook_variants?.[selectedHookIndex]
-    const finalCategory = plan.category || category
-    const finalSubtopic = plan.subtopic || subtopic || null
-
-    const { data: inserted, error: insertError } = await supabase
-      .from('clips')
-      .insert({
-        prompt,
-        category: finalCategory,
-        subtopic: finalSubtopic,
-        hook_text: selectedHook?.text ?? null,
-        hook_variants: plan.hook_variants ?? null,
-        segments_plan: plan.segments_plan ?? null,
-        status: 'draft',
-        video_url: renderedVideoUrl,
-        broll_enabled: brollEnabled,
-        broll_prompt: brollPrompt,
-        broll_video_url: brollVideoUrl,
-        // Aldrig manuellt valbart — sätts automatiskt när B-roll används, enligt TikToks
-        // regler om taggning av AI-genererat innehåll.
-        ai_generated_content: brollEnabled,
-      })
-      .select()
-      .single()
-
-    setSaving(false)
-
-    if (insertError) {
-      setError(insertError.message)
-      return
+    try {
+      await persistClip()
+      setSaved(true)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
     }
-
-    setSaved(true)
-
-    // Embedding för framtida retrieval (steg 10) — icke-kritiskt, ska aldrig påverka att
-    // klippet redan sparats.
-    embedAndStoreClip(inserted.id, {
-      prompt,
-      hookText: selectedHook?.text,
-      category: finalCategory,
-      subtopic: finalSubtopic,
-    }).catch((err) => console.warn('Kunde inte spara embedding för klippet:', err))
   }
 
   return (
@@ -470,9 +503,18 @@ export default function Klippstudio() {
                 <div>
                   <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Förhandsgranskning</p>
                   <video src={renderedVideoUrl} controls style={{ width: '100%', borderRadius: 12 }} />
+                  {savedClipId ? (
+                    <p style={{ color: 'var(--success)', marginTop: 8 }}>
+                      ✓ Sparat i Bibliotek — försvinner inte även om appen laddas om.
+                    </p>
+                  ) : (
+                    <p className="error-banner">
+                      Kunde inte spara klippet automatiskt. Tryck "Godkänn och spara som
+                      utkast" nedan INNAN du öppnar videon, annars kan den försvinna.
+                    </p>
+                  )}
                   <a
                     href={renderedVideoUrl}
-                    target="_blank"
                     rel="noopener noreferrer"
                     className="btn-primary"
                     style={{ display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: 10 }}
@@ -480,9 +522,11 @@ export default function Klippstudio() {
                     Öppna & spara video
                   </a>
                   <p className="placeholder-note">
-                    Öppnas i en ny flik — tryck dela-ikonen och välj "Spara video" för att lägga
-                    den i Bilder. Sen kan du lägga till ljud/trendande sound och publicera
-                    direkt i TikTok-appen (tills den riktiga TikTok-kopplingen är på plats).
+                    Öppnas i den här fliken (inte en ny) — tryck dela-ikonen och välj "Spara
+                    video" för att lägga den i Bilder, gå sedan tillbaka med bakåtknappen. Sen
+                    kan du lägga till ljud/trendande sound och publicera direkt i TikTok-appen
+                    (tills den riktiga TikTok-kopplingen är på plats). Hittar du inte tillbaka
+                    hit finns klippet redan sparat under Bibliotek.
                   </p>
                 </div>
               ) : (
