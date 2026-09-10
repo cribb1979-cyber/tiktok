@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient.js'
 import { tiktokAdapter } from '../lib/tiktokAdapter.js'
 import { embedAndStoreClip } from '../lib/clipHistory.js'
+import { generateClipPlan } from '../lib/claudeClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import { CATEGORIES, STATUSES, STATUS_LABELS } from '../constants.js'
 
@@ -33,6 +34,9 @@ export default function Bibliotek() {
   const [sortKey, setSortKey] = useState('newest')
   const [filterCategory, setFilterCategory] = useState('alla')
   const [busyClipId, setBusyClipId] = useState(null)
+  // Vilket klipps fullständiga genererade text (hook-alternativ, segmentplan) som visas
+  // just nu — bara ett i taget, kortet är annars för fullt.
+  const [expandedClipId, setExpandedClipId] = useState(null)
   // Tvåstegs-sparning per klipp (se saveVideo.js för varför): id -> hämtad File, redo att
   // delas vid ett nytt, direkt knapptryck.
   const [readyVideoFiles, setReadyVideoFiles] = useState({})
@@ -139,6 +143,46 @@ export default function Bibliotek() {
     try {
       await tiktokAdapter.fetchStats(clip)
       await loadClips()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusyClipId(null)
+    }
+  }
+
+  function toggleExpand(clipId) {
+    setExpandedClipId((prev) => (prev === clipId ? null : clipId))
+  }
+
+  // Kör om Claude-genereringen för klippets sparade prompt/kategori/underämne och
+  // skriver över hook-alternativ/segmentplan/hashtags med ett nytt förslag.
+  async function handleRegenerate(clip) {
+    if (!clip.prompt) {
+      setError('Klippet saknar en sparad prompt att generera om utifrån.')
+      return
+    }
+    setBusyClipId(clip.id)
+    setError(null)
+    try {
+      const result = await generateClipPlan({
+        prompt: clip.prompt,
+        category: clip.category,
+        subtopic: clip.subtopic,
+      })
+
+      const { error: updateError } = await supabase
+        .from('clips')
+        .update({
+          hook_text: result.hook_variants?.[0]?.text ?? clip.hook_text,
+          hook_variants: result.hook_variants ?? null,
+          segments_plan: result.segments_plan ?? null,
+          hashtags: result.suggested_hashtags ?? null,
+        })
+        .eq('id', clip.id)
+      if (updateError) throw new Error(updateError.message)
+
+      await loadClips()
+      setExpandedClipId(clip.id)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -322,6 +366,48 @@ export default function Bibliotek() {
               {clip.hashtags?.length > 0 && (
                 <p className="clip-subtopic">{clip.hashtags.map((h) => `#${h}`).join(' ')}</p>
               )}
+
+              {expandedClipId === clip.id && (
+                <div className="clip-card" style={{ margin: '10px 0 0' }}>
+                  {clip.hook_variants?.length > 0 ? (
+                    <div style={{ marginBottom: 10 }}>
+                      <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Hook-alternativ</p>
+                      <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {clip.hook_variants.map((hook, i) => (
+                          <li key={i}>
+                            <strong>{hook.text}</strong>
+                            {hook.rationale && (
+                              <span className="clip-prompt" style={{ display: 'block' }}>
+                                {hook.rationale}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <p className="clip-prompt">Inga sparade hook-alternativ.</p>
+                  )}
+
+                  {clip.segments_plan?.length > 0 ? (
+                    <div>
+                      <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Segmentplan</p>
+                      <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {clip.segments_plan.map((seg, i) => (
+                          <li key={i}>
+                            <strong>
+                              {seg.start}–{seg.end}
+                            </strong>{' '}
+                            {seg.description}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  ) : (
+                    <p className="clip-prompt">Ingen sparad segmentplan.</p>
+                  )}
+                </div>
+              )}
               <div className="clip-stats">
                 <span>👁 {clip.views_24h ?? '–'}</span>
                 <span>⏱ {clip.avg_watch_pct != null ? `${clip.avg_watch_pct}%` : '–'}</span>
@@ -329,6 +415,16 @@ export default function Bibliotek() {
                 <span>💬 {clip.comments ?? '–'}</span>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn-primary" onClick={() => toggleExpand(clip.id)}>
+                  {expandedClipId === clip.id ? 'Dölj detaljer' : 'Visa genererad text'}
+                </button>
+                <button
+                  className="btn-primary"
+                  onClick={() => handleRegenerate(clip)}
+                  disabled={busyClipId === clip.id}
+                >
+                  {busyClipId === clip.id ? 'Genererar…' : 'Generera om'}
+                </button>
                 {clip.video_url &&
                   (readyVideoFiles[clip.id] ? (
                     <button className="btn-primary" onClick={() => handleShareVideo(clip)}>
