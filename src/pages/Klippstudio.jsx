@@ -8,7 +8,7 @@ import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll } from '../lib/runwayClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
-import { CATEGORIES } from '../constants.js'
+import { CATEGORIES, SEGMENT_EFFECT_OPTIONS } from '../constants.js'
 
 // Whisper (OpenAI) har en hård 25 MB-gräns per fil — den kan inte höjas, det är deras
 // API:s egen begränsning. Uppladdning/rendering (Shotstack) har ingen sådan gräns, så den
@@ -52,6 +52,8 @@ export default function Klippstudio() {
   const [plan, setPlan] = useState(null)
   const [selectedHookIndex, setSelectedHookIndex] = useState(0)
   const [fewShotCount, setFewShotCount] = useState(0)
+  // Manuellt effektval per segment ('' = automatiskt) — index matchar plan.segments_plan.
+  const [segmentEffects, setSegmentEffects] = useState([])
 
   const [rendering, setRendering] = useState(false)
   const [renderStatus, setRenderStatus] = useState(null)
@@ -200,6 +202,7 @@ export default function Klippstudio() {
       })
       setPlan(result)
       setSelectedHookIndex(0)
+      setSegmentEffects((result.segments_plan ?? []).map(() => ''))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -224,6 +227,7 @@ export default function Klippstudio() {
       hook_text: selectedHook?.text ?? null,
       hook_variants: plan.hook_variants ?? null,
       segments_plan: plan.segments_plan ?? null,
+      hashtags: plan.suggested_hashtags ?? null,
       status: 'draft',
       video_url: renderedVideoUrl,
       broll_enabled: brollEnabled,
@@ -279,6 +283,7 @@ export default function Klippstudio() {
         hookText: selectedHook?.text ?? '',
         suggestedSubtitles: plan.suggested_subtitles ?? [],
         brollVideoUrl,
+        segmentEffects,
         onStatus: setRenderStatus,
       })
       setRenderedVideoUrl(url)
@@ -516,13 +521,30 @@ export default function Klippstudio() {
 
           <div>
             <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Segmentplan</p>
-            <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {(plan.segments_plan ?? []).map((seg, i) => (
                 <li key={i}>
                   <strong>
                     {seg.start}–{seg.end}
                   </strong>{' '}
                   {seg.description}
+                  {mediaPublicUrl && (
+                    <select
+                      value={segmentEffects[i] ?? ''}
+                      onChange={(e) => {
+                        const next = [...segmentEffects]
+                        next[i] = e.target.value
+                        setSegmentEffects(next)
+                      }}
+                      style={{ display: 'block', marginTop: 4 }}
+                    >
+                      {SEGMENT_EFFECT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </li>
               ))}
             </ol>
@@ -532,6 +554,13 @@ export default function Klippstudio() {
             <div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Föreslagna nyckelfraser</p>
               <p>{plan.suggested_subtitles.join(' · ')}</p>
+            </div>
+          )}
+
+          {plan.suggested_hashtags?.length > 0 && (
+            <div>
+              <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Föreslagna hashtags</p>
+              <p>{plan.suggested_hashtags.map((h) => `#${h}`).join(' ')}</p>
             </div>
           )}
 

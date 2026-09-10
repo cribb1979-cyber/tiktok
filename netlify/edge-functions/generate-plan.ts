@@ -7,7 +7,8 @@ const CLAUDE_MODEL = 'claude-sonnet-5'
 const SYSTEM_PROMPT = `Du är en TikTok-klippstrateg för kontot @stoffe_medium (andlighet/medium-nisch, ~15k följare).
 Ditt jobb: föreslå en klippningsplan för ett kort videoklipp, baserat på användarens idé.
 
-Föreslå 2-3 hook-alternativ i hook_variants. Om inget transkript finns än, basera segmentplanen
+Föreslå 2-3 hook-alternativ i hook_variants, och 3-5 relevanta hashtags i suggested_hashtags
+(utan "#"-tecken, blanda breda och nischade). Om inget transkript finns än, basera segmentplanen
 på användarens promptbeskrivning istället och märk segmentens tider som preliminära
 uppskattningar (t.ex. "00:00"–"00:05").
 
@@ -51,6 +52,12 @@ const RESPONSE_SCHEMA = {
       type: 'array',
       items: { type: 'string' },
     },
+    suggested_hashtags: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        '3-5 relevanta TikTok-hashtags för klippet, utan "#"-tecken (läggs på i UI). Blanda breda (t.ex. andlighet, fyp) och nischade (kopplade till ämnet/kategorin).',
+    },
     category: {
       type: 'string',
       description:
@@ -58,7 +65,7 @@ const RESPONSE_SCHEMA = {
     },
     subtopic: { type: 'string' },
   },
-  required: ['segments_plan', 'hook_variants', 'suggested_subtitles', 'category', 'subtopic'],
+  required: ['segments_plan', 'hook_variants', 'suggested_subtitles', 'suggested_hashtags', 'category', 'subtopic'],
   additionalProperties: false,
 }
 

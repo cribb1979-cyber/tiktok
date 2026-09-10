@@ -3,11 +3,27 @@ import { errorMessage } from './apiError.js'
 // Anropar Netlify Edge Functions /api/render-clip och /api/render-status — aldrig
 // Shotstack API direkt från klienten.
 
-async function submitRender({ videoUrl, segmentsPlan, transcript, hookText, suggestedSubtitles, brollVideoUrl }) {
+async function submitRender({
+  videoUrl,
+  segmentsPlan,
+  transcript,
+  hookText,
+  suggestedSubtitles,
+  brollVideoUrl,
+  segmentEffects,
+}) {
   const response = await fetch('/api/render-clip', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ videoUrl, segmentsPlan, transcript, hookText, suggestedSubtitles, brollVideoUrl }),
+    body: JSON.stringify({
+      videoUrl,
+      segmentsPlan,
+      transcript,
+      hookText,
+      suggestedSubtitles,
+      brollVideoUrl,
+      segmentEffects,
+    }),
   })
 
   const data = await response.json()
@@ -38,9 +54,18 @@ export async function renderClip({
   hookText,
   suggestedSubtitles,
   brollVideoUrl,
+  segmentEffects,
   onStatus,
 }) {
-  const id = await submitRender({ videoUrl, segmentsPlan, transcript, hookText, suggestedSubtitles, brollVideoUrl })
+  const id = await submitRender({
+    videoUrl,
+    segmentsPlan,
+    transcript,
+    hookText,
+    suggestedSubtitles,
+    brollVideoUrl,
+    segmentEffects,
+  })
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))

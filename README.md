@@ -53,6 +53,10 @@ garanterat parseable, inget beroende av att modellen undviker markdown-kodblock.
 Anropsformatet innehåller ett `previousBestClips`-fält för few-shot-kontext (tidigare bäst
 presterande klipp i samma kategori) — fyllt sedan steg 9 (se nedan), tom lista dessförinnan.
 
+**Hashtag-förslag:** Claude returnerar även `suggested_hashtags` (3-5 st, utan "#"-tecken) i
+samma svar som segmentplan/hook-alternativ/nyckelfraser. Visas i Klippstudio och sparas på
+`clips.hashtags` (migration `0006_hashtags.sql`) när klippet sparas — syns även i Bibliotek.
+
 ## Whisper-integration (steg 5)
 
 `netlify/edge-functions/transcribe.ts` tar emot en uppladdad video-/ljudfil och returnerar
@@ -102,6 +106,13 @@ att anpassa antal segment och deras start/end-tider så att summan av segmentens
 nära det valda målet, istället för att alltid föreslå en fast längd. Rent förslag från Claude —
 `render-clip.ts` klipper fortfarande bara utifrån de faktiska tiderna i `segments_plan`, så
 den slutgiltiga längden kan avvika något om Claude missbedömer.
+
+**Manuellt effektval per segment:** automatiken (ovan) är fortfarande default, men varje
+segment i Klippstudios segmentplan har nu en dropdown (`SEGMENT_EFFECT_OPTIONS` i
+`src/constants.js`) där du kan tvinga fram en specifik effekt istället — "Automatiskt" (tomt
+värde) faller tillbaka till den cyklande listan. Valet skickas som `segmentEffects` (array,
+samma index som `segments_plan`) till `/api/render-clip`, som använder det manuella värdet när
+det finns, annars automatiken precis som innan.
 
 `SHOTSTACK_ENV` styr miljö: `stage` (default) är Shotstacks gratis sandbox och
 vattenstämplar videon — bra för att testa flödet. Sätt `SHOTSTACK_ENV=v1` i Netlify med en

@@ -64,6 +64,10 @@ export default async (request: Request) => {
     ? (body.suggestedSubtitles as string[]).filter((s) => typeof s === 'string' && s.trim())
     : []
   const brollVideoUrl = typeof body.brollVideoUrl === 'string' ? body.brollVideoUrl : null
+  // Manuellt val av effekt per segment från Klippstudio (se SEGMENT_EFFECT_OPTIONS i
+  // constants.js) — tomt/saknat värde för ett index betyder "automatiskt", dvs. samma
+  // cyklande fallback som innan detta fanns.
+  const segmentEffects = Array.isArray(body.segmentEffects) ? (body.segmentEffects as unknown[]) : []
   const brollDuration =
     typeof body.brollDurationSeconds === 'number' && body.brollDurationSeconds > 0
       ? body.brollDurationSeconds
@@ -84,13 +88,18 @@ export default async (request: Request) => {
     const trimStart = parseTimecode(seg.start)
     const trimEnd = parseTimecode(seg.end)
     const length = Math.max(trimEnd - trimStart, 0.5)
+    const manualEffect = segmentEffects[index]
+    const effect =
+      typeof manualEffect === 'string' && manualEffect
+        ? manualEffect
+        : SEGMENT_EFFECTS[index % SEGMENT_EFFECTS.length]
 
     videoClips.push({
       asset: { type: 'video', src: videoUrl, trim: trimStart, volume: 1 },
       start: timelineCursor,
       length,
       fit: 'crop',
-      effect: SEGMENT_EFFECTS[index % SEGMENT_EFFECTS.length],
+      effect,
       transition: {
         in: index === 0 ? 'fadeFast' : SEGMENT_TRANSITIONS_IN[index % SEGMENT_TRANSITIONS_IN.length],
         out: 'fadeFast',

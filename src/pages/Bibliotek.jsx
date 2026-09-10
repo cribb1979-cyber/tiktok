@@ -319,6 +319,9 @@ export default function Bibliotek() {
               {clip.hook_text && <p className="clip-hook">"{clip.hook_text}"</p>}
               {clip.prompt && <p className="clip-prompt">{clip.prompt}</p>}
               {clip.subtopic && <p className="clip-subtopic">#{clip.subtopic}</p>}
+              {clip.hashtags?.length > 0 && (
+                <p className="clip-subtopic">{clip.hashtags.map((h) => `#${h}`).join(' ')}</p>
+              )}
               <div className="clip-stats">
                 <span>👁 {clip.views_24h ?? '–'}</span>
                 <span>⏱ {clip.avg_watch_pct != null ? `${clip.avg_watch_pct}%` : '–'}</span>
