@@ -6,10 +6,9 @@
 // REPLICATE_API_TOKEN exponeras aldrig i klienten.
 //
 // OBS: background_color ("Green") och output_format ("mp4_h264") är verifierade mot
-// Bria/Replicates dokumentation. Det exakta fältnamnet för själva video-inputen ("video"
-// nedan) kunde INTE verifieras (Brias källkod är inte öppen) — räkna med att det kan behöva
-// justeras första gången det körs skarpt, samma mönster som övriga Replicate-integrationer i
-// det här projektet: visa hela felmeddelandet, justera.
+// Bria/Replicates dokumentation. Fältnamnet för video-inputen kunde inte verifieras i förväg
+// (Brias källkod är inte öppen) och gissningen "video" var fel — bekräftat skarpt: Replicate
+// svarade "video_url is required". Fältet heter alltså "video_url".
 //
 // VIKTIGT: Bria har en gräns på max 60 sekunders indata. Vi skickar hela den uppladdade
 // videon (inte bara det valda segmentet) för att slippa ett separat förklippningssteg —
@@ -51,7 +50,7 @@ export default async (request: Request) => {
       },
       body: JSON.stringify({
         input: {
-          video: videoUrl,
+          video_url: videoUrl,
           background_color: 'Green',
           output_format: 'mp4_h264',
         },

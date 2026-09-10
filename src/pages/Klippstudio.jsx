@@ -717,21 +717,38 @@ export default function Klippstudio() {
     if (!mediaPublicUrl) return
     setGlowCapturing(true)
     setError(null)
+
+    // iOS Safari kan misslyckas TYST (varken loadedmetadata/seeked eller error-eventet
+    // fyras) med ett <video>-element som aldrig läggs till i dokumentet — avkodning/
+    // rendering till canvas är opålitlig för "detached" videoelement där. Läggs till
+    // osynligt (positionerat utanför skärmen, inte display:none — det kan också hindra
+    // rendering) och tas bort igen i finally.
+    const video = document.createElement('video')
+    video.style.position = 'fixed'
+    video.style.left = '-9999px'
+    video.style.width = '1px'
+    video.style.height = '1px'
+    document.body.appendChild(video)
+
     try {
       const firstSegStart = parseTimecodeClient(plan?.segments_plan?.[0]?.start ?? '0:00')
-      const video = document.createElement('video')
       video.crossOrigin = 'anonymous'
-      video.src = mediaPublicUrl
       video.muted = true
       video.playsInline = true
+      video.src = mediaPublicUrl
 
-      await new Promise((resolve, reject) => {
-        video.addEventListener('loadedmetadata', () => {
-          video.currentTime = Math.min(firstSegStart, Math.max(video.duration - 0.1, 0))
-        })
-        video.addEventListener('seeked', resolve, { once: true })
-        video.addEventListener('error', () => reject(new Error('Kunde inte läsa videon för förhandsvisning.')))
-      })
+      await Promise.race([
+        new Promise((resolve, reject) => {
+          video.addEventListener('loadedmetadata', () => {
+            video.currentTime = Math.min(firstSegStart, Math.max(video.duration - 0.1, 0))
+          })
+          video.addEventListener('seeked', resolve, { once: true })
+          video.addEventListener('error', () => reject(new Error('Kunde inte läsa videon för förhandsvisning.')))
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Tog för lång tid att läsa videon.')), 8000)
+        ),
+      ])
 
       const canvas = document.createElement('canvas')
       canvas.width = video.videoWidth
@@ -744,6 +761,7 @@ export default function Klippstudio() {
         `Kunde inte hämta en förhandsvisningsbild (${err.message}). Du kan fortfarande placera glöden mot en tom ruta med rätt proportioner.`,
       )
     } finally {
+      video.remove()
       setGlowCapturing(false)
     }
   }
