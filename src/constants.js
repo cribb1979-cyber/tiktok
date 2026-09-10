@@ -50,4 +50,5 @@ export const EFFECT_TYPE_OPTIONS = [
   { value: 'sparks', label: 'Gnistor/glödpartiklar' },
   { value: 'edgeGlow', label: 'Flimrande kantglöd' },
   { value: 'static', label: 'TV-brus/glitch' },
+  { value: 'eyes', label: 'Lysande ögon i mörkret' },
 ]

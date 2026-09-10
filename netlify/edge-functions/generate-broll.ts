@@ -131,6 +131,23 @@ Svara med BARA prompten, max en mening, filmisk och specifik, på engelska (bild
 fungerar bäst med engelska prompts).`,
     negativePrompt: 'color, room, scene, background objects, landscape, people, person, text, watermark',
   },
+  eyes: {
+    promptSystem: `Du skriver en kort, visuell prompt för ett AI-genererat klipp med ett par
+lysande ögon som ska läggas som ett genomskinligt lager ovanpå en annan video (kromakey mot
+svart bakgrund) — som en varelse/närvaro som betraktar från mörkret, i ett TikTok-klipp om
+andlighet/medium-tema.
+
+KRITISKT:
+- Motivet är ETT par lysande, glödande ögon i mörkret — INTE ett mänskligt ansikte eller en
+  igenkännbar varelse, bara två abstrakta lysande punkter/former som antyder ögon. Inget
+  annat i bild.
+- Bakgrunden MÅSTE vara helt svart/mörk, utan andra objekt, rum, mönster eller ljuskällor.
+- Ingen text, inga hela ansikten, inga kroppar, inga andra föremål.
+Svara med BARA prompten, max en mening, filmisk och specifik (glöd/färg/blinkning), på
+engelska (bildmodeller fungerar bäst med engelska prompts).`,
+    negativePrompt:
+      'human face, realistic face, body, person, room, scene, background objects, landscape, text, watermark',
+  },
 }
 
 export default async (request: Request) => {

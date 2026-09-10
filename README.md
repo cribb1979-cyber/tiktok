@@ -290,7 +290,7 @@ Utöver B-roll (som klipps in som ett eget segment): ett andra kryssruta i Klipp
 B-roll genom att den kompositeras in i din egen video istället för att vara ett fristående,
 inklippt segment.
 
-**Fem typer** (dropdown i Klippstudio, `EFFECT_TYPE_OPTIONS` i `constants.js`), varje med egen
+**Sex typer** (dropdown i Klippstudio, `EFFECT_TYPE_OPTIONS` i `constants.js`), varje med egen
 systemprompt (`EFFECT_TYPES` i `generate-broll.ts`) och egen kompositering (`EFFECT_COMPOSITE`
 i `render-clip.ts`):
 
@@ -301,6 +301,7 @@ i `render-clip.ts`):
 | `sparks` (Gnistor) | Svävande glödpartiklar | Kromakey, fyller bildrutan, centrerad |
 | `edgeGlow` (Kantglöd) | Flimrande ljussken | Kromakey, skalad 50%, höger kant |
 | `static` (TV-brus/glitch) | Svartvitt brus/interferens | Ingen kromakey — hela bilden är effekten, läggs på med `opacity: 0.5` som en kort 0,6s-blink |
+| `eyes` (Lysande ögon) | Ett par lysande ögon i mörkret — uttryckligen INTE ett mänskligt ansikte, bara abstrakta lysande former | Kromakey, skalad 40%, centrerad |
 
 De fyra kromakey-baserade typerna kräver alla en ren, helt svart bakgrund i den genererade
 videon (annars blir borttagningen fläckig) — Claude instrueras uttryckligen om detta per typ.

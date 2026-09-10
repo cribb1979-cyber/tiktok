@@ -52,6 +52,7 @@ const EFFECT_COMPOSITE: Record<
   sparks: { chromaKey: true, fit: 'crop', position: 'center', defaultDuration: 4 },
   edgeGlow: { chromaKey: true, scale: 0.5, position: 'right', defaultDuration: 4 },
   static: { chromaKey: false, fit: 'crop', position: 'center', opacity: 0.5, defaultDuration: 0.6 },
+  eyes: { chromaKey: true, scale: 0.4, position: 'center', defaultDuration: 3 },
 }
 const DEFAULT_EFFECT_COMPOSITE = EFFECT_COMPOSITE.orb
 
