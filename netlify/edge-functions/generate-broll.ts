@@ -46,13 +46,18 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Ogiltig JSON i request-body.' }, 400)
   }
 
-  const theme = [body.category, body.subtopic, body.hookText]
+  // Valfri egen idé från användaren (t.ex. "regn mot ett fönster, neonljus i vattenpölar") —
+  // skickas fortfarande via Claude (PROMPT_SYSTEM nedan) istället för direkt till
+  // videomodellen, så att person-skyddet gäller även här.
+  const customPrompt = typeof body.customPrompt === 'string' ? body.customPrompt.trim() : ''
+
+  const theme = [customPrompt, body.category, body.subtopic, body.hookText]
     .filter((v) => typeof v === 'string' && v.trim())
     .join(' — ')
 
   if (!theme) {
     return jsonResponse(
-      { error: 'category, subtopic eller hookText krävs för att generera ett B-roll-tema.' },
+      { error: 'customPrompt, category, subtopic eller hookText krävs för att generera ett B-roll-tema.' },
       400
     )
   }

@@ -67,6 +67,9 @@ export default function Klippstudio() {
   const [brollStatus, setBrollStatus] = useState(null)
   const [brollVideoUrl, setBrollVideoUrl] = useState(null)
   const [brollPrompt, setBrollPrompt] = useState(null)
+  // Valfri egen idé till B-roll — går via Claude (se generate-broll.ts) istället för direkt
+  // till videomodellen, så person-skyddet gäller även för användarens egen text.
+  const [brollCustomPrompt, setBrollCustomPrompt] = useState('')
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -176,6 +179,7 @@ export default function Klippstudio() {
     setBrollEnabled(false)
     setBrollVideoUrl(null)
     setBrollPrompt(null)
+    setBrollCustomPrompt('')
     setSaved(false)
     setSavedClipId(null)
     setAutoSaveError(null)
@@ -346,6 +350,7 @@ export default function Klippstudio() {
         category: plan.category || category,
         subtopic: plan.subtopic || subtopic,
         hookText: selectedHook?.text,
+        customPrompt: brollCustomPrompt,
         onStatus: setBrollStatus,
       })
       setBrollVideoUrl(result.url)
@@ -601,6 +606,7 @@ export default function Klippstudio() {
                     if (!e.target.checked) {
                       setBrollVideoUrl(null)
                       setBrollPrompt(null)
+                      setBrollCustomPrompt('')
                     }
                   }}
                   style={{ marginTop: 4 }}
@@ -625,14 +631,29 @@ export default function Klippstudio() {
                     {brollPrompt && <p className="clip-prompt">Prompt: {brollPrompt}</p>}
                   </div>
                 ) : (
-                  <button
-                    className="btn-primary"
-                    style={{ marginTop: 12 }}
-                    onClick={handleGenerateBroll}
-                    disabled={brollGenerating}
-                  >
-                    {brollGenerating ? BROLL_STATUS_LABELS[brollStatus] ?? 'Genererar…' : 'Generera B-roll'}
-                  </button>
+                  <>
+                    <label style={{ display: 'block', marginTop: 12 }}>
+                      Egen idé (valfritt)
+                      <textarea
+                        value={brollCustomPrompt}
+                        onChange={(e) => setBrollCustomPrompt(e.target.value)}
+                        rows={2}
+                        placeholder="T.ex. regn mot ett fönster, neonljus i vattenpölar — lämna tomt så väljer Claude själv utifrån kategori/hook"
+                      />
+                    </label>
+                    <p className="placeholder-note">
+                      Din text går via Claude, som skriver om den till en bildprompt utan
+                      personer — samma person-skydd som annars.
+                    </p>
+                    <button
+                      className="btn-primary"
+                      style={{ marginTop: 4 }}
+                      onClick={handleGenerateBroll}
+                      disabled={brollGenerating}
+                    >
+                      {brollGenerating ? BROLL_STATUS_LABELS[brollStatus] ?? 'Genererar…' : 'Generera B-roll'}
+                    </button>
+                  </>
                 ))}
             </div>
           )}

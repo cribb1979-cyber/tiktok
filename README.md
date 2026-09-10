@@ -219,12 +219,22 @@ pris), öppen källkod. `src/lib/replicateClient.js` (döpt om från `runwayClie
 funktionssignatur (`generateBroll`) så resten av koden (Klippstudio.jsx) inte behövde ändras.
 
 **Flöde:** `netlify/edge-functions/generate-broll.ts` ber Claude formulera en kort, filmisk,
-uttryckligen person-fri visuell prompt utifrån klippets kategori/underämne/hook, skickar den
-till Replicates `models/{model}/predictions`-endpoint (modellen `wavespeedai/wan-2.1-t2v-720p`
-som default, styrbart via `REPLICATE_MODEL`), med `negative_prompt` som extra skyddsnät mot
-att personer dyker upp i bild. `broll-status.ts` pollas (Replicates statusvärden
+uttryckligen person-fri visuell prompt utifrån klippets kategori/underämne/hook — och valfritt
+en egen idé du skriver själv i Klippstudio (`customPrompt`, t.ex. "regn mot ett fönster,
+neonljus i vattenpölar"). Din text går fortfarande via Claude istället för direkt till
+videomodellen, så person-skyddet gäller även då. Prompten skickas sedan till Replicates
+`models/{model}/predictions`-endpoint (modellen `wavespeedai/wan-2.1-t2v-720p` som default,
+styrbart via `REPLICATE_MODEL`), med `negative_prompt` som extra skyddsnät mot att personer
+dyker upp i bild. `broll-status.ts` pollas (Replicates statusvärden
 starting/processing/succeeded/failed normaliseras internt till samma PENDING/RUNNING/
 SUCCEEDED/FAILED-kontrakt som tidigare, så klientkoden är oförändrad) tills videon är klar.
+
+**Kontroll mot Replicates egen dokumentation (2026-09-10):** input-fälten
+(`prompt`/`negative_prompt`/`aspect_ratio`/`fast_mode`) verifierades mot modellens
+Schema-sida (`replicate.com/wavespeedai/wan-2.1-t2v-720p/api/schema`) och stämmer. Ett
+verkligt testfel (`(E002)`, `helpers.exceptions.prediction.ModelError`) visade sig reproduceras
+även i Replicates egen Playground med enkel standardprompt — dvs. en tillfällig driftstörning
+hos WaveSpeedAI (leverantören bakom just den här modellvarianten), inte ett fel i vår kod.
 
 **TikTok-taggning:** `ai_generated_content` sätts automatiskt till `true` när B-roll används
 (aldrig manuellt valbart av användaren) — Bibliotek visar en tydlig "AI-genererat
