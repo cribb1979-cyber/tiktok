@@ -9,7 +9,13 @@ import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory
 import { generateBroll } from '../lib/runwayClient.js'
 import { CATEGORIES } from '../constants.js'
 
-const MAX_FILE_BYTES = 25 * 1024 * 1024
+// Whisper (OpenAI) har en hård 25 MB-gräns per fil — den kan inte höjas, det är deras
+// API:s egen begränsning. Uppladdning/rendering (Shotstack) har ingen sådan gräns, så den
+// är satt betydligt högre — bara en förnuftig spärr mot orimligt stora filer på mobildata.
+// Supabase Storage har ett eget projektinställt max-filstorlekstak (default kan vara lägre)
+// som också kan behöva höjas i Supabase-dashboarden om uppladdningen ändå fastnar.
+const WHISPER_MAX_FILE_BYTES = 25 * 1024 * 1024
+const UPLOAD_MAX_FILE_BYTES = 200 * 1024 * 1024
 
 const RENDER_STATUS_LABELS = {
   queued: 'I kö…',
@@ -60,13 +66,16 @@ export default function Klippstudio() {
   // handleRender) — gör efterföljande sparningar till uppdateringar istället för dubbletter.
   const [savedClipId, setSavedClipId] = useState(null)
   const [autoSaveError, setAutoSaveError] = useState(null)
+  const [transcriptionSkipped, setTranscriptionSkipped] = useState(false)
 
   async function handleFileChange(event) {
     const file = event.target.files?.[0]
     if (!file) return
 
-    if (file.size > MAX_FILE_BYTES) {
-      setError('Filen är för stor (max 25 MB). Korta ner klippet och försök igen.')
+    if (file.size > UPLOAD_MAX_FILE_BYTES) {
+      setError(
+        `Filen är för stor (max ${Math.round(UPLOAD_MAX_FILE_BYTES / (1024 * 1024))} MB). Korta ner klippet och försök igen.`
+      )
       event.target.value = ''
       return
     }
@@ -76,7 +85,23 @@ export default function Klippstudio() {
     setMediaPublicUrl(null)
     setTranscript(null)
     setRenderedVideoUrl(null)
+    setTranscriptionSkipped(false)
     setTranscribing(true)
+
+    if (file.size > WHISPER_MAX_FILE_BYTES) {
+      // Över Whisper-gränsen (25 MB, satt av OpenAI — kan inte höjas). Ladda upp för
+      // rendering ändå, hoppa bara över transkriberingen istället för att blockera hela
+      // flödet — klippningsplanen baseras då på prompten istället för transkriptet.
+      try {
+        const publicUrl = await uploadRawClip(file)
+        setMediaPublicUrl(publicUrl)
+        setTranscriptionSkipped(true)
+      } catch (err) {
+        setError(err.message)
+      }
+      setTranscribing(false)
+      return
+    }
 
     // .mov (standard från iPhone/iPad) avvisas av Whisper, och Safari på iOS saknar både
     // stöd för att packa upp ljud ur videocontainrar via decodeAudioData och för
@@ -121,6 +146,7 @@ export default function Klippstudio() {
     setMediaPublicUrl(null)
     setTranscript(null)
     setRenderedVideoUrl(null)
+    setTranscriptionSkipped(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -335,6 +361,13 @@ export default function Klippstudio() {
               <span className="clip-category">{mediaFile.name}</span>
             </div>
             {transcript && <p className="clip-prompt">{transcript.text || 'Inget tal upptäcktes.'}</p>}
+            {transcriptionSkipped && (
+              <p className="clip-prompt">
+                Filen är större än 25 MB — transkribering hoppades över (Whisper-gränsen är
+                satt av OpenAI, kan inte höjas). Klippningsplanen baseras på din prompt
+                istället. Rendering fungerar som vanligt.
+              </p>
+            )}
             <button type="button" className="btn-danger" onClick={clearMedia}>
               Ta bort
             </button>

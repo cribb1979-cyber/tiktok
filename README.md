@@ -55,11 +55,19 @@ presterande klipp i samma kategori) — fyllt sedan steg 9 (se nedan), tom lista
 
 ## Whisper-integration (steg 5)
 
-`netlify/edge-functions/transcribe.ts` tar emot en uppladdad video-/ljudfil (max 25 MB, samma
-gräns som OpenAIs whisper-1-endpoint) och returnerar tidsstämplade segment. Nyckeln
-`WHISPER_API_KEY` (en OpenAI API-nyckel) exponeras aldrig i klienten. Transkriptet skickas
-vidare som `transcript` till `/api/generate-plan` så klippningsplanen kan baseras på faktiskt
-videoinnehåll, inte bara prompten.
+`netlify/edge-functions/transcribe.ts` tar emot en uppladdad video-/ljudfil och returnerar
+tidsstämplade segment. Nyckeln `WHISPER_API_KEY` (en OpenAI API-nyckel) exponeras aldrig i
+klienten. Transkriptet skickas vidare som `transcript` till `/api/generate-plan` så
+klippningsplanen kan baseras på faktiskt videoinnehåll, inte bara prompten.
+
+**Filstorlek:** Whisper har en hård 25 MB-gräns per fil, satt av OpenAI — går inte att höja.
+Uppladdning/rendering (Shotstack) har ingen sådan gräns. Klippstudio skiljer därför på de
+två: filer över 25 MB laddas upp för rendering som vanligt, men hoppar över transkriberingen
+(klippningsplanen baseras då bara på prompten) istället för att blocka hela flödet. Egen
+gräns i klienten för själva uppladdningen: 200 MB (`UPLOAD_MAX_FILE_BYTES` i
+`Klippstudio.jsx`) — bara en förnuftig spärr, inte en teknisk gräns. Supabase Storage har
+ett eget projektinställt max-filstorlekstak (Storage → Settings i Supabase-dashboarden) som
+också kan behöva höjas om stora uppladdningar ändå fastnar.
 
 **.mov (iPhone/iPad):** Whisper accepterar inte .mov, och Safari på iOS saknar stöd för att
 konvertera videon i webbläsaren (varken `decodeAudioData` för videocontainrar eller
