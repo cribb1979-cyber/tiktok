@@ -1,4 +1,4 @@
-import { errorMessage } from './apiError.js'
+import { errorMessage, parseJsonResponse } from './apiError.js'
 
 // Anropar Netlify Edge Functions /api/render-clip och /api/render-status — aldrig
 // Shotstack API direkt från klienten.
@@ -50,7 +50,7 @@ async function submitRender({
     }),
   })
 
-  const data = await response.json()
+  const data = await parseJsonResponse(response)
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte starta rendering.'))
   }
@@ -59,7 +59,7 @@ async function submitRender({
 
 async function getRenderStatus(id) {
   const response = await fetch(`/api/render-status?id=${encodeURIComponent(id)}`)
-  const data = await response.json()
+  const data = await parseJsonResponse(response)
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte hämta renderingsstatus.'))
   }

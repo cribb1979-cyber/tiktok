@@ -1,4 +1,4 @@
-import { errorMessage } from './apiError.js'
+import { errorMessage, parseJsonResponse } from './apiError.js'
 
 // Anropar Netlify Edge Functions /api/generate-background och /api/matte-video(-status) —
 // aldrig Claude/Replicate direkt från klienten. Se render-clip.ts (backgroundSwapEnabled)
@@ -13,7 +13,7 @@ export async function generateBackgroundImage({ customPrompt }) {
     body: JSON.stringify({ customPrompt }),
   })
 
-  const data = await response.json()
+  const data = await parseJsonResponse(response)
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte generera bakgrundsbild.'))
   }
@@ -27,7 +27,7 @@ async function submitMatte(videoUrl) {
     body: JSON.stringify({ videoUrl }),
   })
 
-  const data = await response.json()
+  const data = await parseJsonResponse(response)
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte starta bakgrundsborttagning.'))
   }
@@ -36,7 +36,7 @@ async function submitMatte(videoUrl) {
 
 async function getMatteStatus(taskId) {
   const response = await fetch(`/api/matte-video-status?id=${encodeURIComponent(taskId)}`)
-  const data = await response.json()
+  const data = await parseJsonResponse(response)
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte hämta status för bakgrundsborttagning.'))
   }

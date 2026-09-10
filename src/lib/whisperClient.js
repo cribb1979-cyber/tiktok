@@ -1,4 +1,4 @@
-import { errorMessage } from './apiError.js'
+import { errorMessage, parseJsonResponse } from './apiError.js'
 
 // Anropar Netlify Edge Function /api/transcribe — aldrig Whisper API direkt från klienten.
 export async function transcribeMedia(file) {
@@ -10,7 +10,7 @@ export async function transcribeMedia(file) {
     body: formData,
   })
 
-  const data = await response.json()
+  const data = await parseJsonResponse(response)
 
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Något gick fel vid transkribering.'))
@@ -28,7 +28,7 @@ export async function transcribeFromUrl(videoUrl) {
     body: JSON.stringify({ videoUrl }),
   })
 
-  const data = await response.json()
+  const data = await parseJsonResponse(response)
 
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Något gick fel vid transkribering.'))

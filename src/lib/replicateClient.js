@@ -1,4 +1,4 @@
-import { errorMessage } from './apiError.js'
+import { errorMessage, parseJsonResponse } from './apiError.js'
 
 // Anropar Netlify Edge Functions /api/generate-broll och /api/broll-status — aldrig
 // Replicate/Claude direkt från klienten. Byggd mot Replicate (Wan 2.1) — tidigare Runway,
@@ -30,7 +30,7 @@ async function submitBroll({
     }),
   })
 
-  const data = await response.json()
+  const data = await parseJsonResponse(response)
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte starta B-roll-generering.'))
   }
@@ -39,7 +39,7 @@ async function submitBroll({
 
 async function getBrollStatus(taskId) {
   const response = await fetch(`/api/broll-status?id=${encodeURIComponent(taskId)}`)
-  const data = await response.json()
+  const data = await parseJsonResponse(response)
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte hämta B-roll-status.'))
   }
@@ -72,7 +72,7 @@ export async function refineBrollPrompt({
     }),
   })
 
-  const data = await response.json()
+  const data = await parseJsonResponse(response)
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte förfina prompten.'))
   }

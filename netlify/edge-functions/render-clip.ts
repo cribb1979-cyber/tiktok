@@ -26,6 +26,12 @@ const CAPTION_MAX_CHARS = 34
 const CAPTION_CHARS_PER_LINE = 15
 const HOOK_MAX_CHARS = 26
 const HOOK_CHARS_PER_LINE = 11
+// Hooken ligger på ett eget spår ÖVER tankebubblorna (se tracks-ordningen nedan) under de
+// första HOOK_MAX_DURATION sekunderna av hela klippet — måste vara samma värde här och i
+// hookClip.length nedan, annars kan en tankebubbla för första segmentet hamna mitt i
+// hook-fönstret och krocka visuellt med den (rapporterad bugg: bubbeltext synlig
+// bakom/ovanpå hook-texten).
+const HOOK_MAX_DURATION = 2.5
 
 // Halvgenomskinlig svart bakgrundsruta bakom text — TikTok-typisk captionstil, och ett extra
 // skyddsnät för läsbarhet oavsett underliggande footage. Shotstack anger alpha FÖRST i
@@ -360,18 +366,28 @@ export default async (request: Request) => {
     if (thoughtBubblesEnabled) {
       const bubbleText = truncateForOverlay(thoughtBubbles[index % thoughtBubbles.length], THOUGHT_BUBBLE_MAX_CHARS)
       const bubbleLength = Math.min(THOUGHT_BUBBLE_DURATION, length)
-      bubbleClips.push({
-        asset: {
-          type: 'html',
-          html: `<p>${escapeHtml(bubbleText)}</p>`,
-          css: THOUGHT_BUBBLE_CSS,
-          width: 700,
-          height: 260,
-          position: THOUGHT_BUBBLE_POSITIONS[index % THOUGHT_BUBBLE_POSITIONS.length],
-        },
-        start: timelineCursor + Math.max((length - bubbleLength) / 2, 0),
-        length: bubbleLength,
-      })
+      const naturalOffset = Math.max((length - bubbleLength) / 2, 0)
+      // Tvinga bubblan att börja EFTER hooken för segment 0 — annars hamnar den centrerad
+      // mitt i hook-fönstret (0–HOOK_MAX_DURATION) om segmentet är kort. earliestStart är 0
+      // för alla andra segment (timelineCursor är då redan > HOOK_MAX_DURATION där).
+      const earliestStart = index === 0 && hookText ? HOOK_MAX_DURATION : 0
+      const offset = Math.max(naturalOffset, earliestStart - timelineCursor)
+      // Hoppa över bubblan helt om segmentet är för kort för att rymma den efter hooken,
+      // istället för att klämma in den eller låta den sticka in i nästa segment.
+      if (offset + bubbleLength <= length) {
+        bubbleClips.push({
+          asset: {
+            type: 'html',
+            html: `<p>${escapeHtml(bubbleText)}</p>`,
+            css: THOUGHT_BUBBLE_CSS,
+            width: 700,
+            height: 260,
+            position: THOUGHT_BUBBLE_POSITIONS[index % THOUGHT_BUBBLE_POSITIONS.length],
+          },
+          start: timelineCursor + offset,
+          length: bubbleLength,
+        })
+      }
     }
 
     // AI-effekt läggs ovanpå det första segmentet, från dess start — inte längre än
@@ -481,7 +497,7 @@ export default async (request: Request) => {
             position: 'center',
           },
           start: 0,
-          length: Math.min(2.5, timelineCursor),
+          length: Math.min(HOOK_MAX_DURATION, timelineCursor),
         },
       ]
     : []

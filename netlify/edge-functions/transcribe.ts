@@ -135,21 +135,40 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Kunde inte tolka Whispers svar som JSON.', raw: rawWhisperText }, 502)
   }
 
+  // Whisper hallucinerar ibland en fast fransk boilerplate-fras ("Sous-titres réalisés par la
+  // communauté d'Amara.org" och varianter) på tyst/nästan tyst ljud — ett känt artefaktmönster
+  // från träningsdatan (Amara.org är en community för crowd-sourcade undertexter). Filtreras
+  // bort här, innan Claude-planeringen eller undertextrenderingen någonsin ser den — annars
+  // dyker enstaka ord ur frasen (t.ex. "SOUS") upp som meningslösa ord-för-ord-undertexter.
+  const isWhisperHallucination = (text: string) => /amara\.org|sous-titres/i.test(text)
+
   // Normaliserat till { start, end, text } (sekunder) — samma form som skickas vidare
   // till Claude-anropet i generate-plan.ts.
-  const segments = ((data.segments as unknown[]) ?? []).map((seg: { start: number; end: number; text: string }) => ({
+  const rawSegments = ((data.segments as unknown[]) ?? []).map((seg: { start: number; end: number; text: string }) => ({
     start: seg.start,
     end: seg.end,
     text: (seg.text ?? '').trim(),
   }))
+  const hallucinatedRanges = rawSegments.filter((seg) => isWhisperHallucination(seg.text))
+  const segments = rawSegments.filter((seg) => !isWhisperHallucination(seg.text))
 
-  const words = ((data.words as unknown[]) ?? []).map((w: { word: string; start: number; end: number }) => ({
-    word: (w.word ?? '').trim(),
-    start: w.start,
-    end: w.end,
-  }))
+  // Enskilda ord ur en hallucinerad fras ("Sous", "titres", "par", ...) innehåller själva
+  // inte "amara.org" och matchar därför inte isWhisperHallucination direkt — filtreras
+  // istället bort via tidsstämpel mot de hallucinerade segmentens tidsintervall.
+  const words = ((data.words as unknown[]) ?? [])
+    .map((w: { word: string; start: number; end: number }) => ({
+      word: (w.word ?? '').trim(),
+      start: w.start,
+      end: w.end,
+    }))
+    .filter((w) => !hallucinatedRanges.some((r) => w.start >= r.start && w.start < r.end))
 
-  return jsonResponse({ text: data.text ?? '', segments, words }, 200)
+  // data.text (Whisperts egen sammanslagna helhetstext) är opåverkad av filtreringen ovan —
+  // bygg om den från de rensade segmenten istället, så förhandsvisningen i Klippstudio inte
+  // visar boilerplate-frasen även när resten av transkriptet är rent.
+  const text = segments.map((s) => s.text).join(' ').trim()
+
+  return jsonResponse({ text, segments, words }, 200)
 }
 
 function jsonResponse(data: unknown, status: number) {

@@ -1,4 +1,4 @@
-import { errorMessage } from './apiError.js'
+import { errorMessage, parseJsonResponse } from './apiError.js'
 
 // Anropar Netlify Edge Function /api/generate-plan — aldrig Claude API direkt från klienten.
 export async function generateClipPlan({
@@ -24,7 +24,7 @@ export async function generateClipPlan({
     }),
   })
 
-  const data = await response.json()
+  const data = await parseJsonResponse(response)
 
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Något gick fel vid generering av klippningsplan.'))
