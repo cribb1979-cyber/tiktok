@@ -92,15 +92,17 @@ export default async (request: Request) => {
 
   // Steg 2: skicka prompten till Replicate (Wan 2.1) för videogenerering (asynkront,
   // prediction-baserat). negative_prompt är ett extra skyddsnät mot att personer dyker upp i
-  // bild, utöver instruktionen i Claude-prompten. fast_mode: true för lägre kostnad/kortare
-  // väntetid — bra avvägning för atmosfärisk bakgrund som inte behöver perfekt detaljrikedom.
+  // bild, utöver instruktionen i Claude-prompten. fast_mode: "Fast" (en sträng, inte en
+  // boolean — bekräftat via ett skarpt 422-fel: "Expected: string, given: boolean") för lägre
+  // kostnad/kortare väntetid — bra avvägning för atmosfärisk bakgrund som inte behöver
+  // perfekt detaljrikedom.
   const replicateBody = {
     input: {
       prompt: visualPrompt,
       negative_prompt:
         'people, person, human face, human figure, man, woman, portrait, crowd, text, watermark',
       aspect_ratio: '9:16', // TikTok-format
-      fast_mode: true,
+      fast_mode: 'Fast',
     },
   }
 
