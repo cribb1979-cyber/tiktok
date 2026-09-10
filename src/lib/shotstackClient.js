@@ -11,6 +11,8 @@ async function submitRender({
   suggestedSubtitles,
   brollVideoUrl,
   segmentEffects,
+  segmentFilters,
+  words,
 }) {
   const response = await fetch('/api/render-clip', {
     method: 'POST',
@@ -23,6 +25,8 @@ async function submitRender({
       suggestedSubtitles,
       brollVideoUrl,
       segmentEffects,
+      segmentFilters,
+      words,
     }),
   })
 
@@ -55,6 +59,8 @@ export async function renderClip({
   suggestedSubtitles,
   brollVideoUrl,
   segmentEffects,
+  segmentFilters,
+  words,
   onStatus,
 }) {
   const id = await submitRender({
@@ -65,6 +71,8 @@ export async function renderClip({
     suggestedSubtitles,
     brollVideoUrl,
     segmentEffects,
+    segmentFilters,
+    words,
   })
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {

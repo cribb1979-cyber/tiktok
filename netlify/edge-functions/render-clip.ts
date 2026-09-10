@@ -38,6 +38,26 @@ const BROLL_DEFAULT_DURATION = 5
 
 type Segment = { start: string; end: string; description?: string; order?: number }
 type TranscriptSegment = { start: number; end: number; text: string }
+type WordTiming = { word: string; start: number; end: number }
+
+// Ord-för-ord-undertexter byggs som korta html-klipp (ett ord i taget, stort och fetstilat) —
+// samma mönster som Shotstacks eget "kinetic-text"-exempel, verifierat schema. Undviker den
+// nyare "Rich Captions"-asset-typen vars exakta fältnamn inte gick att verifiera mot
+// Shotstacks dokumentation från den här miljön (nätverksbegränsningar) — att gissa fel där
+// hade riskerat en misslyckad rendering.
+const WORD_CAPTION_CSS =
+  'p { font-family: Arial, Helvetica, sans-serif; color: #ffffff; font-size: 64px; ' +
+  'text-align: center; font-weight: 800; text-transform: uppercase; ' +
+  'text-shadow: 0 0 10px rgba(0,0,0,0.85), 0 4px 4px rgba(0,0,0,0.85); margin: 0; }'
+const WORD_CAPTION_MIN_LENGTH = 0.12
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -68,6 +88,13 @@ export default async (request: Request) => {
   // constants.js) — tomt/saknat värde för ett index betyder "automatiskt", dvs. samma
   // cyklande fallback som innan detta fanns.
   const segmentEffects = Array.isArray(body.segmentEffects) ? (body.segmentEffects as unknown[]) : []
+  // Manuellt val av färgfilter per segment (se SEGMENT_FILTER_OPTIONS i constants.js) — tomt
+  // värde betyder inget filter alls (inte cyklande automatik, till skillnad från effect).
+  const segmentFilters = Array.isArray(body.segmentFilters) ? (body.segmentFilters as unknown[]) : []
+  // Ord-nivå-tidsstämplar från Whisper (transcribe.ts), för ord-för-ord-animerade
+  // undertexter (CapCut/TikTok-stil) istället för statiska frasöverlägg. Tom lista om
+  // transkribering hoppades över (fil >25 MB) eller inget råmaterial finns.
+  const words = Array.isArray(body.words) ? (body.words as WordTiming[]) : []
   const brollDuration =
     typeof body.brollDurationSeconds === 'number' && body.brollDurationSeconds > 0
       ? body.brollDurationSeconds
@@ -93,6 +120,7 @@ export default async (request: Request) => {
       typeof manualEffect === 'string' && manualEffect
         ? manualEffect
         : SEGMENT_EFFECTS[index % SEGMENT_EFFECTS.length]
+    const manualFilter = segmentFilters[index]
 
     videoClips.push({
       asset: { type: 'video', src: videoUrl, trim: trimStart, volume: 1 },
@@ -100,38 +128,62 @@ export default async (request: Request) => {
       length,
       fit: 'crop',
       effect,
+      ...(typeof manualFilter === 'string' && manualFilter ? { filter: manualFilter } : {}),
       transition: {
         in: index === 0 ? 'fadeFast' : SEGMENT_TRANSITIONS_IN[index % SEGMENT_TRANSITIONS_IN.length],
         out: 'fadeFast',
       },
     })
 
-    // Nyckelfras framför allt — matchar spec ("textöverlägg vid nyckelord") och är
-    // strukturellt kort nog att aldrig gå utanför bildkanten. Faller tillbaka till
-    // transkript/segmentbeskrivning (hårt förkortat) om inga nyckelfraser finns.
-    const rawCaption =
-      suggestedSubtitles.length > 0
-        ? suggestedSubtitles[index % suggestedSubtitles.length]
-        : transcript
-            .filter((t) => t.start >= trimStart && t.start < trimEnd)
-            .map((t) => t.text)
-            .join(' ')
-            .trim() || seg.description || ''
+    // Ord-för-ord om vi har riktiga tidsstämplar för det här segmentet (CapCut/TikTok-stil,
+    // synkat exakt mot talet) — annars en statisk frasöverlägg som tidigare.
+    const segmentWords = words.filter((w) => w.start >= trimStart && w.start < trimEnd)
 
-    if (rawCaption) {
-      captionClips.push({
-        asset: {
-          type: 'title',
-          text: wrapText(truncateForOverlay(rawCaption, CAPTION_MAX_CHARS), CAPTION_CHARS_PER_LINE),
-          style: 'minimal',
-          color: '#ffffff',
-          background: TEXT_BACKGROUND,
-          size: 'small',
-          position: 'bottom',
-        },
-        start: timelineCursor,
-        length,
-      })
+    if (segmentWords.length > 0) {
+      for (const w of segmentWords) {
+        const word = w.word.trim()
+        if (!word) continue
+        captionClips.push({
+          asset: {
+            type: 'html',
+            html: `<p>${escapeHtml(word)}</p>`,
+            css: WORD_CAPTION_CSS,
+            width: 950,
+            height: 220,
+            position: 'bottom',
+          },
+          start: timelineCursor + Math.max(w.start - trimStart, 0),
+          length: Math.max(w.end - w.start, WORD_CAPTION_MIN_LENGTH),
+        })
+      }
+    } else {
+      // Nyckelfras framför allt — matchar spec ("textöverlägg vid nyckelord") och är
+      // strukturellt kort nog att aldrig gå utanför bildkanten. Faller tillbaka till
+      // transkript/segmentbeskrivning (hårt förkortat) om inga nyckelfraser finns.
+      const rawCaption =
+        suggestedSubtitles.length > 0
+          ? suggestedSubtitles[index % suggestedSubtitles.length]
+          : transcript
+              .filter((t) => t.start >= trimStart && t.start < trimEnd)
+              .map((t) => t.text)
+              .join(' ')
+              .trim() || seg.description || ''
+
+      if (rawCaption) {
+        captionClips.push({
+          asset: {
+            type: 'title',
+            text: wrapText(truncateForOverlay(rawCaption, CAPTION_MAX_CHARS), CAPTION_CHARS_PER_LINE),
+            style: 'minimal',
+            color: '#ffffff',
+            background: TEXT_BACKGROUND,
+            size: 'small',
+            position: 'bottom',
+          },
+          start: timelineCursor,
+          length,
+        })
+      }
     }
 
     timelineCursor += length

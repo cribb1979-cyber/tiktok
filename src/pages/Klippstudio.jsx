@@ -8,7 +8,7 @@ import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll } from '../lib/runwayClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
-import { CATEGORIES, SEGMENT_EFFECT_OPTIONS } from '../constants.js'
+import { CATEGORIES, SEGMENT_EFFECT_OPTIONS, SEGMENT_FILTER_OPTIONS } from '../constants.js'
 
 // Whisper (OpenAI) har en hård 25 MB-gräns per fil — den kan inte höjas, det är deras
 // API:s egen begränsning. Uppladdning/rendering (Shotstack) har ingen sådan gräns, så den
@@ -52,8 +52,10 @@ export default function Klippstudio() {
   const [plan, setPlan] = useState(null)
   const [selectedHookIndex, setSelectedHookIndex] = useState(0)
   const [fewShotCount, setFewShotCount] = useState(0)
-  // Manuellt effektval per segment ('' = automatiskt) — index matchar plan.segments_plan.
+  // Manuellt effekt-/filterval per segment ('' = automatiskt/inget) — index matchar
+  // plan.segments_plan.
   const [segmentEffects, setSegmentEffects] = useState([])
+  const [segmentFilters, setSegmentFilters] = useState([])
 
   const [rendering, setRendering] = useState(false)
   const [renderStatus, setRenderStatus] = useState(null)
@@ -203,6 +205,7 @@ export default function Klippstudio() {
       setPlan(result)
       setSelectedHookIndex(0)
       setSegmentEffects((result.segments_plan ?? []).map(() => ''))
+      setSegmentFilters((result.segments_plan ?? []).map(() => ''))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -284,6 +287,8 @@ export default function Klippstudio() {
         suggestedSubtitles: plan.suggested_subtitles ?? [],
         brollVideoUrl,
         segmentEffects,
+        segmentFilters,
+        words: transcript?.words ?? [],
         onStatus: setRenderStatus,
       })
       setRenderedVideoUrl(url)
@@ -529,21 +534,36 @@ export default function Klippstudio() {
                   </strong>{' '}
                   {seg.description}
                   {mediaPublicUrl && (
-                    <select
-                      value={segmentEffects[i] ?? ''}
-                      onChange={(e) => {
-                        const next = [...segmentEffects]
-                        next[i] = e.target.value
-                        setSegmentEffects(next)
-                      }}
-                      style={{ display: 'block', marginTop: 4 }}
-                    >
-                      {SEGMENT_EFFECT_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                      <select
+                        value={segmentEffects[i] ?? ''}
+                        onChange={(e) => {
+                          const next = [...segmentEffects]
+                          next[i] = e.target.value
+                          setSegmentEffects(next)
+                        }}
+                      >
+                        {SEGMENT_EFFECT_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={segmentFilters[i] ?? ''}
+                        onChange={(e) => {
+                          const next = [...segmentFilters]
+                          next[i] = e.target.value
+                          setSegmentFilters(next)
+                        }}
+                      >
+                        {SEGMENT_FILTER_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   )}
                 </li>
               ))}
@@ -554,6 +574,12 @@ export default function Klippstudio() {
             <div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Föreslagna nyckelfraser</p>
               <p>{plan.suggested_subtitles.join(' · ')}</p>
+              {transcript?.words?.length > 0 && (
+                <p className="placeholder-note">
+                  Används bara som reserv — eftersom ett riktigt transkript finns renderas
+                  ord-för-ord-undertexter synkade mot talet istället.
+                </p>
+              )}
             </div>
           )}
 

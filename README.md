@@ -114,6 +114,23 @@ värde) faller tillbaka till den cyklande listan. Valet skickas som `segmentEffe
 samma index som `segments_plan`) till `/api/render-clip`, som använder det manuella värdet när
 det finns, annars automatiken precis som innan.
 
+**Färgfilter per segment:** ytterligare en dropdown per segment (`SEGMENT_FILTER_OPTIONS`) —
+boost/contrast/muted/darken/lighten/greyscale/negative, Shotstacks inbyggda clip-nivå
+`filter`-fält. Standard är inget filter alls (till skillnad från effekter cyklas inget filter
+automatiskt fram). Skickas som `segmentFilters` till `/api/render-clip`.
+
+**Ord-för-ord-undertexter (CapCut/TikTok-stil):** `netlify/edge-functions/transcribe.ts`
+begär numera även `timestamp_granularities[]=word` från Whisper, så varje ord i transkriptet
+har sin egen start/end-tid. `render-clip.ts` bygger, när sådana tidsstämplar finns för ett
+segment, ett kort `html`-klipp per ord (stort, fetstilat, ett ord i taget — synkat exakt mot
+talet i videon) istället för det gamla statiska frasöverlägget. Faller tillbaka till det gamla
+beteendet (nyckelfraser från `suggested_subtitles`, ett överlägg per segment) om inga
+ordtidsstämplar finns för det segmentet — t.ex. när transkribering hoppades över (fil >25 MB).
+Byggt med samma html-asset-mönster som Shotstacks eget "kinetic-text"-exempel (verifierat
+schema) snarare än den nyare "Rich Captions"-asset-typen, vars exakta fältnamn inte gick att
+verifiera mot Shotstacks dokumentationssajt härifrån (nätverksbegränsningar) — värt att byta
+till om/när det schemat går att bekräfta, då den har inbyggt stöd för highlighting-animationer.
+
 `SHOTSTACK_ENV` styr miljö: `stage` (default) är Shotstacks gratis sandbox och
 vattenstämplar videon — bra för att testa flödet. Sätt `SHOTSTACK_ENV=v1` i Netlify med en
 produktionsnyckel för skarpa renderingar.

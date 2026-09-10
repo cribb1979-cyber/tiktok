@@ -107,6 +107,9 @@ export default async (request: Request) => {
   whisperForm.set('model', 'whisper-1')
   whisperForm.set('response_format', 'verbose_json')
   whisperForm.append('timestamp_granularities[]', 'segment')
+  // Ord-nivå-tidsstämplar — används för ord-för-ord-animerade undertexter (CapCut/TikTok-stil)
+  // i render-clip.ts, istället för statiska frasöverlägg.
+  whisperForm.append('timestamp_granularities[]', 'word')
 
   let whisperResponse: Response
   try {
@@ -134,7 +137,13 @@ export default async (request: Request) => {
     text: (seg.text ?? '').trim(),
   }))
 
-  return jsonResponse({ text: data.text ?? '', segments }, 200)
+  const words = (data.words ?? []).map((w: { word: string; start: number; end: number }) => ({
+    word: (w.word ?? '').trim(),
+    start: w.start,
+    end: w.end,
+  }))
+
+  return jsonResponse({ text: data.text ?? '', segments, words }, 200)
 }
 
 function jsonResponse(data: unknown, status: number) {

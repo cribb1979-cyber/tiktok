@@ -16,7 +16,7 @@ export async function transcribeMedia(file) {
     throw new Error(errorMessage(data, 'Något gick fel vid transkribering.'))
   }
 
-  return data // { text, segments: [{ start, end, text }] }
+  return data // { text, segments: [{ start, end, text }], words: [{ word, start, end }] }
 }
 
 // För format Whisper inte accepterar direkt (t.ex. .mov från iPhone/iPad) — servern

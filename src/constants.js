@@ -28,3 +28,16 @@ export const SEGMENT_EFFECT_OPTIONS = [
   { value: 'slideLeft', label: 'Glid vänster (mjuk)' },
   { value: 'slideRight', label: 'Glid höger (mjuk)' },
 ]
+
+// Manuellt val av färgfilter per segment — samma preset-namn som Shotstack förväntar sig
+// (clip-nivå "filter"-fält, se render-clip.ts). Tomt värde = inget filter.
+export const SEGMENT_FILTER_OPTIONS = [
+  { value: '', label: 'Inget filter' },
+  { value: 'boost', label: 'Boost (mer mättnad/kontrast)' },
+  { value: 'contrast', label: 'Kontrast' },
+  { value: 'muted', label: 'Dämpad' },
+  { value: 'darken', label: 'Mörkare' },
+  { value: 'lighten', label: 'Ljusare' },
+  { value: 'greyscale', label: 'Svartvitt' },
+  { value: 'negative', label: 'Negativ' },
+]
