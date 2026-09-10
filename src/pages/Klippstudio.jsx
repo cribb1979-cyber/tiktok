@@ -315,6 +315,14 @@ export default function Klippstudio() {
   const [renderStatus, setRenderStatus] = useState(null)
   const [renderedVideoUrl, setRenderedVideoUrl] = useState(null)
 
+  // Snabb förhandsgranskning — gratis, vattenstämplad Shotstack-sandbox-rendering (samma
+  // redigering som den skarpa, se buildRenderParams) så man kan SE det faktiska resultatet
+  // (hook/undertexter/effekter/glow, allt) innan man committar till den betalda
+  // slutrenderingen. Sparas aldrig till Bibliotek — helt engångsbruk.
+  const [previewRendering, setPreviewRendering] = useState(false)
+  const [previewStatus, setPreviewStatus] = useState(null)
+  const [previewVideoUrl, setPreviewVideoUrl] = useState(null)
+
   // AI-genererad B-roll — valfritt tillval, aldrig standard (se generate-broll.ts).
   const [brollEnabled, setBrollEnabled] = useState(false)
   const [brollGenerating, setBrollGenerating] = useState(false)
@@ -421,6 +429,7 @@ export default function Klippstudio() {
     setMediaPublicUrl(null)
     setTranscript(null)
     setRenderedVideoUrl(null)
+    setPreviewVideoUrl(null)
     setVideoFile(null)
     setTranscriptionSkipped(false)
     setTranscribing(true)
@@ -483,6 +492,7 @@ export default function Klippstudio() {
     setMediaPublicUrl(null)
     setTranscript(null)
     setRenderedVideoUrl(null)
+    setPreviewVideoUrl(null)
     setVideoFile(null)
     setTranscriptionSkipped(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
@@ -496,6 +506,7 @@ export default function Klippstudio() {
     setError(null)
     setPlan(null)
     setRenderedVideoUrl(null)
+    setPreviewVideoUrl(null)
     setVideoFile(null)
     setBrollEnabled(false)
     setBrollVideoUrl(null)
@@ -641,6 +652,70 @@ export default function Klippstudio() {
     return inserted.id
   }
 
+  // Delad av handleRender (skarp, betald rendering) och handlePreviewRender (gratis
+  // sandbox-förhandsgranskning) — exakt samma redigering skickas till båda, bara `preview`
+  // skiljer, så förhandsgranskningen garanterat stämmer med slutresultatet.
+  function buildRenderParams() {
+    const selectedHook = plan.hook_variants?.[selectedHookIndex]
+    return {
+      videoUrl: mediaPublicUrl,
+      segmentsPlan: plan.segments_plan ?? [],
+      transcript: transcript?.segments ?? [],
+      hookText: selectedHook?.text ?? '',
+      suggestedSubtitles: plan.suggested_subtitles ?? [],
+      brollVideoUrl,
+      segmentEffects,
+      segmentFilters,
+      segmentStarts,
+      segmentEnds,
+      segmentSpeeds,
+      words: transcript?.words ?? [],
+      effectVideoUrl,
+      effectType,
+      backgroundImageUrl: backgroundSwapEnabled ? backgroundImageUrl : null,
+      backgroundMattedVideoUrl: backgroundSwapEnabled ? backgroundMattedVideoUrl : null,
+      thoughtBubbles: plan.thought_bubbles ?? [],
+      thoughtBubblesEnabled,
+      thoughtBubbleXPercent,
+      thoughtBubbleYPercent,
+      glowEffect: glowEnabled
+        ? {
+            enabled: true,
+            x_percent: glowXPercent,
+            y_percent: glowYPercent,
+            radius_percent: glowRadiusPercent,
+            start_seconds: glowStartSeconds,
+            end_seconds: glowEndSeconds,
+            color: glowColor,
+            intensity: glowIntensity,
+          }
+        : null,
+    }
+  }
+
+  async function handlePreviewRender() {
+    if (!plan || !mediaPublicUrl) return
+    if (glowEnabled && glowEndSeconds <= glowStartSeconds) {
+      setError('Glow-effektens sluttid måste vara efter starttiden.')
+      return
+    }
+    setPreviewRendering(true)
+    setPreviewStatus('queued')
+    setError(null)
+    try {
+      const url = await renderClip({
+        ...buildRenderParams(),
+        preview: true,
+        onStatus: setPreviewStatus,
+      })
+      setPreviewVideoUrl(url)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setPreviewRendering(false)
+    }
+  }
+
   async function handleRender() {
     if (!plan || !mediaPublicUrl) return
     if (glowEnabled && glowEndSeconds <= glowStartSeconds) {
@@ -652,42 +727,9 @@ export default function Klippstudio() {
     setError(null)
     setVideoFile(null)
 
-    const selectedHook = plan.hook_variants?.[selectedHookIndex]
-
     try {
       const url = await renderClip({
-        videoUrl: mediaPublicUrl,
-        segmentsPlan: plan.segments_plan ?? [],
-        transcript: transcript?.segments ?? [],
-        hookText: selectedHook?.text ?? '',
-        suggestedSubtitles: plan.suggested_subtitles ?? [],
-        brollVideoUrl,
-        segmentEffects,
-        segmentFilters,
-        segmentStarts,
-        segmentEnds,
-        segmentSpeeds,
-        words: transcript?.words ?? [],
-        effectVideoUrl,
-        effectType,
-        backgroundImageUrl: backgroundSwapEnabled ? backgroundImageUrl : null,
-        backgroundMattedVideoUrl: backgroundSwapEnabled ? backgroundMattedVideoUrl : null,
-        thoughtBubbles: plan.thought_bubbles ?? [],
-        thoughtBubblesEnabled,
-        thoughtBubbleXPercent,
-        thoughtBubbleYPercent,
-        glowEffect: glowEnabled
-          ? {
-              enabled: true,
-              x_percent: glowXPercent,
-              y_percent: glowYPercent,
-              radius_percent: glowRadiusPercent,
-              start_seconds: glowStartSeconds,
-              end_seconds: glowEndSeconds,
-              color: glowColor,
-              intensity: glowIntensity,
-            }
-          : null,
+        ...buildRenderParams(),
         onStatus: setRenderStatus,
       })
       setRenderedVideoUrl(url)
@@ -1842,6 +1884,34 @@ export default function Klippstudio() {
                     </label>
                   </div>
                 </>
+              )}
+            </div>
+          )}
+
+          {mediaPublicUrl && !renderedVideoUrl && (
+            <div className="clip-card" style={{ margin: 0 }}>
+              <span className="clip-hook" style={{ display: 'block', marginBottom: 6 }}>
+                Snabb förhandsgranskning (gratis)
+              </span>
+              <p className="clip-prompt" style={{ marginBottom: 10 }}>
+                Renderar hela klippet — hook, undertexter, effekter, glow, allt — via
+                Shotstacks gratis sandbox-miljö (lägre upplösning, vattenstämplad) så du kan
+                SE det faktiska resultatet innan du kör den skarpa (betalda) renderingen
+                nedan. Kostar inget och sparas inte i Bibliotek.
+              </p>
+              <button className="btn-primary" onClick={handlePreviewRender} disabled={previewRendering}>
+                {previewRendering
+                  ? RENDER_STATUS_LABELS[previewStatus] ?? 'Renderar…'
+                  : previewVideoUrl
+                    ? 'Uppdatera förhandsgranskning'
+                    : 'Visa förhandsgranskning'}
+              </button>
+              {previewVideoUrl && (
+                <video
+                  src={previewVideoUrl}
+                  controls
+                  style={{ width: '100%', borderRadius: 12, marginTop: 10 }}
+                />
               )}
             </div>
           )}

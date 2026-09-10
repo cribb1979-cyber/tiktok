@@ -156,6 +156,19 @@ annars `"medium"` — optimerat för liten filstorlek, inte skärpa). `"high"` �
 visuellt lossless. TikTok komprimerar videon igen själva vid uppladdning oavsett, så det är
 bättre att leverera med så hög kvalitet som möjligt in i det steget.
 
+**Snabb förhandsgranskning (gratis):** en knapp i Klippstudio ("Snabb förhandsgranskning")
+skickar EXAKT samma redigering (`buildRenderParams()` i `Klippstudio.jsx`, återanvänds av
+både förhandsgranskningen och den skarpa renderingen — inga separata kodvägar att hålla i
+synk) men med `preview: true`, vilket TVINGAR Shotstacks sandbox-host oavsett `SHOTSTACK_ENV`
+(se `resolveShotstackHost` i `render-clip.ts`/`render-status.ts`). Sandbox-renderingar
+kostar inga krediter alls (kräver bara att kontot har minst 1 kredit för att räknas som
+aktivt) och ger en riktig video (512×288@15fps, vattenstämplad) på några sekunder — byggd av
+EXAKT samma motor/JSON som den skarpa renderingen, så resultatet är garanterat verklighets-
+troget (inte en client-side-gissning). Sparas ALDRIG till Bibliotek, rent engångsbruk för att
+se resultatet (hook, undertexter, effekter, glow, allt) innan man committar till den betalda
+slutrenderingen. `render-status.ts` måste pollas med samma `?preview=true` som renderingen
+submittades med, annars letar den i fel Shotstack-miljö efter jobbet.
+
 Shotstacks `title`-asset (som används för alla textöverlägg) är enligt Shotstacks egen
 dokumentation markerad som föråldrad till förmån för ett nyare `rich-text`/`rich-caption`-API
 med bättre automatisk radbrytning och ord-för-ord-highlighting — inte migrerat hit än

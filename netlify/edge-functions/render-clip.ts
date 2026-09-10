@@ -11,10 +11,20 @@
 // (segmentStarts/segmentEnds/segmentSpeeds) — override av AI-förslaget i segmentsPlan.
 // SHOTSTACK_API_KEY exponeras aldrig i klienten.
 
-// "stage" = Shotstack sandbox (gratis, vattenstämplat) — säkert default tills du har en
-// produktionsnyckel. Sätt SHOTSTACK_ENV=v1 i Netlify när du vill rendera skarpt.
-const SHOTSTACK_HOST =
-  Deno.env.get('SHOTSTACK_ENV') === 'v1' ? 'https://api.shotstack.io/v1' : 'https://api.shotstack.io/stage'
+// "stage" = Shotstack sandbox (gratis, vattenstämplat, 512×288@15fps oavsett begärd
+// output.size/quality) — säkert default tills du har en produktionsnyckel. Sätt
+// SHOTSTACK_ENV=v1 i Netlify när du vill rendera skarpt.
+//
+// preview: true (skickas från "Snabb förhandsgranskning" i Klippstudio) TVINGAR sandbox
+// oavsett SHOTSTACK_ENV — en gratis, riktig (samma motor/JSON som den skarpa renderingen,
+// så WYSIWYG är garanterad) förhandsgranskning innan man committar till den betalda
+// slutrenderingen. render-status.ts måste pollas med samma preview-flagga (samma host).
+const SHOTSTACK_STAGE_HOST = 'https://api.shotstack.io/stage'
+const SHOTSTACK_PROD_HOST = 'https://api.shotstack.io/v1'
+function resolveShotstackHost(preview: boolean): string {
+  if (preview) return SHOTSTACK_STAGE_HOST
+  return Deno.env.get('SHOTSTACK_ENV') === 'v1' ? SHOTSTACK_PROD_HOST : SHOTSTACK_STAGE_HOST
+}
 
 const OUTPUT_SIZE = { width: 1080, height: 1920 } // 9:16, TikTok-format
 
@@ -155,6 +165,11 @@ export default async (request: Request) => {
   } catch {
     return jsonResponse({ error: 'Ogiltig JSON i request-body.' }, 400)
   }
+
+  // Gratis, vattenstämplad sandbox-rendering (se resolveShotstackHost ovan) istället för den
+  // skarpa/betalda — samma edit-JSON, bara en annan host.
+  const preview = body.preview === true
+  const shotstackHost = resolveShotstackHost(preview)
 
   const videoUrl = body.videoUrl
   const segmentsPlan = Array.isArray(body.segmentsPlan) ? (body.segmentsPlan as Segment[]) : []
@@ -551,7 +566,7 @@ export default async (request: Request) => {
 
   let shotstackResponse: Response
   try {
-    shotstackResponse = await fetch(`${SHOTSTACK_HOST}/render`, {
+    shotstackResponse = await fetch(`${shotstackHost}/render`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

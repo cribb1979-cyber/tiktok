@@ -25,6 +25,7 @@ async function submitRender({
   thoughtBubbleXPercent,
   thoughtBubbleYPercent,
   glowEffect,
+  preview,
 }) {
   const response = await fetch('/api/render-clip', {
     method: 'POST',
@@ -51,6 +52,7 @@ async function submitRender({
       thoughtBubbleXPercent,
       thoughtBubbleYPercent,
       glowEffect,
+      preview,
     }),
   })
 
@@ -61,8 +63,10 @@ async function submitRender({
   return data.id
 }
 
-async function getRenderStatus(id) {
-  const response = await fetch(`/api/render-status?id=${encodeURIComponent(id)}`)
+async function getRenderStatus(id, preview) {
+  const response = await fetch(
+    `/api/render-status?id=${encodeURIComponent(id)}${preview ? '&preview=true' : ''}`
+  )
   const data = await parseJsonResponse(response)
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte hämta renderingsstatus.'))
@@ -75,6 +79,11 @@ const MAX_POLL_ATTEMPTS = 60 // ~3 minuter
 
 // Startar en rendering och pollar tills den är klar. onStatus(status) anropas vid varje
 // pollning så anroparen kan visa förlopp.
+//
+// preview: true (valfritt) — gratis, vattenstämplad sandbox-rendering (se render-clip.ts)
+// istället för den skarpa/betalda, med samma edit-JSON så resultatet stämmer med den
+// riktiga renderingen. Måste skickas med till BÅDE submit och varje statuspollning, annars
+// letar pollningen i fel Shotstack-miljö efter jobbet.
 export async function renderClip({
   videoUrl,
   segmentsPlan,
@@ -97,6 +106,7 @@ export async function renderClip({
   thoughtBubbleXPercent,
   thoughtBubbleYPercent,
   glowEffect,
+  preview,
   onStatus,
 }) {
   const id = await submitRender({
@@ -121,11 +131,12 @@ export async function renderClip({
     thoughtBubbleXPercent,
     thoughtBubbleYPercent,
     glowEffect,
+    preview,
   })
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-    const result = await getRenderStatus(id)
+    const result = await getRenderStatus(id, preview)
     onStatus?.(result.status)
 
     if (result.status === 'done') return result.url

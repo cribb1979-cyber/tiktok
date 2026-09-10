@@ -1,7 +1,14 @@
 // Steg 6: pollar status för en pågående Shotstack-rendering.
 
-const SHOTSTACK_HOST =
-  Deno.env.get('SHOTSTACK_ENV') === 'v1' ? 'https://api.shotstack.io/v1' : 'https://api.shotstack.io/stage'
+// Samma stage/v1-val som render-clip.ts, inklusive preview-flaggan (?preview=true) som
+// tvingar sandbox — måste peka på SAMMA host som renderingen faktiskt submittades till,
+// annars hittar Shotstack inte jobbet.
+const SHOTSTACK_STAGE_HOST = 'https://api.shotstack.io/stage'
+const SHOTSTACK_PROD_HOST = 'https://api.shotstack.io/v1'
+function resolveShotstackHost(preview: boolean): string {
+  if (preview) return SHOTSTACK_STAGE_HOST
+  return Deno.env.get('SHOTSTACK_ENV') === 'v1' ? SHOTSTACK_PROD_HOST : SHOTSTACK_STAGE_HOST
+}
 
 export default async (request: Request) => {
   if (request.method !== 'GET') {
@@ -13,14 +20,16 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'SHOTSTACK_API_KEY saknas i Netlify-miljövariabler.' }, 500)
   }
 
-  const id = new URL(request.url).searchParams.get('id')
+  const url = new URL(request.url)
+  const id = url.searchParams.get('id')
   if (!id) {
     return jsonResponse({ error: 'Query-parametern id krävs.' }, 400)
   }
+  const shotstackHost = resolveShotstackHost(url.searchParams.get('preview') === 'true')
 
   let shotstackResponse: Response
   try {
-    shotstackResponse = await fetch(`${SHOTSTACK_HOST}/render/${id}`, {
+    shotstackResponse = await fetch(`${shotstackHost}/render/${id}`, {
       headers: { 'x-api-key': apiKey },
     })
   } catch (err) {
