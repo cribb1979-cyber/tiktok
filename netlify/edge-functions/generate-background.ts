@@ -8,8 +8,13 @@
 //
 // OBS: FLUX Schnell-fälten (prompt/aspect_ratio) är verifierade direkt mot Replicates
 // öppna källkod för modellen (cog-flux, predict.py) — output är alltid en array av URL:er.
-// "Prefer: wait" gör att Replicate väntar in hela genereringen (FLUX Schnell tar bara någon
-// sekund) och svarar direkt, så ingen separat pollningsloop behövs för det här steget.
+//
+// Submit+poll (samma mönster som generate-broll.ts/broll-status.ts), INTE "Prefer: wait" —
+// FLUX Schnell är visserligen snabb när modellen redan är varm (~1s), men en "cold start"
+// (modellen har skalats ner och måste laddas in igen efter att ha varit oanvänd) kan ta
+// betydligt längre än vad en enda blockerande HTTP-förfrågan/Netlify Edge Function-körning
+// tolererar — bekräftat skarpt: genereringen "laddade" en stund och felade sedan, ett typiskt
+// timeout-mönster. Se generate-background-status.ts för pollningsdelen.
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
 const CLAUDE_MODEL = 'claude-sonnet-5'
@@ -95,7 +100,6 @@ export default async (request: Request) => {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${replicateApiToken}`,
-        Prefer: 'wait',
       },
       body: JSON.stringify({
         input: {
@@ -122,20 +126,7 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Replicate API-fel', detail: data }, 502)
   }
 
-  // output är alltid en array av URL:er (verifierat mot cog-flux källkod). Om "Prefer: wait"
-  // hann timea ut innan genereringen blev klar kan output saknas trots 200 OK — svara då med
-  // ett tydligt fel istället för att skicka tomt vidare.
-  const output = data.output
-  const imageUrl = Array.isArray(output) ? output[0] : null
-
-  if (!imageUrl) {
-    return jsonResponse(
-      { error: `Ingen bild genererades (Replicate-status: ${String(data.status)}).`, detail: data },
-      502
-    )
-  }
-
-  return jsonResponse({ imageUrl, prompt: visualPrompt }, 200)
+  return jsonResponse({ taskId: data.id, prompt: visualPrompt }, 200)
 }
 
 function jsonResponse(data: unknown, status: number) {

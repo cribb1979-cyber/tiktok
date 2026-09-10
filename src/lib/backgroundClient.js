@@ -1,12 +1,11 @@
 import { errorMessage, parseJsonResponse } from './apiError.js'
 
-// Anropar Netlify Edge Functions /api/generate-background och /api/matte-video(-status) —
-// aldrig Claude/Replicate direkt från klienten. Se render-clip.ts (backgroundSwapEnabled)
-// för hur bakgrundsbilden och den bakgrundsborttagna videon kompositeras ihop.
+// Anropar Netlify Edge Functions /api/generate-background(-status) och
+// /api/matte-video(-status) — aldrig Claude/Replicate direkt från klienten. Se render-clip.ts
+// (backgroundSwapEnabled) för hur bakgrundsbilden och den bakgrundsborttagna videon
+// kompositeras ihop.
 
-// Ett enda anrop (Replicate "Prefer: wait" i generate-background.ts) — FLUX Schnell är
-// snabb nog att ingen pollning behövs för själva bilden.
-export async function generateBackgroundImage({ customPrompt }) {
+async function submitBackgroundImage(customPrompt) {
   const response = await fetch('/api/generate-background', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -15,9 +14,42 @@ export async function generateBackgroundImage({ customPrompt }) {
 
   const data = await parseJsonResponse(response)
   if (!response.ok) {
-    throw new Error(errorMessage(data, 'Kunde inte generera bakgrundsbild.'))
+    throw new Error(errorMessage(data, 'Kunde inte starta bakgrundsbildsgenerering.'))
   }
-  return data // { imageUrl, prompt }
+  return data // { taskId, prompt }
+}
+
+async function getBackgroundImageStatus(taskId) {
+  const response = await fetch(`/api/generate-background-status?id=${encodeURIComponent(taskId)}`)
+  const data = await parseJsonResponse(response)
+  if (!response.ok) {
+    throw new Error(errorMessage(data, 'Kunde inte hämta status för bakgrundsbildsgenerering.'))
+  }
+  return data
+}
+
+const IMAGE_POLL_INTERVAL_MS = 3000
+const IMAGE_MAX_POLL_ATTEMPTS = 40 // ~2 minuter — tolererar en "cold start" av FLUX Schnell
+
+// Genererar en bakgrundsbild (Claude skriver prompten, FLUX Schnell via Replicate genererar
+// bilden) och pollar tills den är klar. Submit+poll istället för en blockerande "Prefer: wait"
+// — en modell som skalats ner (cold start) kan ta betydligt längre än en enda HTTP-förfrågan
+// tolererar, se generate-background.ts.
+export async function generateBackgroundImage({ customPrompt, onStatus }) {
+  const { taskId, prompt } = await submitBackgroundImage(customPrompt)
+
+  for (let attempt = 0; attempt < IMAGE_MAX_POLL_ATTEMPTS; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, IMAGE_POLL_INTERVAL_MS))
+    const result = await getBackgroundImageStatus(taskId)
+    onStatus?.(result.status)
+
+    if (result.status === 'SUCCEEDED') return { imageUrl: result.imageUrl, prompt }
+    if (result.status === 'FAILED') {
+      throw new Error(result.error ?? 'Bakgrundsbildsgenereringen misslyckades hos Replicate.')
+    }
+  }
+
+  throw new Error('Bakgrundsbildsgenereringen tog för lång tid. Försök igen senare.')
 }
 
 async function submitMatte(videoUrl) {

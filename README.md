@@ -38,7 +38,7 @@ netlify dev
 ## Sidor
 
 - **Idébank** – fungerande: trenddata (hashtags/ljud/kategori) läggs in manuellt på två sätt — antingen ett fält i taget, eller genom att klistra in en hashtag-lista (t.ex. kopierad direkt från TikTok Creative Centers webbgränssnitt) som tolkas till klickbara kandidater du väljer bland innan de sparas i bulk. Visas sedan ett kort i taget — "Hoppa över" eller "Bygg vidare" (skickar dig till Klippstudio med prompt/kategori förifyllda utifrån trenden). Automatisk skrapning/API-hämtning av trenddata byggs inte — TikTok har ingen öppen API för det (Research API är akademisk/icke-kommersiell, Creative Center har ingen offentlig API), så tredjepartsskrapning skulle innebära löpande kostnad och osäker ToS-status. Klistra-in-flödet är den medvetna kompromissen: du hittar trenden själv på riktiga TikTok/Creative Center, appen sköter bara tolkning och urval.
-- **Klippstudio** – fungerande: ladda upp råmaterial (video/ljud, valfritt) för tidsstämplad transkribering, skriv prompt + kategori/underämne → Claude föreslår klippningsplan och 2-3 hook-alternativ. Om råmaterial laddats upp kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek.
+- **Klippstudio** – fungerande: ladda upp råmaterial (video/ljud, valfritt) för tidsstämplad transkribering, skriv prompt + kategori/underämne → Claude föreslår klippningsplan och 2-3 hook-alternativ. Om råmaterial laddats upp kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek. De valfria AI-tilläggen (B-roll, AI-effekt, bakgrundsbyte, tankebubblor, glow — se respektive avsnitt nedan) döljs bakom en hopfälld "Avancerat"-knapp under klippningsplanen (`advancedOpen`-state, default stängd) — infört efter att standardflödet blivit rörigt med fem separata korta synliga samtidigt. Allt finns kvar, bara ur vägen tills man aktivt öppnar sektionen.
 - **Bibliotek** – fungerande: lista, lägg till och ta bort klipp manuellt, sortera på bäst presterande, filtrera på kategori. "Visa genererad text" expanderar kortet med sparade hook-alternativ och segmentplan i sin helhet, "Generera om" kör Claude-genereringen igen för klippets sparade prompt/kategori/underämne och skriver över hook-alternativ/segmentplan/hashtags med ett nytt förslag. Utkast kan "Publiceras (mock)" och publicerade klipp kan få simulerade resultat via "Uppdatera resultat (mock)".
 - **Kalender** – platshållare
 - **Inställningar** – fungerande: TikTok-koppling (mock, se nedan). API-nycklar hanteras i Netlify, inte här.
@@ -334,11 +334,13 @@ bakom dig i klippets första segment med en AI-genererad bild, medan DU är kvar
 (riktig video, inte AI-genererad). T.ex. "ett slott bakom mig" eller "jag går på en klippa".
 
 **Flöde, två separata steg (båda krävs innan rendering använder bakgrundsbytet):**
-1. **Generera bakgrund** (`netlify/edge-functions/generate-background.ts`) — Claude skriver
-   en bildprompt (uttryckligen ALDRIG människor i bilden, eftersom du läggs på separat) och
-   `black-forest-labs/flux-schnell` (Replicate) genererar en stillbild. Fälten är verifierade
-   direkt mot modellens öppna källkod (`cog-flux`) — `Prefer: wait` gör att Replicate väntar
-   in hela genereringen (några sekunder) och svarar direkt, ingen pollning behövs.
+1. **Generera bakgrund** (`generate-background.ts`/`generate-background-status.ts`) — Claude
+   skriver en bildprompt (uttryckligen ALDRIG människor i bilden, eftersom du läggs på separat)
+   och `black-forest-labs/flux-schnell` (Replicate) genererar en stillbild. Fälten är
+   verifierade direkt mot modellens öppna källkod (`cog-flux`). Submit+poll (samma mönster som
+   B-roll), INTE `Prefer: wait` — testat skarpt: FLUX Schnell är snabb när modellen redan är
+   varm, men en "cold start" (modellen skalad ner, måste laddas in igen) kan ta betydligt
+   längre än en enda blockerande HTTP-förfrågan tolererar, vilket gav ett timeout-fel.
 2. **Ta bort bakgrund ur mitt klipp** (`matte-video.ts`/`matte-video-status.ts`) —
    `bria/video-remove-background` (Replicate) tar bort bakgrunden ur HELA din uppladdade
    video och ersätter den med en solid grön färg (`background_color: 'Green'`), så att
@@ -356,10 +358,9 @@ det här segmentet — det kan störa en redan känslig kromakey-nyckling.
 - `bria/video-remove-background` har en gräns på max 60 sekunders indata. Vi skickar hela
   den uppladdade filen (inte bara det valda segmentet) för att slippa ett separat
   förklippningssteg — klipp längre än 60 sekunder kommer att felas i matningssteget.
-- Det exakta fältnamnet för video-inputen till Bria-modellen (`video` i `matte-video.ts`)
-  kunde INTE verifieras mot öppen källkod (Brias repo är inte publikt) — bara mot
-  sökresultat/dokumentation. Räkna med att det kan behöva justeras första gången det körs
-  skarpt, samma mönster som övriga Replicate-integrationer: visa hela felmeddelandet, justera.
+- Fältnamnet för video-inputen till Bria-modellen kunde inte verifieras i förväg (Brias
+  repo är inte publikt) — gissningen `video` var fel, bekräftat skarpt: Replicate svarade
+  "video_url is required". Rättat till `video_url` i `matte-video.ts`.
 - Kvalitetsrisk (forskning gjord innan bygget, inte bara en gissning): video-matting på
   vanlig, icke-studio-filmad video (dåligt/blandat ljus, hår, rörelse) är ett känt svagt
   område för den här typen av modeller — förvänta dig synliga kant-/flimmerartefakter på

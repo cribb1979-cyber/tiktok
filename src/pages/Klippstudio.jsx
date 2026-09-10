@@ -227,6 +227,7 @@ export default function Klippstudio() {
   const [backgroundSwapEnabled, setBackgroundSwapEnabled] = useState(false)
   const [backgroundCustomPrompt, setBackgroundCustomPrompt] = useState('')
   const [backgroundGenerating, setBackgroundGenerating] = useState(false)
+  const [backgroundImageStatus, setBackgroundImageStatus] = useState(null)
   const [backgroundImageUrl, setBackgroundImageUrl] = useState(null)
   const [backgroundPrompt, setBackgroundPrompt] = useState(null)
   const [backgroundMatting, setBackgroundMatting] = useState(false)
@@ -255,6 +256,11 @@ export default function Klippstudio() {
   // funktionen, se handleCaptureGlowPreview.
   const [glowPreviewFrame, setGlowPreviewFrame] = useState(null)
   const [glowCapturing, setGlowCapturing] = useState(false)
+
+  // Avancerat-sektion: B-roll, AI-effekt, bakgrundsbyte, tankebubblor och glow är alla
+  // valfria tillval som annars gjorde standardflödet (ladda upp → prompt → plan → rendera)
+  // rörigt — hopfällt som standard, allt finns kvar men syns inte förrän man öppnar det.
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -388,6 +394,7 @@ export default function Klippstudio() {
     setGlowColor('gold')
     setGlowIntensity('medium')
     setGlowPreviewFrame(null)
+    setAdvancedOpen(false)
     setSaved(false)
     setSavedClipId(null)
     setAutoSaveError(null)
@@ -681,9 +688,13 @@ export default function Klippstudio() {
   async function handleGenerateBackgroundImage() {
     if (!backgroundCustomPrompt.trim()) return
     setBackgroundGenerating(true)
+    setBackgroundImageStatus('PENDING')
     setError(null)
     try {
-      const result = await generateBackgroundImage({ customPrompt: backgroundCustomPrompt })
+      const result = await generateBackgroundImage({
+        customPrompt: backgroundCustomPrompt,
+        onStatus: setBackgroundImageStatus,
+      })
       setBackgroundImageUrl(result.imageUrl)
       setBackgroundPrompt(result.prompt)
     } catch (err) {
@@ -1052,7 +1063,20 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {plan.thought_bubbles?.length > 0 && (
+          {mediaPublicUrl && (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              style={{ width: '100%' }}
+            >
+              {advancedOpen
+                ? 'Dölj avancerat ▲'
+                : 'Avancerat: B-roll, AI-effekt, bakgrundsbyte, tankebubblor, glow ▼'}
+            </button>
+          )}
+
+          {advancedOpen && plan.thought_bubbles?.length > 0 && (
             <div className="clip-card" style={{ margin: 0 }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
                 <input
@@ -1074,7 +1098,7 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {mediaPublicUrl && (
+          {advancedOpen && mediaPublicUrl && (
             <div className="clip-card" style={{ margin: 0 }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
                 <input
@@ -1175,7 +1199,7 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {mediaPublicUrl && (
+          {advancedOpen && mediaPublicUrl && (
             <div className="clip-card" style={{ margin: 0 }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
                 <input
@@ -1284,7 +1308,7 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {mediaPublicUrl && (
+          {advancedOpen && mediaPublicUrl && (
             <div className="clip-card" style={{ margin: 0 }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
                 <input
@@ -1333,7 +1357,7 @@ export default function Klippstudio() {
                       onClick={handleGenerateBackgroundImage}
                       disabled={backgroundGenerating || !backgroundCustomPrompt.trim()}
                     >
-                      {backgroundGenerating ? 'Genererar…' : 'Generera bakgrund'}
+                      {backgroundGenerating ? BROLL_STATUS_LABELS[backgroundImageStatus] ?? 'Genererar…' : 'Generera bakgrund'}
                     </button>
                     <button className="btn-primary" onClick={handleMatteBackground} disabled={backgroundMatting}>
                       {backgroundMatting
@@ -1378,7 +1402,7 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {mediaPublicUrl && (
+          {advancedOpen && mediaPublicUrl && (
             <div className="clip-card" style={{ margin: 0 }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
                 <input
