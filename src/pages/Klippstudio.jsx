@@ -70,6 +70,10 @@ export default function Klippstudio() {
   // Valfri egen idé till B-roll — går via Claude (se generate-broll.ts) istället för direkt
   // till videomodellen, så person-skyddet gäller även för användarens egen text.
   const [brollCustomPrompt, setBrollCustomPrompt] = useState('')
+  // Uttryckligt opt-in: tillåter generiska/anonyma mänskliga figurer i scenen (illustration
+  // av en berättelse) — aldrig menat att föreställa en specifik verklig person. Default av,
+  // dvs. B-roll är person-fri om inte detta kryssas i explicit.
+  const [brollAllowFigures, setBrollAllowFigures] = useState(false)
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -180,6 +184,7 @@ export default function Klippstudio() {
     setBrollVideoUrl(null)
     setBrollPrompt(null)
     setBrollCustomPrompt('')
+    setBrollAllowFigures(false)
     setSaved(false)
     setSavedClipId(null)
     setAutoSaveError(null)
@@ -351,6 +356,7 @@ export default function Klippstudio() {
         subtopic: plan.subtopic || subtopic,
         hookText: selectedHook?.text,
         customPrompt: brollCustomPrompt,
+        allowIllustrativeFigures: brollAllowFigures,
         onStatus: setBrollStatus,
       })
       setBrollVideoUrl(result.url)
@@ -607,6 +613,7 @@ export default function Klippstudio() {
                       setBrollVideoUrl(null)
                       setBrollPrompt(null)
                       setBrollCustomPrompt('')
+                      setBrollAllowFigures(false)
                     }
                   }}
                   style={{ marginTop: 4 }}
@@ -645,6 +652,19 @@ export default function Klippstudio() {
                       Din text går via Claude, som skriver om den till en bildprompt utan
                       personer — samma person-skydd som annars.
                     </p>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginTop: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={brollAllowFigures}
+                        onChange={(e) => setBrollAllowFigures(e.target.checked)}
+                        style={{ marginTop: 4 }}
+                      />
+                      <span className="clip-prompt">
+                        Illustrera min berättelse — tillåt generiska/anonyma mänskliga figurer
+                        i scenen (t.ex. en siluett vid ett bord). Föreställer ALDRIG dig eller
+                        någon specifik verklig person, bara en generisk illustration.
+                      </span>
+                    </label>
                     <button
                       className="btn-primary"
                       style={{ marginTop: 4 }}

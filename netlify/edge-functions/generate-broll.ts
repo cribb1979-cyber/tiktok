@@ -1,9 +1,18 @@
-// Valfritt tillval: AI-genererad B-roll (atmosfäriska bakgrundssekvenser) via Replicate API,
-// modellen Wan 2.1 (öppen källkod, mycket billigare än Runway — ~$0.05-0.09 per klipp mot
-// Runways betydligt högre pris, bytt 2026-09 efter användarens önskemål).
-// Genererar ALDRIG bilder/video av personer — B-roll är bara stämningshöjande bakgrund,
-// aldrig en ersättning för Christoffer själv i bild, eftersom kontots trovärdighet bygger på
-// att det är honom. CLAUDE_API_KEY och REPLICATE_API_TOKEN exponeras aldrig i klienten.
+// Valfritt tillval: AI-genererad B-roll (atmosfäriska bakgrundssekvenser, eller illustrativa
+// berättelsescener — se allowIllustrativeFigures) via Replicate API, modellen Wan 2.1 (öppen
+// källkod, mycket billigare än Runway — ~$0.05-0.09 per klipp mot Runways betydligt högre
+// pris, bytt 2026-09 efter användarens önskemål). CLAUDE_API_KEY och REPLICATE_API_TOKEN
+// exponeras aldrig i klienten.
+//
+// Person-skydd, två lägen (användarval, se Klippstudio.jsx):
+// - Default (allowIllustrativeFigures: false): INGA människor alls i bild. B-roll ersätter
+//   aldrig, och föreställer aldrig, Christoffer själv — kontots trovärdighet bygger på att
+//   det är honom.
+// - "Illustrera min berättelse" (allowIllustrativeFigures: true): tillåter generiska,
+//   anonyma/stiliserade mänskliga figurer som illustration av en berättelse (t.ex. "en person
+//   vid ett bord", en siluett) — men FÅR ALDRIG föreställa en specifik verklig identifierbar
+//   person (inte kontoinnehavaren, inte namngivna anhöriga). Användarens eget val, uttryckligt
+//   opt-in per klipp.
 //
 // OBS: fältnamnen nedan (prompt/negative_prompt/aspect_ratio/fast_mode) är verifierade mot
 // Replicates publika modell-sida för wavespeedai/wan-2.1-t2v-720p, men själva anropet är INTE
@@ -16,13 +25,26 @@ const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
 const CLAUDE_MODEL = 'claude-sonnet-5'
 const REPLICATE_PREDICTIONS_URL = 'https://api.replicate.com/v1/models'
 
-const PROMPT_SYSTEM = `Du skriver korta, visuella prompts för AI-genererad B-roll
+const PROMPT_SYSTEM_PERSON_FREE = `Du skriver korta, visuella prompts för AI-genererad B-roll
 (atmosfärisk bakgrundsvideo) till TikTok-klipp om andlighet/medium-tema.
 
 KRITISKT: Prompten får ALDRIG beskriva personer, ansikten, mänskliga figurer, kroppsdelar
 eller siluetter av människor — B-roll ska bara vara stämning: natur, ljus, rök, vatten,
 stjärnhimmel, candlelight, abstrakta mönster, väder, etc. Ingen text i bilden. Svara med
 BARA prompten, max två meningar, filmisk och specifik (ljus/färg/rörelse), på engelska
+(bildmodeller fungerar bäst med engelska prompts).`
+
+const PROMPT_SYSTEM_ILLUSTRATIVE = `Du skriver korta, visuella prompts för en AI-genererad
+illustrativ scen till ett TikTok-klipp om andlighet/medium-tema — en återskapad/illustrerad
+stämningsbild av en berättelse användaren beskriver, inte en dokumentär avbildning.
+
+Får innehålla generiska, anonyma eller stiliserade mänskliga figurer som en del av att
+illustrera scenen (t.ex. en siluett vid ett bord, en skuggad gestalt som kliver in i rummet).
+KRITISKT: prompten får ALDRIG beskriva eller antyda en specifik verklig identifierbar person
+(inte kontoinnehavaren, inte namngivna anhöriga, inga specifika ansiktsdrag eller kända
+kännetecken) — håll figurer generiska och anonyma: siluetter, oskarpt/dolt ansikte, bakifrån,
+i skugga eller motljus, aldrig ett tydligt porträtt. Ingen text i bilden. Svara med BARA
+prompten, max två meningar, filmisk och specifik (ljus/färg/rörelse/komposition), på engelska
 (bildmodeller fungerar bäst med engelska prompts).`
 
 export default async (request: Request) => {
@@ -63,8 +85,13 @@ export default async (request: Request) => {
   }
 
   const replicateModel = Deno.env.get('REPLICATE_MODEL') || 'wavespeedai/wan-2.1-t2v-720p'
+  // Uttryckligt opt-in per klipp (default false) — se kommentaren högst upp i filen för
+  // person-skyddets två lägen.
+  const allowIllustrativeFigures = body.allowIllustrativeFigures === true
+  const promptSystem = allowIllustrativeFigures ? PROMPT_SYSTEM_ILLUSTRATIVE : PROMPT_SYSTEM_PERSON_FREE
 
-  // Steg 1: Claude formulerar en filmisk, person-fri visuell prompt utifrån klippets tema.
+  // Steg 1: Claude formulerar en filmisk visuell prompt utifrån klippets tema — person-fri
+  // som default, eller med generiska/anonyma figurer tillåtna om allowIllustrativeFigures.
   let visualPrompt: string
   try {
     const claudeResponse = await fetch(CLAUDE_API_URL, {
@@ -77,7 +104,7 @@ export default async (request: Request) => {
       body: JSON.stringify({
         model: CLAUDE_MODEL,
         max_tokens: 300,
-        system: PROMPT_SYSTEM,
+        system: promptSystem,
         messages: [{ role: 'user', content: `Tema: ${theme}` }],
       }),
     })
@@ -96,16 +123,20 @@ export default async (request: Request) => {
   }
 
   // Steg 2: skicka prompten till Replicate (Wan 2.1) för videogenerering (asynkront,
-  // prediction-baserat). negative_prompt är ett extra skyddsnät mot att personer dyker upp i
-  // bild, utöver instruktionen i Claude-prompten. fast_mode: "Fast" (en sträng, inte en
-  // boolean — bekräftat via ett skarpt 422-fel: "Expected: string, given: boolean") för lägre
-  // kostnad/kortare väntetid — bra avvägning för atmosfärisk bakgrund som inte behöver
-  // perfekt detaljrikedom.
+  // prediction-baserat). negative_prompt är ett extra skyddsnät utöver instruktionen i
+  // Claude-prompten — i default-läget blockeras människor helt, i illustrativt läge
+  // blockeras bara sådant som skulle göra en figur igenkännbar (tydligt ansikte/porträtt)
+  // snarare än generiska figurer i sig. fast_mode: "Fast" (en sträng, inte en boolean —
+  // bekräftat via ett skarpt 422-fel: "Expected: string, given: boolean") för lägre
+  // kostnad/kortare väntetid.
+  const negativePrompt = allowIllustrativeFigures
+    ? 'recognizable face, close-up portrait, detailed facial features, celebrity, named real person, text, watermark'
+    : 'people, person, human face, human figure, man, woman, portrait, crowd, text, watermark'
+
   const replicateBody = {
     input: {
       prompt: visualPrompt,
-      negative_prompt:
-        'people, person, human face, human figure, man, woman, portrait, crowd, text, watermark',
+      negative_prompt: negativePrompt,
       aspect_ratio: '9:16', // TikTok-format
       fast_mode: 'Fast',
     },

@@ -208,10 +208,17 @@ using ivfflat (embedding vector_cosine_ops) with (lists = 100);
 
 Utöver de 10 planerade byggstegen: ett kryssruta i Klippstudio ("AI-genererad B-roll,
 valfritt") låter dig lägga till en kort atmosfärisk bakgrundsvideo (natur, ljus, stämning)
-via [Replicate](https://replicate.com)s API (modellen Wan 2.1, öppen källkod) — **aldrig av**,
-eller ens som ersättning för, Christoffer själv i bild. Kontots trovärdighet bygger på att det
-faktiskt är honom, så B-roll är bara stämningshöjande extra material, aldrig standard, alltid
-ett aktivt val per klipp.
+via [Replicate](https://replicate.com)s API (modellen Wan 2.1, öppen källkod) — aldrig standard,
+alltid ett aktivt val per klipp.
+
+**Person-skydd, två lägen:** default är B-roll helt person-fri (ingen människa alls i bild,
+Christoffer själv ersätts eller föreställs aldrig — kontots trovärdighet bygger på att det
+faktiskt är honom). Ett andra kryssruta, "Illustrera min berättelse", tillåter generiska/
+anonyma mänskliga figurer som illustration av en berättelse (t.ex. "en siluett vid ett bord")
+— men får ALDRIG föreställa en specifik verklig identifierbar person, varken kontoinnehavaren
+eller namngivna anhöriga. Två separata systemprompter till Claude (`PROMPT_SYSTEM_PERSON_FREE`
+/ `PROMPT_SYSTEM_ILLUSTRATIVE` i `generate-broll.ts`) plus olika `negative_prompt` till
+Replicate beroende på läge. Uttryckligt opt-in per klipp, inget default-beteende ändrat.
 
 **Leverantör:** byggdes ursprungligen mot Runway, bytt 2026-09 till Replicate/Wan 2.1 — samma
 sorts video-AI men betydligt billigare (~$0.05-0.09 per klipp mot Runways väsentligt högre
