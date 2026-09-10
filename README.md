@@ -317,13 +317,53 @@ ovanpå videon. `effectType` måste skickas till `/api/render-clip` med samma v�
 `effectMode` hade när klippet genererades — annars kan fel kompositeringsinställningar (fel
 skalning/position) användas.
 
-**TikTok-taggning:** `ai_generated_content` sätts till `true` när antingen B-roll eller
-effekten används (`brollEnabled || effectEnabled` i `persistClip`).
+**TikTok-taggning:** `ai_generated_content` sätts till `true` när B-roll, effekten eller
+bakgrundsbytet (se nästa avsnitt) används (`brollEnabled || effectEnabled ||
+backgroundSwapEnabled` i `persistClip`).
 
-**Ej byggt än (nämnt av användaren som en senare, mer experimentell utökning):** en person som
-går förbi i bild — bedömdes svårare att få snyggt (kräver renare urklippning än en ljus/glöd-
-effekt, som är mer förlåtande mot ofullständig kromakey-borttagning på grund av suddiga
-kanter).
+**Ej byggt än (nämnt av användaren som en senare, mer experimentell utökning):** en AI-
+genererad person som går förbi i bild (till skillnad från bakgrundsbytet nedan, där personen
+är riktig, bara bakgrunden är AI-genererad) — bedömdes svårare att få snyggt, kräver renare
+urklippning än en ljus/glöd-effekt.
+
+## Bakgrundsbyte: AI-genererad bakgrund bakom dig (experimentellt, opt-in)
+
+Ett tredje kryssruta i Klippstudio ("Byt bakgrund bakom dig") — till skillnad från B-roll och
+overlay-effekterna ovan (som lägger till AI-genererat material) ERSÄTTER det här bakgrunden
+bakom dig i klippets första segment med en AI-genererad bild, medan DU är kvar som vanligt
+(riktig video, inte AI-genererad). T.ex. "ett slott bakom mig" eller "jag går på en klippa".
+
+**Flöde, två separata steg (båda krävs innan rendering använder bakgrundsbytet):**
+1. **Generera bakgrund** (`netlify/edge-functions/generate-background.ts`) — Claude skriver
+   en bildprompt (uttryckligen ALDRIG människor i bilden, eftersom du läggs på separat) och
+   `black-forest-labs/flux-schnell` (Replicate) genererar en stillbild. Fälten är verifierade
+   direkt mot modellens öppna källkod (`cog-flux`) — `Prefer: wait` gör att Replicate väntar
+   in hela genereringen (några sekunder) och svarar direkt, ingen pollning behövs.
+2. **Ta bort bakgrund ur mitt klipp** (`matte-video.ts`/`matte-video-status.ts`) —
+   `bria/video-remove-background` (Replicate) tar bort bakgrunden ur HELA din uppladdade
+   video och ersätter den med en solid grön färg (`background_color: 'Green'`), så att
+   Shotstacks befintliga `chromaKey`-funktion (samma teknik som overlay-effekterna) kan
+   användas för kompositeringen. Asynkront, pollas precis som B-roll/effekterna.
+
+**Kompositering:** `render-clip.ts` ersätter (inte lägger till) det första segmentets
+normala klipp med två lager: bakgrundsbilden på ett eget spår (`backgroundClips` — måste vara
+ett separat spår från `videoClips`, eftersom klipp inom samma Shotstack-spår läggs i sekvens
+och inte får överlappa i tid) och den grön-nycklade riktiga videon ovanpå, trimmad till
+samma tidsintervall som segmentet skulle haft. Manuellt färgfilter hoppas medvetet över för
+det här segmentet — det kan störa en redan känslig kromakey-nyckling.
+
+**Kända begränsningar:**
+- `bria/video-remove-background` har en gräns på max 60 sekunders indata. Vi skickar hela
+  den uppladdade filen (inte bara det valda segmentet) för att slippa ett separat
+  förklippningssteg — klipp längre än 60 sekunder kommer att felas i matningssteget.
+- Det exakta fältnamnet för video-inputen till Bria-modellen (`video` i `matte-video.ts`)
+  kunde INTE verifieras mot öppen källkod (Brias repo är inte publikt) — bara mot
+  sökresultat/dokumentation. Räkna med att det kan behöva justeras första gången det körs
+  skarpt, samma mönster som övriga Replicate-integrationer: visa hela felmeddelandet, justera.
+- Kvalitetsrisk (forskning gjord innan bygget, inte bara en gissning): video-matting på
+  vanlig, icke-studio-filmad video (dåligt/blandat ljus, hår, rörelse) är ett känt svagt
+  område för den här typen av modeller — förvänta dig synliga kant-/flimmerartefakter på
+  vissa klipp, inte en garanterat ren klippning varje gång.
 
 ## Att göra: Remotion som växlingsbart renderingsalternativ (pausat, påbörjat)
 

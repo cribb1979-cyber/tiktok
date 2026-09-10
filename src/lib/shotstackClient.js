@@ -15,6 +15,8 @@ async function submitRender({
   words,
   effectVideoUrl,
   effectType,
+  backgroundImageUrl,
+  backgroundMattedVideoUrl,
 }) {
   const response = await fetch('/api/render-clip', {
     method: 'POST',
@@ -31,6 +33,8 @@ async function submitRender({
       words,
       effectVideoUrl,
       effectType,
+      backgroundImageUrl,
+      backgroundMattedVideoUrl,
     }),
   })
 
@@ -67,6 +71,8 @@ export async function renderClip({
   words,
   effectVideoUrl,
   effectType,
+  backgroundImageUrl,
+  backgroundMattedVideoUrl,
   onStatus,
 }) {
   const id = await submitRender({
@@ -81,6 +87,8 @@ export async function renderClip({
     words,
     effectVideoUrl,
     effectType,
+    backgroundImageUrl,
+    backgroundMattedVideoUrl,
   })
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {

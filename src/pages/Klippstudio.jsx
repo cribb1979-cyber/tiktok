@@ -7,6 +7,7 @@ import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
+import { generateBackgroundImage, matteVideo } from '../lib/backgroundClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import { CATEGORIES, SEGMENT_EFFECT_OPTIONS, SEGMENT_FILTER_OPTIONS, EFFECT_TYPE_OPTIONS } from '../constants.js'
 
@@ -92,6 +93,19 @@ export default function Klippstudio() {
   const [effectCustomPrompt, setEffectCustomPrompt] = useState('')
   const [effectRefinedPrompt, setEffectRefinedPrompt] = useState('')
   const [effectRefining, setEffectRefining] = useState(false)
+
+  // Bakgrundsbyte (experimentellt) — byter ut bakgrunden bakom dig i första segmentet mot en
+  // AI-genererad bild. Två separata steg: generera bakgrundsbild (snabbt), och ta bort
+  // bakgrunden ur din egen video (Replicate, kan ta en stund). Båda krävs innan rendering
+  // faktiskt använder bakgrundsbytet — se backgroundSwapActive i render-clip.ts.
+  const [backgroundSwapEnabled, setBackgroundSwapEnabled] = useState(false)
+  const [backgroundCustomPrompt, setBackgroundCustomPrompt] = useState('')
+  const [backgroundGenerating, setBackgroundGenerating] = useState(false)
+  const [backgroundImageUrl, setBackgroundImageUrl] = useState(null)
+  const [backgroundPrompt, setBackgroundPrompt] = useState(null)
+  const [backgroundMatting, setBackgroundMatting] = useState(false)
+  const [backgroundMatteStatus, setBackgroundMatteStatus] = useState(null)
+  const [backgroundMattedVideoUrl, setBackgroundMattedVideoUrl] = useState(null)
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -210,6 +224,11 @@ export default function Klippstudio() {
     setEffectPrompt(null)
     setEffectCustomPrompt('')
     setEffectRefinedPrompt('')
+    setBackgroundSwapEnabled(false)
+    setBackgroundCustomPrompt('')
+    setBackgroundImageUrl(null)
+    setBackgroundPrompt(null)
+    setBackgroundMattedVideoUrl(null)
     setSaved(false)
     setSavedClipId(null)
     setAutoSaveError(null)
@@ -272,7 +291,7 @@ export default function Klippstudio() {
       broll_video_url: brollVideoUrl,
       // Aldrig manuellt valbart — sätts automatiskt när B-roll eller AI-ljuseffekten
       // används, enligt TikToks regler om taggning av AI-genererat innehåll.
-      ai_generated_content: brollEnabled || effectEnabled,
+      ai_generated_content: brollEnabled || effectEnabled || backgroundSwapEnabled,
       ...overrides,
     }
 
@@ -325,6 +344,8 @@ export default function Klippstudio() {
         words: transcript?.words ?? [],
         effectVideoUrl,
         effectType,
+        backgroundImageUrl: backgroundSwapEnabled ? backgroundImageUrl : null,
+        backgroundMattedVideoUrl: backgroundSwapEnabled ? backgroundMattedVideoUrl : null,
         onStatus: setRenderStatus,
       })
       setRenderedVideoUrl(url)
@@ -455,6 +476,36 @@ export default function Klippstudio() {
       setError(err.message)
     } finally {
       setEffectGenerating(false)
+    }
+  }
+
+  async function handleGenerateBackgroundImage() {
+    if (!backgroundCustomPrompt.trim()) return
+    setBackgroundGenerating(true)
+    setError(null)
+    try {
+      const result = await generateBackgroundImage({ customPrompt: backgroundCustomPrompt })
+      setBackgroundImageUrl(result.imageUrl)
+      setBackgroundPrompt(result.prompt)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBackgroundGenerating(false)
+    }
+  }
+
+  async function handleMatteBackground() {
+    if (!mediaPublicUrl) return
+    setBackgroundMatting(true)
+    setBackgroundMatteStatus('PENDING')
+    setError(null)
+    try {
+      const url = await matteVideo({ videoUrl: mediaPublicUrl, onStatus: setBackgroundMatteStatus })
+      setBackgroundMattedVideoUrl(url)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBackgroundMatting(false)
     }
   }
 
@@ -898,6 +949,100 @@ export default function Klippstudio() {
                     </button>
                   </>
                 ))}
+            </div>
+          )}
+
+          {mediaPublicUrl && (
+            <div className="clip-card" style={{ margin: 0 }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={backgroundSwapEnabled}
+                  onChange={(e) => {
+                    setBackgroundSwapEnabled(e.target.checked)
+                    if (!e.target.checked) {
+                      setBackgroundCustomPrompt('')
+                      setBackgroundImageUrl(null)
+                      setBackgroundPrompt(null)
+                      setBackgroundMattedVideoUrl(null)
+                    }
+                  }}
+                  style={{ marginTop: 4 }}
+                />
+                <span>
+                  <span className="clip-hook" style={{ display: 'block' }}>
+                    Byt bakgrund bakom dig (experimentellt, valfritt)
+                  </span>
+                  <span className="clip-prompt" style={{ display: 'block' }}>
+                    Ersätter bakgrunden i klippets första segment med en AI-genererad bild
+                    (t.ex. ett slott, en klippa) — du syns kvar som vanligt, bara det som är
+                    bakom dig byts ut. Experimentellt: kan ge fladdriga kanter runt hår/rörelse
+                    i vanlig belysning. Fungerar bara om källvideon (hela filen) är under 60
+                    sekunder. Taggas som AI-genererat innehåll.
+                  </span>
+                </span>
+              </label>
+
+              {backgroundSwapEnabled && (
+                <>
+                  <label style={{ display: 'block', marginTop: 12 }}>
+                    Bakgrundsidé
+                    <textarea
+                      value={backgroundCustomPrompt}
+                      onChange={(e) => setBackgroundCustomPrompt(e.target.value)}
+                      rows={2}
+                      placeholder="T.ex. ett slott bakom mig i skymningen, eller en klippkant med utsikt över en dal"
+                    />
+                  </label>
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                    <button
+                      className="btn-primary"
+                      onClick={handleGenerateBackgroundImage}
+                      disabled={backgroundGenerating || !backgroundCustomPrompt.trim()}
+                    >
+                      {backgroundGenerating ? 'Genererar…' : 'Generera bakgrund'}
+                    </button>
+                    <button className="btn-primary" onClick={handleMatteBackground} disabled={backgroundMatting}>
+                      {backgroundMatting
+                        ? BROLL_STATUS_LABELS[backgroundMatteStatus] ?? 'Bearbetar…'
+                        : 'Ta bort bakgrund ur mitt klipp'}
+                    </button>
+                  </div>
+
+                  {backgroundImageUrl && (
+                    <div style={{ marginTop: 12 }}>
+                      <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Ny bakgrund</p>
+                      <img
+                        src={backgroundImageUrl}
+                        alt="Genererad bakgrund"
+                        style={{ width: '100%', borderRadius: 12 }}
+                      />
+                      {backgroundPrompt && <p className="clip-prompt">Prompt: {backgroundPrompt}</p>}
+                    </div>
+                  )}
+
+                  {backgroundMattedVideoUrl && (
+                    <div style={{ marginTop: 12 }}>
+                      <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
+                        Din video utan bakgrund (grönt tas bort automatiskt vid rendering)
+                      </p>
+                      <video
+                        src={backgroundMattedVideoUrl}
+                        controls
+                        style={{ width: '100%', borderRadius: 12 }}
+                      />
+                    </div>
+                  )}
+
+                  {backgroundImageUrl && backgroundMattedVideoUrl && (
+                    <p style={{ color: 'var(--success)', marginTop: 8 }}>
+                      ✓ Redo — bakgrundsbytet används automatiskt i första segmentet när du
+                      renderar.
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           )}
 

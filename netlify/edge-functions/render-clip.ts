@@ -1,9 +1,11 @@
 // Steg 6: startar en rendering hos Shotstack — bränner in korta textöverlägg (nyckelfraser,
 // inte hela meningar — enligt spec: "textöverlägg vid nyckelord") med bakgrundsruta för
 // läsbarhet, varierande effekter/övergångar mellan segmenten, hook-texten i början, (valfritt)
-// ett inklippt AI-genererat B-roll-segment mellan huvudklippen, och (valfritt) en AI-genererad
+// ett inklippt AI-genererat B-roll-segment mellan huvudklippen, (valfritt) en AI-genererad
 // overlay-effekt (ljusklot/dimma/gnistor/kantglöd/static, se EFFECT_COMPOSITE) ovanpå det
-// första segmentet. SHOTSTACK_API_KEY exponeras aldrig i klienten.
+// första segmentet, och (valfritt) ett AI-bakgrundsbyte som ERSÄTTER första segmentets
+// bakgrund med en AI-genererad bild (se backgroundSwapActive, generate-background.ts,
+// matte-video.ts). SHOTSTACK_API_KEY exponeras aldrig i klienten.
 
 // "stage" = Shotstack sandbox (gratis, vattenstämplat) — säkert default tills du har en
 // produktionsnyckel. Sätt SHOTSTACK_ENV=v1 i Netlify när du vill rendera skarpt.
@@ -131,6 +133,14 @@ export default async (request: Request) => {
     typeof body.effectDurationSeconds === 'number' && body.effectDurationSeconds > 0
       ? body.effectDurationSeconds
       : effectComposite.defaultDuration
+  // Bakgrundsbyte: en AI-genererad bakgrundsbild (generate-background.ts) + användarens
+  // egen video med bakgrunden borttagen mot grönt (matte-video.ts) — ersätter det första
+  // segmentets normala klipp med en komposit av de två, istället för att lägga till ett
+  // extra lager. Kräver båda URL:erna för att aktiveras.
+  const backgroundImageUrl = typeof body.backgroundImageUrl === 'string' ? body.backgroundImageUrl : null
+  const backgroundMattedVideoUrl =
+    typeof body.backgroundMattedVideoUrl === 'string' ? body.backgroundMattedVideoUrl : null
+  const backgroundSwapActive = Boolean(backgroundImageUrl && backgroundMattedVideoUrl)
 
   if (!videoUrl || typeof videoUrl !== 'string') {
     return jsonResponse({ error: 'videoUrl krävs (publik URL till källvideon).' }, 400)
@@ -142,6 +152,11 @@ export default async (request: Request) => {
   const videoClips = []
   const captionClips = []
   const effectClips = []
+  // Eget spår för bakgrundsbilden vid bakgrundsbyte — måste ligga på ett ANNAT spår än
+  // videoClips, inte samma, eftersom klipp inom ett och samma Shotstack-spår läggs i
+  // sekvens och inte får överlappa i tid (till skillnad från olika spår, som får överlappa
+  // och då renderas ovanpå varandra enligt spårordningen).
+  const backgroundClips = []
   let timelineCursor = 0
 
   segmentsPlan.forEach((seg, index) => {
@@ -154,19 +169,51 @@ export default async (request: Request) => {
         ? manualEffect
         : SEGMENT_EFFECTS[index % SEGMENT_EFFECTS.length]
     const manualFilter = segmentFilters[index]
+    const transition = {
+      in: index === 0 ? 'fadeFast' : SEGMENT_TRANSITIONS_IN[index % SEGMENT_TRANSITIONS_IN.length],
+      out: 'fadeFast',
+    }
 
-    videoClips.push({
-      asset: { type: 'video', src: videoUrl, trim: trimStart, volume: 1 },
-      start: timelineCursor,
-      length,
-      fit: 'crop',
-      effect,
-      ...(typeof manualFilter === 'string' && manualFilter ? { filter: manualFilter } : {}),
-      transition: {
-        in: index === 0 ? 'fadeFast' : SEGMENT_TRANSITIONS_IN[index % SEGMENT_TRANSITIONS_IN.length],
-        out: 'fadeFast',
-      },
-    })
+    if (index === 0 && backgroundSwapActive) {
+      // Bakgrundsbilden fyller hela segmentets yta — eget spår (backgroundClips), inte
+      // videoClips, se kommentaren ovanför backgroundClips-deklarationen för varför.
+      backgroundClips.push({
+        asset: { type: 'image', src: backgroundImageUrl },
+        start: timelineCursor,
+        length,
+        fit: 'cover',
+      })
+      // ...och den grön-nycklade riktiga personen läggs ovanpå (på videoClips-spåret, som
+      // ligger högre upp i spårordningen än backgroundClips), trimmad till samma
+      // tidsintervall som segmentet skulle haft i originalvideon (backgroundMattedVideoUrl
+      // är hela originalvideon med bakgrunden borttagen, inte bara segmentet). Manuellt
+      // färgfilter hoppas medvetet över här — det kan störa en redan känslig kromakey-
+      // nyckling.
+      videoClips.push({
+        asset: {
+          type: 'video',
+          src: backgroundMattedVideoUrl,
+          trim: trimStart,
+          volume: 1,
+          chromaKey: { color: '#00FF00', threshold: 150, halo: 100 },
+        },
+        start: timelineCursor,
+        length,
+        fit: 'crop',
+        effect,
+        transition,
+      })
+    } else {
+      videoClips.push({
+        asset: { type: 'video', src: videoUrl, trim: trimStart, volume: 1 },
+        start: timelineCursor,
+        length,
+        fit: 'crop',
+        effect,
+        ...(typeof manualFilter === 'string' && manualFilter ? { filter: manualFilter } : {}),
+        transition,
+      })
+    }
 
     // Ord-för-ord om vi har riktiga tidsstämplar för det här segmentet (CapCut/TikTok-stil,
     // synkat exakt mot talet) — annars en statisk frasöverlägg som tidigare.
@@ -279,6 +326,7 @@ export default async (request: Request) => {
     { clips: captionClips },
     { clips: effectClips },
     { clips: videoClips },
+    { clips: backgroundClips },
   ].filter((track) => track.clips.length > 0)
 
   const editPayload = {
