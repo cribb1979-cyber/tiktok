@@ -22,6 +22,8 @@ async function submitRender({
   backgroundMattedVideoUrl,
   thoughtBubbles,
   thoughtBubblesEnabled,
+  thoughtBubbleXPercent,
+  thoughtBubbleYPercent,
   glowEffect,
 }) {
   const response = await fetch('/api/render-clip', {
@@ -46,6 +48,8 @@ async function submitRender({
       backgroundMattedVideoUrl,
       thoughtBubbles,
       thoughtBubblesEnabled,
+      thoughtBubbleXPercent,
+      thoughtBubbleYPercent,
       glowEffect,
     }),
   })
@@ -90,6 +94,8 @@ export async function renderClip({
   backgroundMattedVideoUrl,
   thoughtBubbles,
   thoughtBubblesEnabled,
+  thoughtBubbleXPercent,
+  thoughtBubbleYPercent,
   glowEffect,
   onStatus,
 }) {
@@ -112,6 +118,8 @@ export async function renderClip({
     backgroundMattedVideoUrl,
     thoughtBubbles,
     thoughtBubblesEnabled,
+    thoughtBubbleXPercent,
+    thoughtBubbleYPercent,
     glowEffect,
   })
 

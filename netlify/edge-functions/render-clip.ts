@@ -39,16 +39,25 @@ const HOOK_MAX_DURATION = 2.5
 const TEXT_BACKGROUND = '#CC000000'
 
 // Tankebubblor — glödande, korta "inre tankar" (plan.thought_bubbles från generate-plan.ts)
-// som poppar upp ovanför bilden, ett per segment, växlande hörn. Ren Shotstack html-asset-
-// styling (som ord-för-ord-undertexterna), ingen AI-videogenerering inblandad.
+// som poppar upp ovanpå bilden, ett per segment. Manuellt positionerad (x/y-procent, samma
+// dra-i-canvasen-mönster som glow-overlayen nedan) istället för växlande hörnpresets — låter
+// användaren se tankebubblan och glöden TILLSAMMANS i "Klippets sammansättning" i
+// Klippstudio. Ren Shotstack html-asset-styling, ingen AI-videogenerering inblandad.
 const THOUGHT_BUBBLE_MAX_CHARS = 25
 const THOUGHT_BUBBLE_DURATION = 1.8
-const THOUGHT_BUBBLE_CSS =
-  'p { font-family: Arial, Helvetica, sans-serif; color: #1a1130; font-size: 38px; ' +
-  'font-weight: 700; text-align: center; background: rgba(255,255,255,0.95); ' +
-  'border-radius: 45px; padding: 22px 30px; margin: 0; ' +
-  'box-shadow: 0 0 25px 10px rgba(178,132,255,0.9), 0 0 60px 24px rgba(124,77,255,0.55); }'
-const THOUGHT_BUBBLE_POSITIONS = ['topLeft', 'topRight']
+const THOUGHT_BUBBLE_WIDTH = 620
+const THOUGHT_BUBBLE_DEFAULT_X = 50
+const THOUGHT_BUBBLE_DEFAULT_Y = 18
+function buildThoughtBubbleCss(leftPx: number, topPx: number): string {
+  return (
+    `.bubble { position: absolute; left: ${leftPx}px; top: ${topPx}px; ` +
+    `transform: translate(-50%, -50%); width: ${THOUGHT_BUBBLE_WIDTH}px; ` +
+    `font-family: Arial, Helvetica, sans-serif; color: #1a1130; font-size: 38px; ` +
+    `font-weight: 700; text-align: center; background: rgba(255,255,255,0.95); ` +
+    `border-radius: 45px; padding: 22px 30px; margin: 0; ` +
+    `box-shadow: 0 0 25px 10px rgba(178,132,255,0.9), 0 0 60px 24px rgba(124,77,255,0.55); }`
+  )
+}
 
 // Glow-overlay (valfritt, manuellt positionerad av användaren i Klippstudio) — t.ex. för att
 // få en tatuering/symbol/föremål att se ut att glöda som ett kraftmärke. FAST position under
@@ -195,6 +204,16 @@ export default async (request: Request) => {
     ? (body.thoughtBubbles as string[]).filter((s) => typeof s === 'string' && s.trim())
     : []
   const thoughtBubblesEnabled = body.thoughtBubblesEnabled === true && thoughtBubbles.length > 0
+  // Manuellt positionerad (x/y-procent, se GlowPositioner-mönstret) — saknat/ogiltigt värde
+  // faller tillbaka till den gamla ungefärliga standardplatsen (övre mitten).
+  const thoughtBubbleXPercent =
+    typeof body.thoughtBubbleXPercent === 'number'
+      ? Math.min(Math.max(body.thoughtBubbleXPercent, 0), 100)
+      : THOUGHT_BUBBLE_DEFAULT_X
+  const thoughtBubbleYPercent =
+    typeof body.thoughtBubbleYPercent === 'number'
+      ? Math.min(Math.max(body.thoughtBubbleYPercent, 0), 100)
+      : THOUGHT_BUBBLE_DEFAULT_Y
   // Glow-overlay (valfritt) — se GLOW_* ovan. glowEffect är hela glow_effect-objektet från
   // klippet (samma form som sparas i clips.glow_effect i Supabase).
   const glowEffect =
@@ -362,7 +381,7 @@ export default async (request: Request) => {
     }
 
     // Tankebubbla — ett per segment (cyklar om fler segment än bubblor), centrerad i
-    // segmentets tidsfönster, växlande hörn så det inte alltid är exakt samma plats.
+    // segmentets tidsfönster, på den manuellt valda x/y-positionen (samma för alla segment).
     if (thoughtBubblesEnabled) {
       const bubbleText = truncateForOverlay(thoughtBubbles[index % thoughtBubbles.length], THOUGHT_BUBBLE_MAX_CHARS)
       const bubbleLength = Math.min(THOUGHT_BUBBLE_DURATION, length)
@@ -375,15 +394,17 @@ export default async (request: Request) => {
       // Hoppa över bubblan helt om segmentet är för kort för att rymma den efter hooken,
       // istället för att klämma in den eller låta den sticka in i nästa segment.
       if (offset + bubbleLength <= length) {
+        const leftPx = Math.round((thoughtBubbleXPercent / 100) * OUTPUT_SIZE.width)
+        const topPx = Math.round((thoughtBubbleYPercent / 100) * OUTPUT_SIZE.height)
         bubbleClips.push({
           asset: {
             type: 'html',
-            html: `<p>${escapeHtml(bubbleText)}</p>`,
-            css: THOUGHT_BUBBLE_CSS,
-            width: 700,
-            height: 260,
-            position: THOUGHT_BUBBLE_POSITIONS[index % THOUGHT_BUBBLE_POSITIONS.length],
+            html: `<div class="bubble">${escapeHtml(bubbleText)}</div>`,
+            css: buildThoughtBubbleCss(leftPx, topPx),
+            width: OUTPUT_SIZE.width,
+            height: OUTPUT_SIZE.height,
           },
+          position: 'center',
           start: timelineCursor + offset,
           length: bubbleLength,
         })

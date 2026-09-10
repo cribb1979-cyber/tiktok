@@ -65,6 +65,21 @@ export const EFFECT_TYPE_OPTIONS = [
   { value: 'eyes', label: 'Lysande ögon i mörkret' },
 ]
 
+// Ungefärlig visuell position för varje AI-effekttyp (matchar EFFECT_COMPOSITE i
+// render-clip.ts) — bara för att visa var effekten hamnar i "Klippets sammansättning"-
+// canvasen i Klippstudio (ClipCanvas), INTE dragbar. Shotstack stödjer bara förinställda
+// lägen för video-kompositering (center/bottom/right), inte fri positionering som
+// html-assets (glow/tankebubblor) — badgen är alltså en skrivskyddad referens, inte en
+// kontroll.
+export const EFFECT_POSITION_HINTS = {
+  orb: { x: 50, y: 50 },
+  mist: { x: 50, y: 80 },
+  sparks: { x: 50, y: 50 },
+  edgeGlow: { x: 85, y: 50 },
+  static: { x: 50, y: 50 },
+  eyes: { x: 50, y: 50 },
+}
+
 // Glow-overlay (manuellt positionerad, se render-clip.ts GLOW_COLORS/GLOW_INTENSITY_OPACITY).
 export const GLOW_COLOR_OPTIONS = [
   { value: 'gold', label: 'Guld' },

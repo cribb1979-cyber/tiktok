@@ -15,6 +15,7 @@ import {
   SEGMENT_FILTER_OPTIONS,
   SEGMENT_SPEED_OPTIONS,
   EFFECT_TYPE_OPTIONS,
+  EFFECT_POSITION_HINTS,
   GLOW_COLOR_OPTIONS,
   GLOW_INTENSITY_OPTIONS,
 } from '../constants.js'
@@ -55,37 +56,56 @@ function parseTimecodeClient(tc) {
 
 const GLOW_DOT_COLORS = { gold: '#ffcc33', blue: '#4da8ff', white: '#ffffff', red: '#ff5050' }
 
-// Positioneringsruta för glow-effekten: en 9:16-ruta (samma proportion som slutvideon) med
-// en cirkel man kan dra i (flytta) och ett handtag i hörnet (ändra storlek). radiusPercent
-// är alltid relativt BREDDEN (matchar hur render-clip.ts räknar ut pixelvärden), så cirkeln
-// hålls rund oavsett att rutan i sig är 9:16 och inte kvadratisk.
-function GlowPositioner({ previewFrame, xPercent, yPercent, radiusPercent, color, onMove, onResize }) {
+// "Klippets sammansättning" — en 9:16-ruta (samma proportion som slutvideon) som visar ALLA
+// aktiva tillval TILLSAMMANS ovanpå klippets första bildruta, istället för att varje
+// tillval (glow/tankebubbla/AI-effekt/bakgrundsbyte) konfigureras blint i sitt eget separata
+// kort. Generaliserad från den ursprungliga glow-positioneraren till att hantera flera
+// "lager" av olika typ:
+//   - 'circle' (glow): dragbar + resizable (handtag i hörnet)
+//   - 'marker' (tankebubbla): dragbar, ingen storlek
+//   - 'badge' (AI-effekt): SKRIVSKYDDAD referens — Shotstack stödjer bara förinställda lägen
+//     för video-kompositering, inte fri positionering, så den går inte att flytta här
+//   - 'zone' (hook/undertexter): skrivskyddat band, visar var text alltid hamnar
+//   - 'fullFrame' (bakgrundsbyte): skrivskyddad hel-bild-indikator
+// x/y/radius är alltid procent av BREDDEN (matchar hur render-clip.ts räknar ut
+// pixelvärden), så cirklar hålls runda oavsett att rutan i sig är 9:16 och inte kvadratisk.
+function ClipCanvas({ previewFrame, layers, onMoveLayer, onResizeLayer }) {
   const containerRef = useRef(null)
-  const dragModeRef = useRef(null) // 'move' | 'resize' | null
+  const dragRef = useRef(null) // { id, mode: 'move' | 'resize' } | null
 
   function handlePointerMove(e) {
-    if (!dragModeRef.current || !containerRef.current) return
+    const drag = dragRef.current
+    if (!drag || !containerRef.current) return
+    const layer = layers.find((l) => l.id === drag.id)
+    if (!layer) return
     const rect = containerRef.current.getBoundingClientRect()
-    if (dragModeRef.current === 'move') {
+    if (drag.mode === 'move') {
       const x = Math.min(Math.max(((e.clientX - rect.left) / rect.width) * 100, 0), 100)
       const y = Math.min(Math.max(((e.clientY - rect.top) / rect.height) * 100, 0), 100)
-      onMove(Math.round(x), Math.round(y))
-    } else if (dragModeRef.current === 'resize') {
-      const centerXpx = (xPercent / 100) * rect.width
-      const centerYpx = (yPercent / 100) * rect.height
+      onMoveLayer(drag.id, Math.round(x), Math.round(y))
+    } else if (drag.mode === 'resize') {
+      const centerXpx = (layer.x / 100) * rect.width
+      const centerYpx = (layer.y / 100) * rect.height
       const dxPx = e.clientX - rect.left - centerXpx
       const dyPx = e.clientY - rect.top - centerYpx
       const distPx = Math.sqrt(dxPx * dxPx + dyPx * dyPx)
       const radiusPct = (distPx / rect.width) * 100
-      onResize(Math.min(Math.max(Math.round(radiusPct), 3), 45))
+      onResizeLayer(drag.id, Math.min(Math.max(Math.round(radiusPct), 3), 45))
     }
   }
 
   function stopDrag() {
-    dragModeRef.current = null
+    dragRef.current = null
   }
 
-  const dotColor = GLOW_DOT_COLORS[color] ?? GLOW_DOT_COLORS.gold
+  function startDrag(id, mode) {
+    return (e) => {
+      e.preventDefault()
+      if (mode === 'resize') e.stopPropagation()
+      dragRef.current = { id, mode }
+      e.currentTarget.setPointerCapture(e.pointerId)
+    }
+  }
 
   return (
     <div
@@ -107,45 +127,144 @@ function GlowPositioner({ previewFrame, xPercent, yPercent, radiusPercent, color
         margin: '0 auto',
       }}
     >
-      <div
-        onPointerDown={(e) => {
-          e.preventDefault()
-          dragModeRef.current = 'move'
-          e.currentTarget.setPointerCapture(e.pointerId)
-        }}
-        style={{
-          position: 'absolute',
-          left: `${xPercent}%`,
-          top: `${yPercent}%`,
-          width: `${radiusPercent * 2}%`,
-          aspectRatio: '1 / 1',
-          transform: 'translate(-50%, -50%)',
-          borderRadius: '50%',
-          border: `2px solid ${dotColor}`,
-          boxShadow: `0 0 16px 4px ${dotColor}`,
-          cursor: 'move',
-        }}
-      >
-        <div
-          onPointerDown={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            dragModeRef.current = 'resize'
-            e.currentTarget.setPointerCapture(e.pointerId)
-          }}
-          style={{
-            position: 'absolute',
-            right: -8,
-            bottom: -8,
-            width: 16,
-            height: 16,
-            borderRadius: '50%',
-            background: dotColor,
-            border: '2px solid #fff',
-            cursor: 'nwse-resize',
-          }}
-        />
-      </div>
+      {layers.map((layer) => {
+        if (layer.kind === 'zone') {
+          return (
+            <div
+              key={layer.id}
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                top: `${layer.y}%`,
+                height: `${layer.height}%`,
+                transform: 'translateY(-50%)',
+                background: 'rgba(255,255,255,0.08)',
+                borderTop: '1px dashed rgba(255,255,255,0.35)',
+                borderBottom: '1px dashed rgba(255,255,255,0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                pointerEvents: 'none',
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 10,
+                  color: 'rgba(255,255,255,0.8)',
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                  textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+                }}
+              >
+                {layer.label}
+              </span>
+            </div>
+          )
+        }
+        if (layer.kind === 'fullFrame') {
+          return (
+            <div key={layer.id} style={{ position: 'absolute', inset: 0, background: 'rgba(80,160,255,0.1)', pointerEvents: 'none' }}>
+              <span
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  left: 8,
+                  fontSize: 11,
+                  color: '#fff',
+                  background: 'rgba(0,0,0,0.55)',
+                  padding: '3px 8px',
+                  borderRadius: 8,
+                }}
+              >
+                {layer.label}
+              </span>
+            </div>
+          )
+        }
+        if (layer.kind === 'badge') {
+          return (
+            <div
+              key={layer.id}
+              style={{
+                position: 'absolute',
+                left: `${layer.x}%`,
+                top: `${layer.y}%`,
+                transform: 'translate(-50%, -50%)',
+                fontSize: 11,
+                color: '#fff',
+                background: 'rgba(0,0,0,0.6)',
+                padding: '4px 9px',
+                borderRadius: 10,
+                pointerEvents: 'none',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {layer.label}
+            </div>
+          )
+        }
+        if (layer.kind === 'marker') {
+          return (
+            <div
+              key={layer.id}
+              onPointerDown={startDrag(layer.id, 'move')}
+              style={{
+                position: 'absolute',
+                left: `${layer.x}%`,
+                top: `${layer.y}%`,
+                transform: 'translate(-50%, -50%)',
+                fontSize: 13,
+                fontWeight: 700,
+                color: '#1a1130',
+                background: 'rgba(255,255,255,0.95)',
+                padding: '5px 10px',
+                borderRadius: 12,
+                boxShadow: '0 0 12px 3px rgba(178,132,255,0.8)',
+                cursor: 'move',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {layer.label}
+            </div>
+          )
+        }
+        // 'circle' — glow, dragbar + resizable
+        const dotColor = layer.color ?? GLOW_DOT_COLORS.gold
+        return (
+          <div
+            key={layer.id}
+            onPointerDown={startDrag(layer.id, 'move')}
+            style={{
+              position: 'absolute',
+              left: `${layer.x}%`,
+              top: `${layer.y}%`,
+              width: `${layer.radius * 2}%`,
+              aspectRatio: '1 / 1',
+              transform: 'translate(-50%, -50%)',
+              borderRadius: '50%',
+              border: `2px solid ${dotColor}`,
+              boxShadow: `0 0 16px 4px ${dotColor}`,
+              cursor: 'move',
+            }}
+          >
+            <div
+              onPointerDown={startDrag(layer.id, 'resize')}
+              style={{
+                position: 'absolute',
+                right: -8,
+                bottom: -8,
+                width: 16,
+                height: 16,
+                borderRadius: '50%',
+                background: dotColor,
+                border: '2px solid #fff',
+                cursor: 'nwse-resize',
+              }}
+            />
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -244,7 +363,10 @@ export default function Klippstudio() {
 
   // Tankebubblor — glödande "inre tankar" (plan.thought_bubbles) som poppar upp ovanpå
   // bilden, ett per segment. Ren textstyling, ingen AI-videogenerering. Opt-in, default av.
+  // Positionen (x/y-procent, samma bas som glow) är dragbar i "Klippets sammansättning".
   const [thoughtBubblesEnabled, setThoughtBubblesEnabled] = useState(false)
+  const [thoughtBubbleXPercent, setThoughtBubbleXPercent] = useState(50)
+  const [thoughtBubbleYPercent, setThoughtBubbleYPercent] = useState(18)
 
   // Glow-overlay — manuellt positionerad, pulserande glödeffekt (t.ex. en tatuering/symbol
   // som ska se ut att lysa som ett kraftmärke). FAST position under ett tidsintervall i
@@ -393,6 +515,8 @@ export default function Klippstudio() {
     setBackgroundPrompt(null)
     setBackgroundMattedVideoUrl(null)
     setThoughtBubblesEnabled(false)
+    setThoughtBubbleXPercent(50)
+    setThoughtBubbleYPercent(18)
     setGlowEnabled(false)
     setGlowXPercent(50)
     setGlowYPercent(50)
@@ -550,6 +674,8 @@ export default function Klippstudio() {
         backgroundMattedVideoUrl: backgroundSwapEnabled ? backgroundMattedVideoUrl : null,
         thoughtBubbles: plan.thought_bubbles ?? [],
         thoughtBubblesEnabled,
+        thoughtBubbleXPercent,
+        thoughtBubbleYPercent,
         glowEffect: glowEnabled
           ? {
               enabled: true,
@@ -902,6 +1028,51 @@ export default function Klippstudio() {
     return sum + Math.max(end - start, 0.5)
   }, 0)
 
+  // "Klippets sammansättning" — alla aktiva overlay-tillval som lager i EN gemensam canvas,
+  // istället för utspridda i separata kort. Bara glow/tankebubbla är dragbara (badge/zone/
+  // fullFrame är skrivskyddade referenser, se kommentaren på ClipCanvas för varför).
+  const canvasLayers = [
+    glowEnabled && {
+      id: 'glow',
+      kind: 'circle',
+      x: glowXPercent,
+      y: glowYPercent,
+      radius: glowRadiusPercent,
+      color: GLOW_DOT_COLORS[glowColor] ?? GLOW_DOT_COLORS.gold,
+    },
+    thoughtBubblesEnabled && {
+      id: 'bubble',
+      kind: 'marker',
+      x: thoughtBubbleXPercent,
+      y: thoughtBubbleYPercent,
+      label: '💬 Tankebubbla',
+    },
+    effectEnabled && {
+      id: 'effect',
+      kind: 'badge',
+      x: EFFECT_POSITION_HINTS[effectType]?.x ?? 50,
+      y: EFFECT_POSITION_HINTS[effectType]?.y ?? 50,
+      label: `✨ ${EFFECT_TYPE_OPTIONS.find((opt) => opt.value === effectType)?.label ?? 'AI-effekt'}`,
+    },
+    backgroundSwapEnabled && { id: 'background', kind: 'fullFrame', label: '🖼️ AI-bakgrund' },
+    { id: 'hookZone', kind: 'zone', y: 50, height: 14, label: 'Hook (start)' },
+    { id: 'captionZone', kind: 'zone', y: 88, height: 16, label: 'Undertexter' },
+  ].filter(Boolean)
+
+  function handleCanvasMove(id, x, y) {
+    if (id === 'glow') {
+      setGlowXPercent(x)
+      setGlowYPercent(y)
+    } else if (id === 'bubble') {
+      setThoughtBubbleXPercent(x)
+      setThoughtBubbleYPercent(y)
+    }
+  }
+
+  function handleCanvasResize(id, radius) {
+    if (id === 'glow') setGlowRadiusPercent(radius)
+  }
+
   return (
     <div className="page">
       <header className="page-header">
@@ -1219,6 +1390,40 @@ export default function Klippstudio() {
             </button>
           )}
 
+          {advancedOpen && mediaPublicUrl && (
+            <div className="clip-card" style={{ margin: 0 }}>
+              <span className="clip-hook" style={{ display: 'block', marginBottom: 6 }}>
+                Klippets sammansättning
+              </span>
+              <p className="clip-prompt" style={{ marginBottom: 10 }}>
+                Se hur tillvalen nedan placeras TILLSAMMANS, baserat på klippets första
+                bildruta. Dra i glöden/tankebubblan för att flytta dem — AI-effekt,
+                bakgrundsbyte, hook och undertexter visas bara som referens (Shotstack tillåter
+                inte fri positionering för dem, bara förinställda lägen).
+              </p>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleCaptureGlowPreview}
+                disabled={glowCapturing}
+              >
+                {glowCapturing
+                  ? 'Hämtar bildruta…'
+                  : glowPreviewFrame
+                    ? 'Uppdatera förhandsvisning'
+                    : 'Visa förhandsvisning'}
+              </button>
+              <div style={{ marginTop: 12 }}>
+                <ClipCanvas
+                  previewFrame={glowPreviewFrame}
+                  layers={canvasLayers}
+                  onMoveLayer={handleCanvasMove}
+                  onResizeLayer={handleCanvasResize}
+                />
+              </div>
+            </div>
+          )}
+
           {advancedOpen && plan.thought_bubbles?.length > 0 && (
             <div className="clip-card" style={{ margin: 0 }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
@@ -1238,6 +1443,11 @@ export default function Klippstudio() {
                   </span>
                 </span>
               </label>
+              {thoughtBubblesEnabled && (
+                <p className="placeholder-note" style={{ marginTop: 8 }}>
+                  Positionera tankebubblan i "Klippets sammansättning" ovan (dra i den).
+                </p>
+              )}
             </div>
           )}
 
@@ -1576,46 +1786,10 @@ export default function Klippstudio() {
 
               {glowEnabled && (
                 <>
-                  <div style={{ marginTop: 12 }}>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={handleCaptureGlowPreview}
-                      disabled={glowCapturing}
-                    >
-                      {glowCapturing
-                        ? 'Hämtar bildruta…'
-                        : glowPreviewFrame
-                          ? 'Uppdatera förhandsvisning'
-                          : 'Visa förhandsvisning'}
-                    </button>
-                    {!glowPreviewFrame && (
-                      <p className="placeholder-note">
-                        Hämtar första bildrutan ur klippets första segment så du ser var du
-                        placerar glöden — annars går det ändå att positionera mot en tom ruta
-                        med samma proportioner.
-                      </p>
-                    )}
-                  </div>
-
-                  <div style={{ marginTop: 12 }}>
-                    <GlowPositioner
-                      previewFrame={glowPreviewFrame}
-                      xPercent={glowXPercent}
-                      yPercent={glowYPercent}
-                      radiusPercent={glowRadiusPercent}
-                      color={glowColor}
-                      onMove={(x, y) => {
-                        setGlowXPercent(x)
-                        setGlowYPercent(y)
-                      }}
-                      onResize={setGlowRadiusPercent}
-                    />
-                    <p className="placeholder-note" style={{ textAlign: 'center' }}>
-                      Dra i cirkeln för att flytta, dra i handtaget i hörnet för att ändra
-                      storlek.
-                    </p>
-                  </div>
+                  <p className="placeholder-note" style={{ marginTop: 8 }}>
+                    Positionera/ändra storlek på glöden i "Klippets sammansättning" högre upp
+                    (dra i cirkeln, dra i handtaget i hörnet för att ändra storlek).
+                  </p>
 
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
                     <label style={{ flex: '1 1 120px' }}>

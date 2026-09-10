@@ -377,13 +377,20 @@ En kryssruta visas under klippningsplanen så fort `plan.thought_bubbles` finns 
 alla genererade tankar i beskrivningstexten. Ikryssad skickas `thoughtBubbles`/
 `thoughtBubblesEnabled` till `/api/render-clip`.
 
+**Position:** manuellt vald (x/y-procent, samma bas som glow-overlayen nedan) — dragbar i
+"Klippets sammansättning" (se det avsnittet), samma position används för alla segment.
+`thoughtBubbleXPercent`/`thoughtBubbleYPercent` skickas till `/api/render-clip`.
+
 **Kompositering** (`render-clip.ts`): ett tankebubbla-klipp per segment (cyklar om fler segment
-än bubblor), centrerat i segmentets tidsfönster, `THOUGHT_BUBBLE_DURATION` (1,8s) långt.
-Glödande lila `box-shadow` runt en vit rundad bubbla (`THOUGHT_BUBBLE_CSS`), växlar position
-mellan `topLeft`/`topRight` per segment så det inte alltid ligger exakt likadant. Eget spår
-(`bubbleClips`) eftersom den överlappar i tid med undertext-spåret (`captionClips`) — klipp
-inom samma Shotstack-spår får inte överlappa. Spårordning (z-index): hook → tankebubblor →
-undertexter → effekt → video → bakgrund.
+än bubblor), centrerat i segmentets tidsfönster, `THOUGHT_BUBBLE_DURATION` (1,8s) långt. Byggd
+med samma `html`-canvas-teknik som glow-overlayen — en absolut-positionerad `<div>` (`left`/
+`top` i exakt uträknade pixlar mot `OUTPUT_SIZE`, `transform: translate(-50%, -50%)` för
+centrering oavsett textlängd) istället för Shotstacks förinställda `position`-lägen som
+tidigare (växlade bara mellan `topLeft`/`topRight`). Glödande lila `box-shadow` runt en vit
+rundad bubbla (`buildThoughtBubbleCss`). Eget spår (`bubbleClips`) eftersom den överlappar i
+tid med undertext-spåret (`captionClips`) — klipp inom samma Shotstack-spår får inte
+överlappa. Spårordning (z-index): hook → tankebubblor → undertexter → effekt → video →
+bakgrund.
 
 Taggas INTE som AI-genererat innehåll (`ai_generated_content`) — konceptuellt samma sak som
 hook/undertexter (Claude-skriven text, ingen syntetisk bild/video), som redan inte taggas.
@@ -404,17 +411,13 @@ Remotion-komponent.
 
 **Flöde i Klippstudio** (kryssruta "Glow-effekt: få något att lysa", visas för varje klipp
 oavsett B-roll/effekt/bakgrundsbyte):
-1. **Visa förhandsvisning** — hämtar en stillbild från källvideon vid klippets första segment
-   (via en dold `<video>`+`<canvas>`, helt klientsidigt) så du ser var du placerar glöden.
-   Icke-kritiskt: misslyckas det (t.ex. saknade CORS-headers på videosvaret från Supabase
-   Storage) går det ändå att positionera mot en tom ruta med samma 9:16-proportioner.
-2. **Positioneringsruta** (`GlowPositioner`-komponenten i `Klippstudio.jsx`) — en 9:16-ruta
-   med en cirkel: dra i mitten för att flytta (`x_percent`/`y_percent`), dra i handtaget i
-   hörnet för att ändra storlek (`radius_percent`). Alla tre är procent av videons BREDD
-   (även vertikalt), så cirkeln hålls rund oavsett att rutan/videon är 9:16.
-3. **Starttid/sluttid** (sekunder) — positionerat på klippets FÄRDIGA tidslinje (efter
-   klippning/B-roll/etc.), inte källvideons egna tidsstämplar.
-4. **Färg** (guld/blå/vit/röd) och **intensitet** (låg/medel/hög).
+1. **Positionering** sker i "Klippets sammansättning" (se det avsnittet nedan) — dra i
+   mitten för att flytta (`x_percent`/`y_percent`), dra i handtaget i hörnet för att ändra
+   storlek (`radius_percent`). Alla tre är procent av videons BREDD (även vertikalt), så
+   cirkeln hålls rund oavsett att rutan/videon är 9:16.
+2. **Starttid/sluttid** (sekunder, i glow-kortet) — positionerat på klippets FÄRDIGA
+   tidslinje (efter klippning/B-roll/etc.), inte källvideons egna tidsstämplar.
+3. **Färg** (guld/blå/vit/röd) och **intensitet** (låg/medel/hög).
 
 **Datamodell:** sparas som `glow_effect jsonb` på `clips`-tabellen (migration
 `0007_glow_effect.sql`), t.ex.:
@@ -474,6 +477,35 @@ tidsfönster).
 Sparas INTE på klippet i Supabase (`glow_effect` sparas, men detta gör det inte) — samma
 mönster som `segmentEffects`/`segmentFilters`, som redan bara är engångsval för en specifik
 rendering.
+
+## Klippets sammansättning: se alla overlay-tillval tillsammans (canvas)
+
+Innan detta positionerades glow och (fram tills nyligen) tankebubblor blint i sina egna,
+separata kort — du visste inte var AI-effekten eller bakgrundsbytet skulle hamna i
+förhållande till glöden du precis placerat. `ClipCanvas`-komponenten i `Klippstudio.jsx`
+(generaliserad från den ursprungliga `GlowPositioner`) löser det: EN gemensam 9:16-ruta,
+byggd ovanpå klippets första bildruta, som visar alla aktiva tillval som "lager" samtidigt.
+Visas överst i "Avancerat"-sektionen så snart råmaterial är uppladdat.
+
+**Fyra lagertyper**, olika interaktivitet beroende på vad Shotstack faktiskt stödjer:
+- `circle` (glow) — dragbar + resizable (handtag i hörnet). Shotstacks `html`-asset tillåter
+  fri pixel-positionering, se glow-avsnittet ovan.
+- `marker` (tankebubbla) — dragbar (samma html-asset-teknik), ingen storleksändring.
+- `badge` (AI-effekt) — SKRIVSKYDDAD referensetikett vid `EFFECT_POSITION_HINTS[effectType]`
+  (`constants.js`, matchar `EFFECT_COMPOSITE` i `render-clip.ts`). Går inte att dra: Shotstack
+  stödjer bara förinställda lägen (`center`/`bottom`/`right`) för video-kompositering, inte
+  fri positionering som för html-assets — en dragbar badge här hade varit missvisande.
+- `zone`/`fullFrame` (hook, undertexter, bakgrundsbyte) — skrivskyddade band/indikatorer,
+  ren visuell medvetenhet om var text alltid hamnar och att bakgrunden ersätts.
+
+**Datan lever inte i komponenten** — `ClipCanvas` är "dum" (tar emot ett `layers`-array och
+två callbacks, `onMoveLayer`/`onResizeLayer`), all faktisk positionsdata är samma
+`glowXPercent`/`glowYPercent`/`glowRadiusPercent` och nya `thoughtBubbleXPercent`/
+`thoughtBubbleYPercent`-state som redan fanns/beskrivs i respektive avsnitt ovan — canvasen
+är bara EN gemensam vy in i dem, inte en ny datamodell.
+
+Samma förhandsvisningsbild (`handleCaptureGlowPreview`, klientsidig `<video>`+`<canvas>`)
+återanvänds — ingen ny bildruta-hämtning behövdes.
 
 ## Redigera med vägledning: fri textinstruktion tolkas av Claude (valfritt)
 
