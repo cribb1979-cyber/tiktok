@@ -52,3 +52,17 @@ export const EFFECT_TYPE_OPTIONS = [
   { value: 'static', label: 'TV-brus/glitch' },
   { value: 'eyes', label: 'Lysande ögon i mörkret' },
 ]
+
+// Glow-overlay (manuellt positionerad, se render-clip.ts GLOW_COLORS/GLOW_INTENSITY_OPACITY).
+export const GLOW_COLOR_OPTIONS = [
+  { value: 'gold', label: 'Guld' },
+  { value: 'blue', label: 'Blå' },
+  { value: 'white', label: 'Vit' },
+  { value: 'red', label: 'Röd' },
+]
+
+export const GLOW_INTENSITY_OPTIONS = [
+  { value: 'low', label: 'Låg' },
+  { value: 'medium', label: 'Medel' },
+  { value: 'high', label: 'Hög' },
+]

@@ -19,6 +19,7 @@ async function submitRender({
   backgroundMattedVideoUrl,
   thoughtBubbles,
   thoughtBubblesEnabled,
+  glowEffect,
 }) {
   const response = await fetch('/api/render-clip', {
     method: 'POST',
@@ -39,6 +40,7 @@ async function submitRender({
       backgroundMattedVideoUrl,
       thoughtBubbles,
       thoughtBubblesEnabled,
+      glowEffect,
     }),
   })
 
@@ -79,6 +81,7 @@ export async function renderClip({
   backgroundMattedVideoUrl,
   thoughtBubbles,
   thoughtBubblesEnabled,
+  glowEffect,
   onStatus,
 }) {
   const id = await submitRender({
@@ -97,6 +100,7 @@ export async function renderClip({
     backgroundMattedVideoUrl,
     thoughtBubbles,
     thoughtBubblesEnabled,
+    glowEffect,
   })
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {

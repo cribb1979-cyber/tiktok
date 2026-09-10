@@ -9,7 +9,14 @@ import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
 import { generateBackgroundImage, matteVideo } from '../lib/backgroundClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
-import { CATEGORIES, SEGMENT_EFFECT_OPTIONS, SEGMENT_FILTER_OPTIONS, EFFECT_TYPE_OPTIONS } from '../constants.js'
+import {
+  CATEGORIES,
+  SEGMENT_EFFECT_OPTIONS,
+  SEGMENT_FILTER_OPTIONS,
+  EFFECT_TYPE_OPTIONS,
+  GLOW_COLOR_OPTIONS,
+  GLOW_INTENSITY_OPTIONS,
+} from '../constants.js'
 
 // Whisper (OpenAI) har en hård 25 MB-gräns per fil — den kan inte höjas, det är deras
 // API:s egen begränsning. Uppladdning/rendering (Shotstack) har ingen sådan gräns, så den
@@ -29,6 +36,117 @@ const RENDER_STATUS_LABELS = {
 const BROLL_STATUS_LABELS = {
   PENDING: 'I kö…',
   RUNNING: 'Genererar video…',
+}
+
+// Samma tidkodsformat som segments_plan.start/end (mm:ss eller hh:mm:ss) — bara för
+// klient-sidiga uppskattningar/gränser i glow-UI:t nedan, inte auktoritativt (rendering
+// klämmer fast värdena skarpt i render-clip.ts oavsett vad som skickas härifrån).
+function parseTimecodeClient(tc) {
+  const parts = String(tc).split(':').map(Number)
+  if (parts.length === 2 && parts.every((n) => !Number.isNaN(n))) {
+    return parts[0] * 60 + parts[1]
+  }
+  if (parts.length === 3 && parts.every((n) => !Number.isNaN(n))) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  }
+  return Number(tc) || 0
+}
+
+const GLOW_DOT_COLORS = { gold: '#ffcc33', blue: '#4da8ff', white: '#ffffff', red: '#ff5050' }
+
+// Positioneringsruta för glow-effekten: en 9:16-ruta (samma proportion som slutvideon) med
+// en cirkel man kan dra i (flytta) och ett handtag i hörnet (ändra storlek). radiusPercent
+// är alltid relativt BREDDEN (matchar hur render-clip.ts räknar ut pixelvärden), så cirkeln
+// hålls rund oavsett att rutan i sig är 9:16 och inte kvadratisk.
+function GlowPositioner({ previewFrame, xPercent, yPercent, radiusPercent, color, onMove, onResize }) {
+  const containerRef = useRef(null)
+  const dragModeRef = useRef(null) // 'move' | 'resize' | null
+
+  function handlePointerMove(e) {
+    if (!dragModeRef.current || !containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    if (dragModeRef.current === 'move') {
+      const x = Math.min(Math.max(((e.clientX - rect.left) / rect.width) * 100, 0), 100)
+      const y = Math.min(Math.max(((e.clientY - rect.top) / rect.height) * 100, 0), 100)
+      onMove(Math.round(x), Math.round(y))
+    } else if (dragModeRef.current === 'resize') {
+      const centerXpx = (xPercent / 100) * rect.width
+      const centerYpx = (yPercent / 100) * rect.height
+      const dxPx = e.clientX - rect.left - centerXpx
+      const dyPx = e.clientY - rect.top - centerYpx
+      const distPx = Math.sqrt(dxPx * dxPx + dyPx * dyPx)
+      const radiusPct = (distPx / rect.width) * 100
+      onResize(Math.min(Math.max(Math.round(radiusPct), 3), 45))
+    }
+  }
+
+  function stopDrag() {
+    dragModeRef.current = null
+  }
+
+  const dotColor = GLOW_DOT_COLORS[color] ?? GLOW_DOT_COLORS.gold
+
+  return (
+    <div
+      ref={containerRef}
+      onPointerMove={handlePointerMove}
+      onPointerUp={stopDrag}
+      onPointerLeave={stopDrag}
+      onPointerCancel={stopDrag}
+      style={{
+        position: 'relative',
+        width: '100%',
+        maxWidth: 270,
+        aspectRatio: '9 / 16',
+        borderRadius: 12,
+        overflow: 'hidden',
+        background: previewFrame ? `#000 url(${previewFrame}) center/cover no-repeat` : '#1a1a2e',
+        border: '1px solid var(--border)',
+        touchAction: 'none',
+        margin: '0 auto',
+      }}
+    >
+      <div
+        onPointerDown={(e) => {
+          e.preventDefault()
+          dragModeRef.current = 'move'
+          e.currentTarget.setPointerCapture(e.pointerId)
+        }}
+        style={{
+          position: 'absolute',
+          left: `${xPercent}%`,
+          top: `${yPercent}%`,
+          width: `${radiusPercent * 2}%`,
+          aspectRatio: '1 / 1',
+          transform: 'translate(-50%, -50%)',
+          borderRadius: '50%',
+          border: `2px solid ${dotColor}`,
+          boxShadow: `0 0 16px 4px ${dotColor}`,
+          cursor: 'move',
+        }}
+      >
+        <div
+          onPointerDown={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            dragModeRef.current = 'resize'
+            e.currentTarget.setPointerCapture(e.pointerId)
+          }}
+          style={{
+            position: 'absolute',
+            right: -8,
+            bottom: -8,
+            width: 16,
+            height: 16,
+            borderRadius: '50%',
+            background: dotColor,
+            border: '2px solid #fff',
+            cursor: 'nwse-resize',
+          }}
+        />
+      </div>
+    </div>
+  )
 }
 
 export default function Klippstudio() {
@@ -110,6 +228,25 @@ export default function Klippstudio() {
   // Tankebubblor — glödande "inre tankar" (plan.thought_bubbles) som poppar upp ovanpå
   // bilden, ett per segment. Ren textstyling, ingen AI-videogenerering. Opt-in, default av.
   const [thoughtBubblesEnabled, setThoughtBubblesEnabled] = useState(false)
+
+  // Glow-overlay — manuellt positionerad, pulserande glödeffekt (t.ex. en tatuering/symbol
+  // som ska se ut att lysa som ett kraftmärke). FAST position under ett tidsintervall i
+  // klippets FÄRDIGA tidslinje — INGEN AI-baserad objektspårning, bäst när kameran/armen/
+  // föremålet hålls stilla i bild. Sparas som glow_effect (jsonb) på klippet, se
+  // GLOW_COLORS/GLOW_INTENSITY_OPACITY i render-clip.ts för hur den kompositeras.
+  const [glowEnabled, setGlowEnabled] = useState(false)
+  const [glowXPercent, setGlowXPercent] = useState(50)
+  const [glowYPercent, setGlowYPercent] = useState(50)
+  const [glowRadiusPercent, setGlowRadiusPercent] = useState(10)
+  const [glowStartSeconds, setGlowStartSeconds] = useState(0)
+  const [glowEndSeconds, setGlowEndSeconds] = useState(3)
+  const [glowColor, setGlowColor] = useState('gold')
+  const [glowIntensity, setGlowIntensity] = useState('medium')
+  // Stillbild (dataURL) från klippets första bildruta, bara för att underlätta placering —
+  // används aldrig i själva renderingen. Kan misslyckas (t.ex. CORS) utan att blockera
+  // funktionen, se handleCaptureGlowPreview.
+  const [glowPreviewFrame, setGlowPreviewFrame] = useState(null)
+  const [glowCapturing, setGlowCapturing] = useState(false)
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -234,6 +371,15 @@ export default function Klippstudio() {
     setBackgroundPrompt(null)
     setBackgroundMattedVideoUrl(null)
     setThoughtBubblesEnabled(false)
+    setGlowEnabled(false)
+    setGlowXPercent(50)
+    setGlowYPercent(50)
+    setGlowRadiusPercent(10)
+    setGlowStartSeconds(0)
+    setGlowEndSeconds(3)
+    setGlowColor('gold')
+    setGlowIntensity('medium')
+    setGlowPreviewFrame(null)
     setSaved(false)
     setSavedClipId(null)
     setAutoSaveError(null)
@@ -294,6 +440,20 @@ export default function Klippstudio() {
       broll_enabled: brollEnabled,
       broll_prompt: brollPrompt,
       broll_video_url: brollVideoUrl,
+      // Manuell positionering/CSS, ingen AI-generering — taggas därför INTE som AI-genererat
+      // innehåll (samma logik som tankebubblor, hook-text och undertexter).
+      glow_effect: glowEnabled
+        ? {
+            enabled: true,
+            x_percent: glowXPercent,
+            y_percent: glowYPercent,
+            radius_percent: glowRadiusPercent,
+            start_seconds: glowStartSeconds,
+            end_seconds: glowEndSeconds,
+            color: glowColor,
+            intensity: glowIntensity,
+          }
+        : null,
       // Aldrig manuellt valbart — sätts automatiskt när B-roll eller AI-ljuseffekten
       // används, enligt TikToks regler om taggning av AI-genererat innehåll.
       ai_generated_content: brollEnabled || effectEnabled || backgroundSwapEnabled,
@@ -329,6 +489,10 @@ export default function Klippstudio() {
 
   async function handleRender() {
     if (!plan || !mediaPublicUrl) return
+    if (glowEnabled && glowEndSeconds <= glowStartSeconds) {
+      setError('Glow-effektens sluttid måste vara efter starttiden.')
+      return
+    }
     setRendering(true)
     setRenderStatus('queued')
     setError(null)
@@ -353,6 +517,18 @@ export default function Klippstudio() {
         backgroundMattedVideoUrl: backgroundSwapEnabled ? backgroundMattedVideoUrl : null,
         thoughtBubbles: plan.thought_bubbles ?? [],
         thoughtBubblesEnabled,
+        glowEffect: glowEnabled
+          ? {
+              enabled: true,
+              x_percent: glowXPercent,
+              y_percent: glowYPercent,
+              radius_percent: glowRadiusPercent,
+              start_seconds: glowStartSeconds,
+              end_seconds: glowEndSeconds,
+              color: glowColor,
+              intensity: glowIntensity,
+            }
+          : null,
         onStatus: setRenderStatus,
       })
       setRenderedVideoUrl(url)
@@ -516,6 +692,46 @@ export default function Klippstudio() {
     }
   }
 
+  // Hämtar en stillbild från källvideon vid klippets första segment, bara för att underlätta
+  // placering av glow-effekten i förhandsvisningsrutan — används aldrig i själva renderingen.
+  // Kan misslyckas (t.ex. om Supabase Storage-svaret saknar CORS-headers och canvasen blir
+  // "tainted") utan att blockera funktionen — positionering fungerar ändå via procentvärden
+  // mot en tom ruta med samma proportioner.
+  async function handleCaptureGlowPreview() {
+    if (!mediaPublicUrl) return
+    setGlowCapturing(true)
+    setError(null)
+    try {
+      const firstSegStart = parseTimecodeClient(plan?.segments_plan?.[0]?.start ?? '0:00')
+      const video = document.createElement('video')
+      video.crossOrigin = 'anonymous'
+      video.src = mediaPublicUrl
+      video.muted = true
+      video.playsInline = true
+
+      await new Promise((resolve, reject) => {
+        video.addEventListener('loadedmetadata', () => {
+          video.currentTime = Math.min(firstSegStart, Math.max(video.duration - 0.1, 0))
+        })
+        video.addEventListener('seeked', resolve, { once: true })
+        video.addEventListener('error', () => reject(new Error('Kunde inte läsa videon för förhandsvisning.')))
+      })
+
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      setGlowPreviewFrame(canvas.toDataURL('image/jpeg', 0.85))
+    } catch (err) {
+      setError(
+        `Kunde inte hämta en förhandsvisningsbild (${err.message}). Du kan fortfarande placera glöden mot en tom ruta med rätt proportioner.`,
+      )
+    } finally {
+      setGlowCapturing(false)
+    }
+  }
+
   async function handleSaveDraft() {
     if (!plan) return
     setSaving(true)
@@ -530,6 +746,14 @@ export default function Klippstudio() {
       setSaving(false)
     }
   }
+
+  // Grov uppskattning av klippets totala längd (för glow-tidsintervallets gränser i UI:t) —
+  // samma räknesätt som timelineCursor i render-clip.ts, men inte auktoritativt.
+  const planTotalSeconds = (plan?.segments_plan ?? []).reduce((sum, seg) => {
+    const start = parseTimecodeClient(seg.start)
+    const end = parseTimecodeClient(seg.end)
+    return sum + Math.max(end - start, 0.5)
+  }, 0)
 
   return (
     <div className="page">
@@ -1070,6 +1294,133 @@ export default function Klippstudio() {
                       renderar.
                     </p>
                   )}
+                </>
+              )}
+            </div>
+          )}
+
+          {mediaPublicUrl && (
+            <div className="clip-card" style={{ margin: 0 }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={glowEnabled}
+                  onChange={(e) => {
+                    setGlowEnabled(e.target.checked)
+                    if (e.target.checked && planTotalSeconds > 0) {
+                      setGlowEndSeconds(Math.min(3, planTotalSeconds))
+                    }
+                  }}
+                  style={{ marginTop: 4 }}
+                />
+                <span>
+                  <span className="clip-hook" style={{ display: 'block' }}>
+                    Glow-effekt: få något att lysa (valfritt)
+                  </span>
+                  <span className="clip-prompt" style={{ display: 'block' }}>
+                    Lägger en pulserande glöd ovanpå ett manuellt utvalt område — t.ex. en
+                    tatuering, symbol eller ett föremål som ska se ut att lysa som ett
+                    kraftmärke. Positionen är FAST under hela tidsintervallet (ingen
+                    AI-spårning) — fungerar bäst när kameran/armen/föremålet hålls relativt
+                    stilla i bild under sekvensen. Rör sig materialet mycket, använd extern
+                    mjukvara (CapCut/DaVinci Resolve) för en spårad effekt istället.
+                  </span>
+                </span>
+              </label>
+
+              {glowEnabled && (
+                <>
+                  <div style={{ marginTop: 12 }}>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={handleCaptureGlowPreview}
+                      disabled={glowCapturing}
+                    >
+                      {glowCapturing
+                        ? 'Hämtar bildruta…'
+                        : glowPreviewFrame
+                          ? 'Uppdatera förhandsvisning'
+                          : 'Visa förhandsvisning'}
+                    </button>
+                    {!glowPreviewFrame && (
+                      <p className="placeholder-note">
+                        Hämtar första bildrutan ur klippets första segment så du ser var du
+                        placerar glöden — annars går det ändå att positionera mot en tom ruta
+                        med samma proportioner.
+                      </p>
+                    )}
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <GlowPositioner
+                      previewFrame={glowPreviewFrame}
+                      xPercent={glowXPercent}
+                      yPercent={glowYPercent}
+                      radiusPercent={glowRadiusPercent}
+                      color={glowColor}
+                      onMove={(x, y) => {
+                        setGlowXPercent(x)
+                        setGlowYPercent(y)
+                      }}
+                      onResize={setGlowRadiusPercent}
+                    />
+                    <p className="placeholder-note" style={{ textAlign: 'center' }}>
+                      Dra i cirkeln för att flytta, dra i handtaget i hörnet för att ändra
+                      storlek.
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
+                    <label style={{ flex: '1 1 120px' }}>
+                      Starttid (sek)
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={glowStartSeconds}
+                        onChange={(e) => setGlowStartSeconds(Number(e.target.value))}
+                      />
+                    </label>
+                    <label style={{ flex: '1 1 120px' }}>
+                      Sluttid (sek)
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={glowEndSeconds}
+                        onChange={(e) => setGlowEndSeconds(Number(e.target.value))}
+                      />
+                    </label>
+                  </div>
+                  {planTotalSeconds > 0 && (
+                    <p className="placeholder-note">
+                      Klippets ungefärliga totala längd: ca {Math.round(planTotalSeconds)}s.
+                    </p>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
+                    <label style={{ flex: '1 1 120px' }}>
+                      Färg
+                      <select value={glowColor} onChange={(e) => setGlowColor(e.target.value)}>
+                        {GLOW_COLOR_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label style={{ flex: '1 1 120px' }}>
+                      Intensitet
+                      <select value={glowIntensity} onChange={(e) => setGlowIntensity(e.target.value)}>
+                        {GLOW_INTENSITY_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                 </>
               )}
             </div>

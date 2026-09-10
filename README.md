@@ -387,6 +387,65 @@ undertexter → effekt → video → bakgrund.
 Taggas INTE som AI-genererat innehåll (`ai_generated_content`) — konceptuellt samma sak som
 hook/undertexter (Claude-skriven text, ingen syntetisk bild/video), som redan inte taggas.
 
+## Glow-overlay: manuellt positionerad glödeffekt (valfritt, opt-in)
+
+En pulserande glöd ovanpå ett manuellt utvalt, FAST område i bilden — t.ex. för att få en
+tatuering, symbol eller ett föremål att se ut att glöda/lysa som ett kraftmärke. Bygger
+INTE på AI-baserad objektspårning/rotoscopering: positionen är statisk under hela det angivna
+tidsintervallet, avsedd för klipp där området hålls relativt stilla i bild. UI:t texlar detta
+tydligt. Rör sig materialet mycket vill användaren ha en spårad effekt rekommenderas extern
+mjukvara (CapCut/DaVinci Resolve) istället — inte byggt in i appen.
+
+Obs: appens faktiska renderingsmotor är Shotstack (se "Att göra: Remotion" nedan för varför
+Remotion inte är kopplad på riktigt än) — glow-effekten är därför byggd med samma
+Shotstack `html`-asset-mönster som tankebubblorna/ord-för-ord-undertexterna ovan, inte som en
+Remotion-komponent.
+
+**Flöde i Klippstudio** (kryssruta "Glow-effekt: få något att lysa", visas för varje klipp
+oavsett B-roll/effekt/bakgrundsbyte):
+1. **Visa förhandsvisning** — hämtar en stillbild från källvideon vid klippets första segment
+   (via en dold `<video>`+`<canvas>`, helt klientsidigt) så du ser var du placerar glöden.
+   Icke-kritiskt: misslyckas det (t.ex. saknade CORS-headers på videosvaret från Supabase
+   Storage) går det ändå att positionera mot en tom ruta med samma 9:16-proportioner.
+2. **Positioneringsruta** (`GlowPositioner`-komponenten i `Klippstudio.jsx`) — en 9:16-ruta
+   med en cirkel: dra i mitten för att flytta (`x_percent`/`y_percent`), dra i handtaget i
+   hörnet för att ändra storlek (`radius_percent`). Alla tre är procent av videons BREDD
+   (även vertikalt), så cirkeln hålls rund oavsett att rutan/videon är 9:16.
+3. **Starttid/sluttid** (sekunder) — positionerat på klippets FÄRDIGA tidslinje (efter
+   klippning/B-roll/etc.), inte källvideons egna tidsstämplar.
+4. **Färg** (guld/blå/vit/röd) och **intensitet** (låg/medel/hög).
+
+**Datamodell:** sparas som `glow_effect jsonb` på `clips`-tabellen (migration
+`0007_glow_effect.sql`), t.ex.:
+```json
+{
+  "enabled": true,
+  "x_percent": 42,
+  "y_percent": 58,
+  "radius_percent": 12,
+  "start_seconds": 2.5,
+  "end_seconds": 6.0,
+  "color": "gold",
+  "intensity": "medium"
+}
+```
+
+**Kompositering** (`render-clip.ts`): byggs EFTER huvudloopen över segmenten (positionen är
+fast över hela intervallet, inte per segment) som ett eget spår (`glowClips`) — samma skäl som
+`bubbleClips`/`backgroundClips`, den kan tidsöverlappa andra spår. En `html`-asset med en
+`radial-gradient`-cirkel + `box-shadow` i vald färg, i exakt pixelposition uträknad från
+`x_percent`/`y_percent`/`radius_percent` mot `OUTPUT_SIZE` (1080×1920).
+
+Den "mjuka pulseringen i opacitet" byggs INTE som en CSS-animation inuti html-asseten (kunde
+inte verifieras mot Shotstacks dokumentation härifrån, nätverksbegränsningar) utan av flera
+korta (0,25s), sekventiella klipp på samma spår med varierande `opacity` — Shotstacks redan
+verifierade klipp-nivå-fält (samma fält som `static`-effekten och bakgrundsbytets kromakey-
+lager använder) — sampling av en sinusvåg med ca 1,6s period. Spårordning (z-index): hook →
+tankebubblor → undertexter → glow → AI-effekt → video → bakgrund, så glowen syns ovanpå
+videon och den AI-genererade ljuseffekten men under text.
+
+Taggas INTE som AI-genererat innehåll — manuell positionering/CSS, ingen AI-generering.
+
 ## Att göra: Remotion som växlingsbart renderingsalternativ (pausat, påbörjat)
 
 Uppdaterad spec vill kunna växla rendering mellan Shotstack (nuvarande, fungerar) och

@@ -5,7 +5,9 @@
 // overlay-effekt (ljusklot/dimma/gnistor/kantglöd/static, se EFFECT_COMPOSITE) ovanpå det
 // första segmentet, och (valfritt) ett AI-bakgrundsbyte som ERSÄTTER första segmentets
 // bakgrund med en AI-genererad bild (se backgroundSwapActive, generate-background.ts,
-// matte-video.ts). SHOTSTACK_API_KEY exponeras aldrig i klienten.
+// matte-video.ts), och (valfritt) en manuellt positionerad, pulserande glow-overlay
+// (glowEffect, se GLOW_* nedan) — fast position under ett tidsintervall, ingen AI-spårning.
+// SHOTSTACK_API_KEY exponeras aldrig i klienten.
 
 // "stage" = Shotstack sandbox (gratis, vattenstämplat) — säkert default tills du har en
 // produktionsnyckel. Sätt SHOTSTACK_ENV=v1 i Netlify när du vill rendera skarpt.
@@ -39,6 +41,33 @@ const THOUGHT_BUBBLE_CSS =
   'border-radius: 45px; padding: 22px 30px; margin: 0; ' +
   'box-shadow: 0 0 25px 10px rgba(178,132,255,0.9), 0 0 60px 24px rgba(124,77,255,0.55); }'
 const THOUGHT_BUBBLE_POSITIONS = ['topLeft', 'topRight']
+
+// Glow-overlay (valfritt, manuellt positionerad av användaren i Klippstudio) — t.ex. för att
+// få en tatuering/symbol/föremål att se ut att glöda som ett kraftmärke. FAST position under
+// ett angivet tidsintervall i den FÄRDIGA klippets tidslinje (inte källvideons egna
+// tidsstämplar) — INGEN AI-baserad objektspårning, avsedd för klipp där området hålls
+// relativt stilla i bild. x_percent/y_percent/radius_percent är alla relativa till
+// OUTPUT_SIZE.width (även vertikalt, så cirkeln blir rund oavsett 9:16-formatet).
+const GLOW_COLORS: Record<string, string> = {
+  gold: '255,200,60',
+  blue: '80,160,255',
+  white: '255,255,255',
+  red: '255,70,70',
+}
+const GLOW_INTENSITY_OPACITY: Record<string, number> = {
+  low: 0.55,
+  medium: 0.75,
+  high: 0.95,
+}
+const GLOW_DEFAULT_COLOR = 'gold'
+const GLOW_DEFAULT_INTENSITY = 'medium'
+// "Mjuk pulsering i opacitet" byggs av flera korta, sekventiella klipp med varierande
+// opacity — Shotstacks verifierade klipp-nivå-fält (samma fält som redan används för
+// "static"-effekten och bakgrundsbytets kromakey-lager) — snarare än en CSS-animation inuti
+// html-asseten, vars beteende över tid i Shotstacks bildruteförrendering inte gick att
+// verifiera härifrån (nätverksbegränsningar). Sinusvåg, ca 1,6s period.
+const GLOW_PULSE_PERIOD = 1.6
+const GLOW_PULSE_STEP = 0.25
 
 // Fler effekttyper ger mer visuell variation än samma zoom hela tiden.
 // Bara "Fast"-varianter — de långsamma presets (zoomIn/zoomOut/slideLeft/slideRight utan
@@ -158,6 +187,18 @@ export default async (request: Request) => {
     ? (body.thoughtBubbles as string[]).filter((s) => typeof s === 'string' && s.trim())
     : []
   const thoughtBubblesEnabled = body.thoughtBubblesEnabled === true && thoughtBubbles.length > 0
+  // Glow-overlay (valfritt) — se GLOW_* ovan. glowEffect är hela glow_effect-objektet från
+  // klippet (samma form som sparas i clips.glow_effect i Supabase).
+  const glowEffect =
+    body.glowEffect && typeof body.glowEffect === 'object' ? (body.glowEffect as Record<string, unknown>) : null
+  const glowEnabled =
+    Boolean(glowEffect) &&
+    glowEffect?.enabled === true &&
+    typeof glowEffect?.x_percent === 'number' &&
+    typeof glowEffect?.y_percent === 'number' &&
+    typeof glowEffect?.start_seconds === 'number' &&
+    typeof glowEffect?.end_seconds === 'number' &&
+    (glowEffect.end_seconds as number) > (glowEffect.start_seconds as number)
 
   if (!videoUrl || typeof videoUrl !== 'string') {
     return jsonResponse({ error: 'videoUrl krävs (publik URL till källvideon).' }, 400)
@@ -178,6 +219,10 @@ export default async (request: Request) => {
   // undertexterna på captionClips, bara på en annan skärmposition, så de måste ligga på ett
   // separat spår av samma anledning som backgroundClips ovan.
   const bubbleClips = []
+  // Eget spår för glow-overlayen — byggs EFTER segmentsPlan.forEach nedan (den positioneras på
+  // den färdiga klippets tidslinje som helhet, inte per segment) men behöver ligga i samma
+  // spårlista som resten.
+  const glowClips: Record<string, unknown>[] = []
   let timelineCursor = 0
 
   segmentsPlan.forEach((seg, index) => {
@@ -343,6 +388,63 @@ export default async (request: Request) => {
     }
   })
 
+  // Glow-overlay byggs på den FÄRDIGA klippets tidslinje (timelineCursor är nu den totala
+  // längden), inte per segment — positionen är avsiktligt fast under hela intervallet.
+  if (glowEnabled && glowEffect) {
+    const xPercent = Math.min(Math.max(glowEffect.x_percent as number, 0), 100)
+    const yPercent = Math.min(Math.max(glowEffect.y_percent as number, 0), 100)
+    const radiusPercent =
+      typeof glowEffect.radius_percent === 'number' && glowEffect.radius_percent > 0
+        ? Math.min(glowEffect.radius_percent as number, 50)
+        : 10
+    const startSeconds = Math.max(glowEffect.start_seconds as number, 0)
+    const endSeconds = Math.min(glowEffect.end_seconds as number, timelineCursor)
+    const color =
+      typeof glowEffect.color === 'string' && glowEffect.color in GLOW_COLORS
+        ? (glowEffect.color as string)
+        : GLOW_DEFAULT_COLOR
+    const intensity =
+      typeof glowEffect.intensity === 'string' && glowEffect.intensity in GLOW_INTENSITY_OPACITY
+        ? (glowEffect.intensity as string)
+        : GLOW_DEFAULT_INTENSITY
+    const rgb = GLOW_COLORS[color]
+    const maxOpacity = GLOW_INTENSITY_OPACITY[intensity]
+
+    if (endSeconds > startSeconds) {
+      const diameterPx = Math.max(Math.round((radiusPercent / 100) * OUTPUT_SIZE.width * 2), 20)
+      const leftPx = Math.round((xPercent / 100) * OUTPUT_SIZE.width - diameterPx / 2)
+      const topPx = Math.round((yPercent / 100) * OUTPUT_SIZE.height - diameterPx / 2)
+      const glowCss =
+        `.glow { position: absolute; left: ${leftPx}px; top: ${topPx}px; width: ${diameterPx}px; ` +
+        `height: ${diameterPx}px; border-radius: 50%; ` +
+        `background: radial-gradient(circle, rgba(${rgb},0.95) 0%, rgba(${rgb},0.55) 40%, rgba(${rgb},0) 72%); ` +
+        `box-shadow: 0 0 ${Math.round(diameterPx * 0.4)}px ${Math.round(diameterPx * 0.2)}px rgba(${rgb},0.35); }`
+      const minOpacity = maxOpacity * 0.55
+
+      let t = startSeconds
+      while (t < endSeconds) {
+        const stepLength = Math.min(GLOW_PULSE_STEP, endSeconds - t)
+        const phase = (t % GLOW_PULSE_PERIOD) / GLOW_PULSE_PERIOD
+        const wave = (Math.sin(phase * 2 * Math.PI - Math.PI / 2) + 1) / 2 // 0..1
+        const opacity = minOpacity + wave * (maxOpacity - minOpacity)
+        glowClips.push({
+          asset: {
+            type: 'html',
+            html: '<div class="glow"></div>',
+            css: glowCss,
+            width: OUTPUT_SIZE.width,
+            height: OUTPUT_SIZE.height,
+          },
+          start: t,
+          length: stepLength,
+          position: 'center',
+          opacity: Math.round(opacity * 100) / 100,
+        })
+        t += stepLength
+      }
+    }
+  }
+
   const hookClip = hookText
     ? [
         {
@@ -365,6 +467,7 @@ export default async (request: Request) => {
     { clips: hookClip },
     { clips: bubbleClips },
     { clips: captionClips },
+    { clips: glowClips },
     { clips: effectClips },
     { clips: videoClips },
     { clips: backgroundClips },
