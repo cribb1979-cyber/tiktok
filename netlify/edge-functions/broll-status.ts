@@ -39,7 +39,16 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Kunde inte nå Replicate API.', detail: String(err) }, 502)
   }
 
-  const data = await response.json()
+  // .json() kan kasta om Replicate svarar med något som inte är giltig JSON — läs som text
+  // först och försök tolka, så ett ogiltigt svar ger ett vettigt felmeddelande istället för
+  // att krascha hela funktionen (samma bugg/fix som i generate-broll.ts).
+  const rawText = await response.text()
+  let data: Record<string, unknown>
+  try {
+    data = JSON.parse(rawText)
+  } catch {
+    return jsonResponse({ error: 'Replicate API-fel (ogiltigt svar)', detail: rawText }, 502)
+  }
 
   if (!response.ok) {
     return jsonResponse({ error: 'Replicate API-fel', detail: data }, 502)
@@ -47,7 +56,7 @@ export default async (request: Request) => {
 
   return jsonResponse(
     {
-      status: STATUS_MAP[data.status] ?? data.status,
+      status: STATUS_MAP[data.status as string] ?? data.status,
       url: Array.isArray(data.output) ? data.output[0] ?? null : typeof data.output === 'string' ? data.output : null,
       error: data.error ?? null,
     },

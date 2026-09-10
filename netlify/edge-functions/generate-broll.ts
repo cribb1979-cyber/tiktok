@@ -120,7 +120,16 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Kunde inte nå Replicate API.', detail: String(err) }, 502)
   }
 
-  const replicateData = await replicateResponse.json()
+  // .json() kan kasta om Replicate svarar med något som inte är giltig JSON (t.ex. en
+  // HTML-felsida vid ett server-/auth-fel) — läs som text först och försök tolka, så en
+  // ogiltig kropp ger ett vettigt felmeddelande istället för att krascha hela funktionen.
+  const replicateRawText = await replicateResponse.text()
+  let replicateData: Record<string, unknown>
+  try {
+    replicateData = JSON.parse(replicateRawText)
+  } catch {
+    return jsonResponse({ error: 'Replicate API-fel (ogiltigt svar)', detail: replicateRawText }, 502)
+  }
 
   if (!replicateResponse.ok || !replicateData?.id) {
     return jsonResponse({ error: 'Replicate API-fel', detail: replicateData }, 502)
