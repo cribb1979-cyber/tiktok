@@ -141,7 +141,14 @@ till om/när det schemat går att bekräfta, då den har inbyggt stöd för high
 
 `SHOTSTACK_ENV` styr miljö: `stage` (default) är Shotstacks gratis sandbox och
 vattenstämplar videon — bra för att testa flödet. Sätt `SHOTSTACK_ENV=v1` i Netlify med en
-produktionsnyckel för skarpa renderingar.
+produktionsnyckel för skarpa renderingar (inget vattenmärke). **Om videorna fortfarande känns
+lågupplösta/suddiga trots det** — kontrollera att detta faktiskt är satt i Netlifys
+miljövariabler, annars renderas allt i sandboxläge.
+
+**Bildkvalitet:** `output.quality` sätts till `"high"` (Shotstacks eget fält, default är
+annars `"medium"` — optimerat för liten filstorlek, inte skärpa). `"high"` är i princip
+visuellt lossless. TikTok komprimerar videon igen själva vid uppladdning oavsett, så det är
+bättre att leverera med så hög kvalitet som möjligt in i det steget.
 
 Shotstacks `title`-asset (som används för alla textöverlägg) är enligt Shotstacks egen
 dokumentation markerad som föråldrad till förmån för ett nyare `rich-text`/`rich-caption`-API

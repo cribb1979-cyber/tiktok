@@ -233,6 +233,11 @@ export default async (request: Request) => {
     output: {
       format: 'mp4',
       size: OUTPUT_SIZE,
+      // Shotstacks default ("medium") är optimerad för liten filstorlek, inte skärpa.
+      // "high" är i princip visuellt lossless — rätt val för en slutgiltig TikTok-leverans
+      // som inte transkodas vidare av oss (TikTok komprimerar den själva vid uppladdning,
+      // så bättre att gå in med så hög kvalitet som möjligt).
+      quality: 'high',
     },
   }
 
