@@ -8,7 +8,7 @@ import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
-import { CATEGORIES, SEGMENT_EFFECT_OPTIONS, SEGMENT_FILTER_OPTIONS } from '../constants.js'
+import { CATEGORIES, SEGMENT_EFFECT_OPTIONS, SEGMENT_FILTER_OPTIONS, EFFECT_TYPE_OPTIONS } from '../constants.js'
 
 // Whisper (OpenAI) har en hård 25 MB-gräns per fil — den kan inte höjas, det är deras
 // API:s egen begränsning. Uppladdning/rendering (Shotstack) har ingen sådan gräns, så den
@@ -79,10 +79,12 @@ export default function Klippstudio() {
   const [brollRefinedPrompt, setBrollRefinedPrompt] = useState('')
   const [brollRefining, setBrollRefining] = useState(false)
 
-  // AI-effekt (t.ex. ett ljusklot) — genereras separat från B-roll och läggs som ett eget
-  // lager OVANPÅ videon (kromakey mot svart bakgrund), istället för att klippas in som ett
-  // eget segment. Se effectMode "orb" i generate-broll.ts/render-clip.ts.
+  // AI-effekt (ljusklot/dimma/gnistor/kantglöd/static) — genereras separat från B-roll och
+  // läggs som ett eget lager OVANPÅ videon (kromakey mot svart bakgrund, utom "static" som
+  // läggs på med opacity), istället för att klippas in som ett eget segment. Se EFFECT_TYPES
+  // i generate-broll.ts och EFFECT_COMPOSITE i render-clip.ts.
   const [effectEnabled, setEffectEnabled] = useState(false)
+  const [effectType, setEffectType] = useState('orb')
   const [effectGenerating, setEffectGenerating] = useState(false)
   const [effectStatus, setEffectStatus] = useState(null)
   const [effectVideoUrl, setEffectVideoUrl] = useState(null)
@@ -203,6 +205,7 @@ export default function Klippstudio() {
     setBrollAllowFigures(false)
     setBrollRefinedPrompt('')
     setEffectEnabled(false)
+    setEffectType('orb')
     setEffectVideoUrl(null)
     setEffectPrompt(null)
     setEffectCustomPrompt('')
@@ -321,6 +324,7 @@ export default function Klippstudio() {
         segmentFilters,
         words: transcript?.words ?? [],
         effectVideoUrl,
+        effectType,
         onStatus: setRenderStatus,
       })
       setRenderedVideoUrl(url)
@@ -423,7 +427,7 @@ export default function Klippstudio() {
     try {
       const refined = await refineBrollPrompt({
         customPrompt: effectCustomPrompt,
-        effectMode: 'orb',
+        effectMode: effectType,
       })
       setEffectRefinedPrompt(refined)
     } catch (err) {
@@ -442,7 +446,7 @@ export default function Klippstudio() {
       const result = await generateBroll({
         customPrompt: effectCustomPrompt,
         refinedPrompt: effectRefinedPrompt,
-        effectMode: 'orb',
+        effectMode: effectType,
         onStatus: setEffectStatus,
       })
       setEffectVideoUrl(result.url)
@@ -807,16 +811,38 @@ export default function Klippstudio() {
                 />
                 <span>
                   <span className="clip-hook" style={{ display: 'block' }}>
-                    AI-effekt: ljusklot i bilden (valfritt)
+                    AI-effekt ovanpå bilden (valfritt)
                   </span>
                   <span className="clip-prompt" style={{ display: 'block' }}>
-                    Ett AI-genererat lysande klot (eller liknande ljuseffekt) läggs ovanpå ditt
-                    eget klipp under första segmentet — som ett "orb caught on camera"-fenomen.
-                    Kromakey tar bort den svarta bakgrunden automatiskt. Taggas som AI-genererat
-                    innehåll. Generera innan du renderar om du vill ha den med.
+                    Ett AI-genererat lysande fenomen (ljusklot, dimma, gnistor m.m.) läggs
+                    ovanpå ditt eget klipp under första segmentet — som ett "caught on
+                    camera"-ögonblick. Kromakey tar bort den svarta bakgrunden automatiskt.
+                    Taggas som AI-genererat innehåll. Generera innan du renderar om du vill ha
+                    den med.
                   </span>
                 </span>
               </label>
+
+              {effectEnabled && (
+                <label style={{ display: 'block', marginTop: 12 }}>
+                  Typ av effekt
+                  <select
+                    value={effectType}
+                    onChange={(e) => {
+                      setEffectType(e.target.value)
+                      setEffectVideoUrl(null)
+                      setEffectPrompt(null)
+                      setEffectRefinedPrompt('')
+                    }}
+                  >
+                    {EFFECT_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
 
               {effectEnabled &&
                 (effectVideoUrl ? (
@@ -832,7 +858,7 @@ export default function Klippstudio() {
                         value={effectCustomPrompt}
                         onChange={(e) => setEffectCustomPrompt(e.target.value)}
                         rows={2}
-                        placeholder="T.ex. ett pulserande blått ljusklot som glider genom rummet — lämna tomt för ett generiskt vitt ljusklot"
+                        placeholder="T.ex. ett pulserande blått ljussken — lämna tomt för ett generiskt förslag som passar vald typ"
                       />
                     </label>
                     <p className="placeholder-note">

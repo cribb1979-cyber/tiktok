@@ -14,6 +14,7 @@ async function submitRender({
   segmentFilters,
   words,
   effectVideoUrl,
+  effectType,
 }) {
   const response = await fetch('/api/render-clip', {
     method: 'POST',
@@ -29,6 +30,7 @@ async function submitRender({
       segmentFilters,
       words,
       effectVideoUrl,
+      effectType,
     }),
   })
 
@@ -64,6 +66,7 @@ export async function renderClip({
   segmentFilters,
   words,
   effectVideoUrl,
+  effectType,
   onStatus,
 }) {
   const id = await submitRender({
@@ -77,6 +80,7 @@ export async function renderClip({
     segmentFilters,
     words,
     effectVideoUrl,
+    effectType,
   })
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {

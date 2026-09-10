@@ -18,10 +18,9 @@
 // default-modellen (wan-video/wan-2.1-1.3b, se nedan) finns inget sådant fält, så där gäller
 // enbart Claude-instruktionen.
 //
-// effectMode: "orb" genererar istället en overlay-ljuseffekt (t.ex. ett ljusklot) mot ren
-// svart bakgrund, tänkt att läggas OVANPÅ användarens egen video (kromakey) i render-clip.ts
-// — separat funktion från B-roll (som spleceas in som ett eget segment mellan huvudklippen).
-// Se PROMPT_SYSTEM_ORB_EFFECT längre ner.
+// effectMode ("orb"/"mist"/"sparks"/"edgeGlow"/"static") genererar istället en overlay-effekt
+// tänkt att läggas OVANPÅ användarens egen video i render-clip.ts — separat funktion från
+// B-roll (som spleceas in som ett eget segment mellan huvudklippen). Se EFFECT_TYPES nedan.
 //
 // Leverantör/modell: default är wan-video/wan-2.1-1.3b (mindre 1.3B-modell, körs direkt via
 // Replicate utan mellanhand). Testade ursprungligen wavespeedai/wan-2.1-t2v-720p (14B,
@@ -60,22 +59,79 @@ i skugga eller motljus, aldrig ett tydligt porträtt. Ingen text i bilden. Svara
 prompten, max två meningar, filmisk och specifik (ljus/färg/rörelse/komposition), på engelska
 (bildmodeller fungerar bäst med engelska prompts).`
 
-// "Overlay-effekt" (t.ex. ett ljusklot) — genereras separat från B-roll ovan och läggs som
-// ett eget lager OVANPÅ användarens egen video i render-clip.ts, med chromaKey mot svart för
-// att ta bort bakgrunden. Kräver därför en ren, enkel bakgrund — annars blir kromakey-
-// borttagningen fläckig/ofullständig.
-const PROMPT_SYSTEM_ORB_EFFECT = `Du skriver en kort, visuell prompt för ett AI-genererat
-ljuseffekt-klipp som ska läggas som ett genomskinligt lager ovanpå en annan video (kromakey
-mot svart bakgrund) — t.ex. ett svävande ljusklot i ett TikTok-klipp om andlighet/medium-tema.
+// "Overlay-effekter" — genereras separat från B-roll ovan och läggs som ett eget lager
+// OVANPÅ användarens egen video i render-clip.ts. De fyra chromaKey-baserade lägena (orb/
+// mist/sparks/edgeGlow) kräver en ren svart bakgrund (annars blir kromakey-borttagningen
+// fläckig/ofullständig) — "static" är annorlunda: hela bilden ÄR effekten (brus/interferens),
+// läggs på med opacity istället för kromakey, se EFFECT_COMPOSITE i render-clip.ts.
+const EFFECT_TYPES: Record<string, { promptSystem: string; negativePrompt: string }> = {
+  orb: {
+    promptSystem: `Du skriver en kort, visuell prompt för ett AI-genererat ljuseffekt-klipp
+som ska läggas som ett genomskinligt lager ovanpå en annan video (kromakey mot svart
+bakgrund) — ett svävande ljusklot i ett TikTok-klipp om andlighet/medium-tema.
 
 KRITISKT:
-- Motivet är ETT enda tydligt lysande/glödande objekt (t.ex. ett runt ljusklot, en gnista, ett
-  svävande sken) — inget annat i bild.
-- Bakgrunden MÅSTE vara helt svart/mörk, utan andra objekt, rum, mönster eller ljuskällor —
-  en ren svart bakgrund krävs för att kromakey-borttagningen ska fungera.
+- Motivet är ETT enda tydligt lysande/glödande runt klot — inget annat i bild.
+- Bakgrunden MÅSTE vara helt svart/mörk, utan andra objekt, rum, mönster eller ljuskällor.
 - Ingen text, inga personer, inga andra föremål.
 Svara med BARA prompten, max en mening, filmisk och specifik (rörelse/glöd/färg), på engelska
-(bildmodeller fungerar bäst med engelska prompts).`
+(bildmodeller fungerar bäst med engelska prompts).`,
+    negativePrompt: 'room, scene, background objects, landscape, people, person, text, watermark, multiple objects',
+  },
+  mist: {
+    promptSystem: `Du skriver en kort, visuell prompt för ett AI-genererat dimma/rök-klipp
+som ska läggas som ett genomskinligt lager ovanpå en annan video (kromakey mot svart
+bakgrund) — dimma/rök som rullar in i ett TikTok-klipp om andlighet/medium-tema.
+
+KRITISKT:
+- Motivet är ENDAST vit/grå dimma eller rök som rör sig/rullar — inget annat i bild.
+- Bakgrunden MÅSTE vara helt svart/mörk, utan andra objekt, rum, mönster eller ljuskällor.
+- Ingen text, inga personer, inga andra föremål.
+Svara med BARA prompten, max en mening, filmisk och specifik (rörelse/densitet), på engelska
+(bildmodeller fungerar bäst med engelska prompts).`,
+    negativePrompt: 'room, scene, background objects, landscape, people, person, text, watermark, colored light',
+  },
+  sparks: {
+    promptSystem: `Du skriver en kort, visuell prompt för ett AI-genererat gnist-/glödpartikel-
+klipp som ska läggas som ett genomskinligt lager ovanpå en annan video (kromakey mot svart
+bakgrund) — svävande gnistor/glödpartiklar i ett TikTok-klipp om andlighet/medium-tema.
+
+KRITISKT:
+- Motivet är ENDAST små lysande gnistor/partiklar som svävar/driver — inget annat i bild.
+- Bakgrunden MÅSTE vara helt svart/mörk, utan andra objekt, rum, mönster eller ljuskällor.
+- Ingen text, inga personer, inga andra föremål.
+Svara med BARA prompten, max en mening, filmisk och specifik (rörelse/glöd/färg), på engelska
+(bildmodeller fungerar bäst med engelska prompts).`,
+    negativePrompt: 'room, scene, background objects, landscape, people, person, text, watermark, single large object',
+  },
+  edgeGlow: {
+    promptSystem: `Du skriver en kort, visuell prompt för ett AI-genererat ljussken-klipp som
+ska läggas som ett genomskinligt lager i kanten av en annan video (kromakey mot svart
+bakgrund) — ett flimrande/pulserande ljussken, som en närvaro precis utanför synfältet, i ett
+TikTok-klipp om andlighet/medium-tema.
+
+KRITISKT:
+- Motivet är ETT enda flimrande/pulserande ljussken eller glöd — inget annat i bild.
+- Bakgrunden MÅSTE vara helt svart/mörk, utan andra objekt, rum, mönster eller ljuskällor.
+- Ingen text, inga personer, inga andra föremål.
+Svara med BARA prompten, max en mening, filmisk och specifik (flimmer/puls/färg), på engelska
+(bildmodeller fungerar bäst med engelska prompts).`,
+    negativePrompt: 'room, scene, background objects, landscape, people, person, text, watermark, orb, sphere',
+  },
+  static: {
+    promptSystem: `Du skriver en kort, visuell prompt för ett AI-genererat TV-brus/
+interferens-klipp som ska läggas som ett kort, halvgenomskinligt lager ovanpå en annan video
+— en snabb "glitch"-blink, som klassisk analog TV-störning, i ett TikTok-klipp om
+andlighet/medium-tema.
+
+KRITISKT:
+- Motivet är ENDAST svartvitt TV-brus/signalinterferens/statisk — inget annat i bild.
+- Ingen färg, ingen text, inga personer, inga föremål, inga rum.
+Svara med BARA prompten, max en mening, filmisk och specifik, på engelska (bildmodeller
+fungerar bäst med engelska prompts).`,
+    negativePrompt: 'color, room, scene, background objects, landscape, people, person, text, watermark',
+  },
+}
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -105,9 +161,11 @@ export default async (request: Request) => {
   // true = bara förfina/översätta prompten via Claude och returnera den, utan att starta
   // någon (betald) Replicate-generering — låter användaren se/redigera innan de bekräftar.
   const refineOnly = body.refineOnly === true
-  // "orb" = generera en overlay-ljuseffekt (kromakey mot svart) istället för vanlig B-roll —
-  // se PROMPT_SYSTEM_ORB_EFFECT ovan och render-clip.ts för hur den läggs ovanpå videon.
-  const effectMode = body.effectMode === 'orb' ? 'orb' : null
+  // effectMode ("orb"/"mist"/"sparks"/"edgeGlow"/"static") = generera en overlay-effekt
+  // istället för vanlig B-roll — se EFFECT_TYPES ovan och render-clip.ts för hur den läggs
+  // ovanpå videon.
+  const effectMode =
+    typeof body.effectMode === 'string' && body.effectMode in EFFECT_TYPES ? body.effectMode : null
 
   const theme = [customPrompt, body.category, body.subtopic, body.hookText]
     .filter((v) => typeof v === 'string' && v.trim())
@@ -122,14 +180,13 @@ export default async (request: Request) => {
 
   const replicateModel = Deno.env.get('REPLICATE_MODEL') || 'wan-video/wan-2.1-1.3b'
   // Uttryckligt opt-in per klipp (default false) — se kommentaren högst upp i filen för
-  // person-skyddets två lägen. Ignoreras i effectMode "orb" (aldrig personer/figurer där).
+  // person-skyddets två lägen. Ignoreras i effectMode (aldrig personer/figurer i overlay-effekter).
   const allowIllustrativeFigures = body.allowIllustrativeFigures === true
-  const promptSystem =
-    effectMode === 'orb'
-      ? PROMPT_SYSTEM_ORB_EFFECT
-      : allowIllustrativeFigures
-        ? PROMPT_SYSTEM_ILLUSTRATIVE
-        : PROMPT_SYSTEM_PERSON_FREE
+  const promptSystem = effectMode
+    ? EFFECT_TYPES[effectMode].promptSystem
+    : allowIllustrativeFigures
+      ? PROMPT_SYSTEM_ILLUSTRATIVE
+      : PROMPT_SYSTEM_PERSON_FREE
 
   // Steg 1: Claude formulerar en filmisk visuell prompt utifrån klippets tema — person-fri
   // som default, eller med generiska/anonyma figurer tillåtna om allowIllustrativeFigures.
@@ -189,16 +246,15 @@ export default async (request: Request) => {
   }
 
   if (isWaveSpeedModel) {
-    // Extra skyddsnät utöver instruktionen i Claude-prompten. I orb-läge: håll bakgrunden
-    // ren svart (kromakey kräver det) och inga personer/scenobjekt. Annars: i default-läget
-    // blockeras människor helt, i illustrativt läge blockeras bara sådant som skulle göra en
-    // figur igenkännbar (tydligt ansikte/porträtt) snarare än generiska figurer i sig.
-    replicateInput.negative_prompt =
-      effectMode === 'orb'
-        ? 'room, scene, background objects, landscape, people, person, text, watermark, multiple objects'
-        : allowIllustrativeFigures
-          ? 'recognizable face, close-up portrait, detailed facial features, celebrity, named real person, text, watermark'
-          : 'people, person, human face, human figure, man, woman, portrait, crowd, text, watermark'
+    // Extra skyddsnät utöver instruktionen i Claude-prompten. I effect-läge: se
+    // EFFECT_TYPES[effectMode].negativePrompt ovan. Annars: i default-läget blockeras
+    // människor helt, i illustrativt läge blockeras bara sådant som skulle göra en figur
+    // igenkännbar (tydligt ansikte/porträtt) snarare än generiska figurer i sig.
+    replicateInput.negative_prompt = effectMode
+      ? EFFECT_TYPES[effectMode].negativePrompt
+      : allowIllustrativeFigures
+        ? 'recognizable face, close-up portrait, detailed facial features, celebrity, named real person, text, watermark'
+        : 'people, person, human face, human figure, man, woman, portrait, crowd, text, watermark'
     // "Fast" (en sträng, inte en boolean — bekräftat via ett skarpt 422-fel: "Expected:
     // string, given: boolean") för lägre kostnad/kortare väntetid.
     replicateInput.fast_mode = 'Fast'

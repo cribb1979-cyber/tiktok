@@ -282,31 +282,42 @@ i vår databas — se kommentaren i `tiktokAdapter.js`s `publishClip`.
 kryssrutan finns kvar även utan nyckel, men genereringen felar tydligt tills den är satt) och
 valfri `REPLICATE_MODEL` (default `wan-video/wan-2.1-1.3b`).
 
-## AI-effekt: ljusklot ovanpå videon (valfritt tillval, opt-in)
+## AI-effekt: paranormala fenomen ovanpå videon (valfritt tillval, opt-in)
 
 Utöver B-roll (som klipps in som ett eget segment): ett andra kryssruta i Klippstudio
-("AI-effekt: ljusklot i bilden") lägger ett AI-genererat lysande klot (eller liknande
-ljuseffekt) OVANPÅ ditt eget uppladdade klipp — ett "orb caught on camera"-fenomen, på tema
-för paranormalt/medium-innehåll. Skiljer sig från B-roll genom att den komposit­eras in i din
-egen video istället för att vara ett fristående, inklippt segment.
+("AI-effekt ovanpå bilden") lägger ett AI-genererat fenomen OVANPÅ ditt eget uppladdade klipp
+— ett "caught on camera"-ögonblick, på tema för paranormalt/medium-innehåll. Skiljer sig från
+B-roll genom att den kompositeras in i din egen video istället för att vara ett fristående,
+inklippt segment.
 
-**Flöde:** samma Claude+Replicate-pipeline som B-roll (`generate-broll.ts`,
-`effectMode: 'orb'`), men med en egen systemprompt (`PROMPT_SYSTEM_ORB_EFFECT`) som kräver att
-motivet är ETT enda lysande objekt mot en helt svart, ren bakgrund — inga andra scenobjekt,
-inga personer. Samma "Förfina prompt"-mellansteg som B-roll finns också här (`refineOnly`/
-`refinedPrompt`, se ovan).
+**Fem typer** (dropdown i Klippstudio, `EFFECT_TYPE_OPTIONS` i `constants.js`), varje med egen
+systemprompt (`EFFECT_TYPES` i `generate-broll.ts`) och egen kompositering (`EFFECT_COMPOSITE`
+i `render-clip.ts`):
+
+| Typ | Motiv | Kompositering |
+|---|---|---|
+| `orb` (Ljusklot) | Ett runt lysande klot | Kromakey, skalad 45%, centrerad |
+| `mist` (Dimma/rök) | Vit/grå dimma som rullar | Kromakey, fyller bildrutan, nedtill |
+| `sparks` (Gnistor) | Svävande glödpartiklar | Kromakey, fyller bildrutan, centrerad |
+| `edgeGlow` (Kantglöd) | Flimrande ljussken | Kromakey, skalad 50%, höger kant |
+| `static` (TV-brus/glitch) | Svartvitt brus/interferens | Ingen kromakey — hela bilden är effekten, läggs på med `opacity: 0.5` som en kort 0,6s-blink |
+
+De fyra kromakey-baserade typerna kräver alla en ren, helt svart bakgrund i den genererade
+videon (annars blir borttagningen fläckig) — Claude instrueras uttryckligen om detta per typ.
+Samma "Förfina prompt"-mellansteg som B-roll finns också här (`refineOnly`/`refinedPrompt`).
 
 **Kompositering:** `render-clip.ts` lägger den genererade videon som ett eget lager ovanpå det
 första huvudsegmentet, med Shotstacks `chromaKey`-fält (`{ color: '#000000', threshold: 150,
-halo: 100 }`, verifierat mot Shotstacks dokumentation för chromakey-fältet) — det tar bort den
-svarta bakgrunden så bara det lysande motivet syns, skalat till 45% (`scale: 0.45`) och
-centrerat (`position: 'center'`). Varar i `EFFECT_DEFAULT_DURATION` (4 sekunder som default,
-`effectDurationSeconds` styrbart) eller så länge första segmentet är, beroende på vad som är
-kortast. Spårordning (z-index): hook → undertexter → ljuseffekt → video, så texten alltid
-syns ovanpå effekten och effekten alltid syns ovanpå videon.
+halo: 100 }`, verifierat mot Shotstacks dokumentation) för fyra av typerna, eller `opacity` för
+`static`. Varar så länge typens `defaultDuration` anger (`effectDurationSeconds` styrbart) eller
+så länge första segmentet är, beroende på vad som är kortast. Spårordning (z-index): hook →
+undertexter → effekt → video, så texten alltid syns ovanpå effekten och effekten alltid syns
+ovanpå videon. `effectType` måste skickas till `/api/render-clip` med samma värde som
+`effectMode` hade när klippet genererades — annars kan fel kompositeringsinställningar (fel
+skalning/position) användas.
 
 **TikTok-taggning:** `ai_generated_content` sätts till `true` när antingen B-roll eller
-ljuseffekten används (`brollEnabled || effectEnabled` i `persistClip`).
+effekten används (`brollEnabled || effectEnabled` i `persistClip`).
 
 **Ej byggt än (nämnt av användaren som en senare, mer experimentell utökning):** en person som
 går förbi i bild — bedömdes svårare att få snyggt (kräver renare urklippning än en ljus/glöd-

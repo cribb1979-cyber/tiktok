@@ -41,3 +41,13 @@ export const SEGMENT_FILTER_OPTIONS = [
   { value: 'greyscale', label: 'Svartvitt' },
   { value: 'negative', label: 'Negativ' },
 ]
+
+// AI-genererade overlay-effekter (läggs ovanpå videon, se generate-broll.ts effectMode och
+// render-clip.ts EFFECT_COMPOSITE).
+export const EFFECT_TYPE_OPTIONS = [
+  { value: 'orb', label: 'Ljusklot' },
+  { value: 'mist', label: 'Dimma/rök' },
+  { value: 'sparks', label: 'Gnistor/glödpartiklar' },
+  { value: 'edgeGlow', label: 'Flimrande kantglöd' },
+  { value: 'static', label: 'TV-brus/glitch' },
+]

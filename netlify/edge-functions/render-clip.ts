@@ -2,8 +2,8 @@
 // inte hela meningar — enligt spec: "textöverlägg vid nyckelord") med bakgrundsruta för
 // läsbarhet, varierande effekter/övergångar mellan segmenten, hook-texten i början, (valfritt)
 // ett inklippt AI-genererat B-roll-segment mellan huvudklippen, och (valfritt) en AI-genererad
-// overlay-effekt (t.ex. ett ljusklot, kromakey mot svart) ovanpå det första segmentet.
-// SHOTSTACK_API_KEY exponeras aldrig i klienten.
+// overlay-effekt (ljusklot/dimma/gnistor/kantglöd/static, se EFFECT_COMPOSITE) ovanpå det
+// första segmentet. SHOTSTACK_API_KEY exponeras aldrig i klienten.
 
 // "stage" = Shotstack sandbox (gratis, vattenstämplat) — säkert default tills du har en
 // produktionsnyckel. Sätt SHOTSTACK_ENV=v1 i Netlify när du vill rendera skarpt.
@@ -37,11 +37,23 @@ const SEGMENT_TRANSITIONS_IN = ['fadeFast', 'wipeLeft', 'wipeRight', 'slideLeft'
 // fristående, oanvänd fil.
 const BROLL_DEFAULT_DURATION = 5
 
-// AI-effekt (t.ex. ett ljusklot, genererat med ren svart bakgrund via generate-broll.ts i
-// effectMode "orb") läggs som ett eget lager OVANPÅ videon under det första segmentet —
-// kromakey mot svart tar bort bakgrunden så bara det lysande motivet syns över footaget.
-const EFFECT_DEFAULT_DURATION = 4
+// AI-effekt (genererad med ren svart bakgrund — utom "static" — via generate-broll.ts,
+// effectMode) läggs som ett eget lager OVANPÅ videon under det första segmentet. De
+// kromakey-baserade typerna (orb/mist/sparks/edgeGlow) tar bort den svarta bakgrunden så
+// bara motivet syns över footaget; "static" är hela bilden i sig och läggs på med opacity
+// istället, som en kort "glitch"-blink.
 const EFFECT_CHROMA_KEY = { color: '#000000', threshold: 150, halo: 100 }
+const EFFECT_COMPOSITE: Record<
+  string,
+  { chromaKey: boolean; fit?: string; scale?: number; position: string; opacity?: number; defaultDuration: number }
+> = {
+  orb: { chromaKey: true, scale: 0.45, position: 'center', defaultDuration: 4 },
+  mist: { chromaKey: true, fit: 'crop', position: 'bottom', defaultDuration: 5 },
+  sparks: { chromaKey: true, fit: 'crop', position: 'center', defaultDuration: 4 },
+  edgeGlow: { chromaKey: true, scale: 0.5, position: 'right', defaultDuration: 4 },
+  static: { chromaKey: false, fit: 'crop', position: 'center', opacity: 0.5, defaultDuration: 0.6 },
+}
+const DEFAULT_EFFECT_COMPOSITE = EFFECT_COMPOSITE.orb
 
 type Segment = { start: string; end: string; description?: string; order?: number }
 type TranscriptSegment = { start: number; end: number; text: string }
@@ -106,12 +118,18 @@ export default async (request: Request) => {
     typeof body.brollDurationSeconds === 'number' && body.brollDurationSeconds > 0
       ? body.brollDurationSeconds
       : BROLL_DEFAULT_DURATION
-  // AI-effekt (ljusklot m.m.) — läggs ovanpå videon, se EFFECT_CHROMA_KEY ovan.
+  // AI-effekt (ljusklot/dimma/gnistor/kantglöd/static) — läggs ovanpå videon, se
+  // EFFECT_COMPOSITE ovan. effectType måste matcha vad klippet faktiskt genererades som
+  // (samma värde som skickades till /api/generate-broll som effectMode).
   const effectVideoUrl = typeof body.effectVideoUrl === 'string' ? body.effectVideoUrl : null
+  const effectComposite =
+    typeof body.effectType === 'string' && body.effectType in EFFECT_COMPOSITE
+      ? EFFECT_COMPOSITE[body.effectType]
+      : DEFAULT_EFFECT_COMPOSITE
   const effectDuration =
     typeof body.effectDurationSeconds === 'number' && body.effectDurationSeconds > 0
       ? body.effectDurationSeconds
-      : EFFECT_DEFAULT_DURATION
+      : effectComposite.defaultDuration
 
   if (!videoUrl || typeof videoUrl !== 'string') {
     return jsonResponse({ error: 'videoUrl krävs (publik URL till källvideon).' }, 400)
@@ -200,8 +218,8 @@ export default async (request: Request) => {
       }
     }
 
-    // AI-effekt (t.ex. ljusklot) läggs ovanpå det första segmentet, från dess start — inte
-    // längre än segmentet själv eller effektens egen längd, det som är kortast.
+    // AI-effekt läggs ovanpå det första segmentet, från dess start — inte längre än
+    // segmentet själv eller effektens egen längd, det som är kortast.
     if (index === 0 && effectVideoUrl) {
       effectClips.push({
         asset: {
@@ -209,12 +227,14 @@ export default async (request: Request) => {
           src: effectVideoUrl,
           trim: 0,
           volume: 0,
-          chromaKey: EFFECT_CHROMA_KEY,
+          ...(effectComposite.chromaKey ? { chromaKey: EFFECT_CHROMA_KEY } : {}),
         },
         start: timelineCursor,
         length: Math.min(effectDuration, length),
-        scale: 0.45,
-        position: 'center',
+        position: effectComposite.position,
+        ...(effectComposite.scale !== undefined ? { scale: effectComposite.scale } : {}),
+        ...(effectComposite.fit !== undefined ? { fit: effectComposite.fit } : {}),
+        ...(effectComposite.opacity !== undefined ? { opacity: effectComposite.opacity } : {}),
       })
     }
 
