@@ -61,12 +61,8 @@ export default async (request: Request) => {
   }
 
   const claudeApiKey = Deno.env.get('CLAUDE_API_KEY')
-  const replicateApiToken = Deno.env.get('REPLICATE_API_TOKEN')
   if (!claudeApiKey) {
     return jsonResponse({ error: 'CLAUDE_API_KEY saknas i Netlify-miljövariabler.' }, 500)
-  }
-  if (!replicateApiToken) {
-    return jsonResponse({ error: 'REPLICATE_API_TOKEN saknas i Netlify-miljövariabler.' }, 500)
   }
 
   let body: Record<string, unknown>
@@ -80,12 +76,19 @@ export default async (request: Request) => {
   // skickas fortfarande via Claude (PROMPT_SYSTEM nedan) istället för direkt till
   // videomodellen, så att person-skyddet gäller även här.
   const customPrompt = typeof body.customPrompt === 'string' ? body.customPrompt.trim() : ''
+  // Om klienten redan har en Claude-förfinad/översatt prompt från ett tidigare
+  // "förfina"-anrop (se refineOnly nedan) och användaren godkänt/redigerat den, skickas den
+  // igen här — hoppar då över Claude-steget och går direkt till Replicate med den texten.
+  const refinedPrompt = typeof body.refinedPrompt === 'string' ? body.refinedPrompt.trim() : ''
+  // true = bara förfina/översätta prompten via Claude och returnera den, utan att starta
+  // någon (betald) Replicate-generering — låter användaren se/redigera innan de bekräftar.
+  const refineOnly = body.refineOnly === true
 
   const theme = [customPrompt, body.category, body.subtopic, body.hookText]
     .filter((v) => typeof v === 'string' && v.trim())
     .join(' — ')
 
-  if (!theme) {
+  if (!refinedPrompt && !theme) {
     return jsonResponse(
       { error: 'customPrompt, category, subtopic eller hookText krävs för att generera ett B-roll-tema.' },
       400
@@ -100,34 +103,48 @@ export default async (request: Request) => {
 
   // Steg 1: Claude formulerar en filmisk visuell prompt utifrån klippets tema — person-fri
   // som default, eller med generiska/anonyma figurer tillåtna om allowIllustrativeFigures.
+  // Hoppas över om en redan förfinad prompt skickats med (se refinedPrompt ovan).
   let visualPrompt: string
-  try {
-    const claudeResponse = await fetch(CLAUDE_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': claudeApiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 300,
-        system: promptSystem,
-        messages: [{ role: 'user', content: `Tema: ${theme}` }],
-      }),
-    })
+  if (refinedPrompt) {
+    visualPrompt = refinedPrompt
+  } else {
+    try {
+      const claudeResponse = await fetch(CLAUDE_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': claudeApiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: 300,
+          system: promptSystem,
+          messages: [{ role: 'user', content: `Tema: ${theme}` }],
+        }),
+      })
 
-    if (!claudeResponse.ok) {
-      const errText = await claudeResponse.text()
-      return jsonResponse({ error: 'Claude API-fel (B-roll-prompt)', detail: errText }, 502)
+      if (!claudeResponse.ok) {
+        const errText = await claudeResponse.text()
+        return jsonResponse({ error: 'Claude API-fel (B-roll-prompt)', detail: errText }, 502)
+      }
+
+      const claudeData = await claudeResponse.json()
+      const textBlock = (claudeData?.content ?? []).find((b: { type: string }) => b.type === 'text')
+      visualPrompt = (textBlock?.text ?? '').trim()
+      if (!visualPrompt) throw new Error('Tomt svar från Claude.')
+    } catch (err) {
+      return jsonResponse({ error: 'Kunde inte generera B-roll-prompt.', detail: String(err) }, 502)
     }
+  }
 
-    const claudeData = await claudeResponse.json()
-    const textBlock = (claudeData?.content ?? []).find((b: { type: string }) => b.type === 'text')
-    visualPrompt = (textBlock?.text ?? '').trim()
-    if (!visualPrompt) throw new Error('Tomt svar från Claude.')
-  } catch (err) {
-    return jsonResponse({ error: 'Kunde inte generera B-roll-prompt.', detail: String(err) }, 502)
+  if (refineOnly) {
+    return jsonResponse({ prompt: visualPrompt }, 200)
+  }
+
+  const replicateApiToken = Deno.env.get('REPLICATE_API_TOKEN')
+  if (!replicateApiToken) {
+    return jsonResponse({ error: 'REPLICATE_API_TOKEN saknas i Netlify-miljövariabler.' }, 500)
   }
 
   // Steg 2: skicka prompten till Replicate (Wan 2.1) för videogenerering (asynkront,

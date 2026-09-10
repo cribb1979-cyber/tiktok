@@ -6,7 +6,7 @@ import { transcribeMedia, transcribeFromUrl } from '../lib/whisperClient.js'
 import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
-import { generateBroll } from '../lib/replicateClient.js'
+import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import { CATEGORIES, SEGMENT_EFFECT_OPTIONS, SEGMENT_FILTER_OPTIONS } from '../constants.js'
 
@@ -74,6 +74,10 @@ export default function Klippstudio() {
   // av en berättelse) — aldrig menat att föreställa en specifik verklig person. Default av,
   // dvs. B-roll är person-fri om inte detta kryssas i explicit.
   const [brollAllowFigures, setBrollAllowFigures] = useState(false)
+  // Valfritt mellansteg: Claude förfinar/översätter idén till en filmisk engelsk prompt,
+  // visas här redigerbar innan den (betalda) Replicate-genereringen startas.
+  const [brollRefinedPrompt, setBrollRefinedPrompt] = useState('')
+  const [brollRefining, setBrollRefining] = useState(false)
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -185,6 +189,7 @@ export default function Klippstudio() {
     setBrollPrompt(null)
     setBrollCustomPrompt('')
     setBrollAllowFigures(false)
+    setBrollRefinedPrompt('')
     setSaved(false)
     setSavedClipId(null)
     setAutoSaveError(null)
@@ -342,6 +347,31 @@ export default function Klippstudio() {
     })
   }
 
+  // Valfritt mellansteg — låter Claude förfina/översätta idén utan att starta den betalda
+  // Replicate-genereringen, så du kan läsa/redigera resultatet först.
+  async function handleRefineBrollPrompt() {
+    if (!plan) return
+    setBrollRefining(true)
+    setError(null)
+
+    const selectedHook = plan.hook_variants?.[selectedHookIndex]
+
+    try {
+      const refined = await refineBrollPrompt({
+        category: plan.category || category,
+        subtopic: plan.subtopic || subtopic,
+        hookText: selectedHook?.text,
+        customPrompt: brollCustomPrompt,
+        allowIllustrativeFigures: brollAllowFigures,
+      })
+      setBrollRefinedPrompt(refined)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBrollRefining(false)
+    }
+  }
+
   async function handleGenerateBroll() {
     if (!plan) return
     setBrollGenerating(true)
@@ -357,6 +387,7 @@ export default function Klippstudio() {
         hookText: selectedHook?.text,
         customPrompt: brollCustomPrompt,
         allowIllustrativeFigures: brollAllowFigures,
+        refinedPrompt: brollRefinedPrompt,
         onStatus: setBrollStatus,
       })
       setBrollVideoUrl(result.url)
@@ -614,6 +645,7 @@ export default function Klippstudio() {
                       setBrollPrompt(null)
                       setBrollCustomPrompt('')
                       setBrollAllowFigures(false)
+                      setBrollRefinedPrompt('')
                     }
                   }}
                   style={{ marginTop: 4 }}
@@ -665,9 +697,32 @@ export default function Klippstudio() {
                         någon specifik verklig person, bara en generisk illustration.
                       </span>
                     </label>
+                    {brollRefinedPrompt ? (
+                      <label style={{ display: 'block', marginTop: 8 }}>
+                        Färdig prompt (redigerbar, engelska)
+                        <textarea
+                          value={brollRefinedPrompt}
+                          onChange={(e) => setBrollRefinedPrompt(e.target.value)}
+                          rows={2}
+                        />
+                        <span className="placeholder-note" style={{ display: 'block' }}>
+                          Detta är vad som faktiskt skickas till videomodellen — redigera fritt
+                          eller töm fältet för att låta Claude skriva om den igen.
+                        </span>
+                      </label>
+                    ) : (
+                      <button
+                        className="btn-primary"
+                        style={{ marginTop: 4 }}
+                        onClick={handleRefineBrollPrompt}
+                        disabled={brollRefining}
+                      >
+                        {brollRefining ? 'Förfinar…' : 'Förfina prompt (valfritt, förhandsgranska)'}
+                      </button>
+                    )}
                     <button
                       className="btn-primary"
-                      style={{ marginTop: 4 }}
+                      style={{ marginTop: 8 }}
                       onClick={handleGenerateBroll}
                       disabled={brollGenerating}
                     >

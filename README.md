@@ -234,6 +234,14 @@ gäller även då. Prompten skickas sedan till Replicates `models/{model}/predic
 normaliseras internt till samma PENDING/RUNNING/SUCCEEDED/FAILED-kontrakt som tidigare, så
 klientkoden är oförändrad) tills videon är klar.
 
+**Förhandsgranska/redigera prompten (valfritt mellansteg):** "Förfina prompt"-knappen i
+Klippstudio anropar `/api/generate-broll` med `refineOnly: true` — kör bara Claude-steget och
+returnerar den engelska, filmiska prompten utan att starta någon (betald) Replicate-
+generering. Resultatet visas i ett redigerbart textfält; när du sedan trycker "Generera
+B-roll" skickas texten med som `refinedPrompt`, vilket hoppar över Claude-steget helt och går
+direkt till Replicate med exakt den text du sett/redigerat. Tömmer du fältet innan du
+genererar körs Claude-steget igen som vanligt (från `customPrompt`/kategori/hook).
+
 **Modell/leverantör (uppdaterad 2026-09-10):** default är `wan-video/wan-2.1-1.3b` (mindre
 1.3B-modell, körs direkt via Replicate). Ursprungligen `wavespeedai/wan-2.1-t2v-720p` (14B,
 bättre kvalitet) — men den leverantören (WaveSpeedAI) hade driftstopp: samma fel (`(E002)`,
