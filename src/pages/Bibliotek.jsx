@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient.js'
 import { tiktokAdapter } from '../lib/tiktokAdapter.js'
 import { embedAndStoreClip } from '../lib/clipHistory.js'
-import { saveVideoToDevice } from '../lib/saveVideo.js'
+import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import { CATEGORIES, STATUSES, STATUS_LABELS } from '../constants.js'
 
 const EMPTY_FORM = {
@@ -33,6 +33,9 @@ export default function Bibliotek() {
   const [sortKey, setSortKey] = useState('newest')
   const [filterCategory, setFilterCategory] = useState('alla')
   const [busyClipId, setBusyClipId] = useState(null)
+  // Tvåstegs-sparning per klipp (se saveVideo.js för varför): id -> hämtad File, redo att
+  // delas vid ett nytt, direkt knapptryck.
+  const [readyVideoFiles, setReadyVideoFiles] = useState({})
 
   async function loadClips(sort = sortKey) {
     setLoading(true)
@@ -143,18 +146,26 @@ export default function Bibliotek() {
     }
   }
 
-  async function handleSaveVideo(clip) {
+  async function handlePrepareVideo(clip) {
     setBusyClipId(clip.id)
     setError(null)
     try {
-      await saveVideoToDevice(clip.video_url, 'klipp.mp4')
+      const file = await fetchVideoAsFile(clip.video_url, 'klipp.mp4')
+      setReadyVideoFiles((prev) => ({ ...prev, [clip.id]: file }))
     } catch (err) {
-      if (err.name !== 'AbortError') {
-        setError(err.message)
-      }
+      setError(err.message)
     } finally {
       setBusyClipId(null)
     }
+  }
+
+  // Synkront (inget await innan share-anropet) — se kommentaren på shareVideoFile.
+  function handleShareVideo(clip) {
+    shareVideoFile(readyVideoFiles[clip.id]).catch((err) => {
+      if (err.name !== 'AbortError') {
+        setError(err.message)
+      }
+    })
   }
 
   return (
@@ -315,15 +326,20 @@ export default function Bibliotek() {
                 <span>💬 {clip.comments ?? '–'}</span>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {clip.video_url && (
-                  <button
-                    className="btn-primary"
-                    onClick={() => handleSaveVideo(clip)}
-                    disabled={busyClipId === clip.id}
-                  >
-                    {busyClipId === clip.id ? 'Förbereder…' : 'Spara video till telefonen'}
-                  </button>
-                )}
+                {clip.video_url &&
+                  (readyVideoFiles[clip.id] ? (
+                    <button className="btn-primary" onClick={() => handleShareVideo(clip)}>
+                      Spara video till telefonen
+                    </button>
+                  ) : (
+                    <button
+                      className="btn-primary"
+                      onClick={() => handlePrepareVideo(clip)}
+                      disabled={busyClipId === clip.id}
+                    >
+                      {busyClipId === clip.id ? 'Förbereder…' : 'Förbered video för sparning'}
+                    </button>
+                  ))}
                 {clip.status === 'draft' && (
                   <button
                     className="btn-primary"

@@ -7,7 +7,7 @@ import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll } from '../lib/runwayClient.js'
-import { saveVideoToDevice } from '../lib/saveVideo.js'
+import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import { CATEGORIES } from '../constants.js'
 
 // Whisper (OpenAI) har en hård 25 MB-gräns per fil — den kan inte höjas, det är deras
@@ -68,7 +68,10 @@ export default function Klippstudio() {
   const [savedClipId, setSavedClipId] = useState(null)
   const [autoSaveError, setAutoSaveError] = useState(null)
   const [transcriptionSkipped, setTranscriptionSkipped] = useState(false)
+  // Tvåstegs-sparning: videon hämtas i bakgrunden först (videoFile), delningsmenyn öppnas
+  // sedan vid ett nytt, direkt knapptryck — se kommentaren på shareVideoFile för varför.
   const [savingVideo, setSavingVideo] = useState(false)
+  const [videoFile, setVideoFile] = useState(null)
 
   async function handleFileChange(event) {
     const file = event.target.files?.[0]
@@ -87,6 +90,7 @@ export default function Klippstudio() {
     setMediaPublicUrl(null)
     setTranscript(null)
     setRenderedVideoUrl(null)
+    setVideoFile(null)
     setTranscriptionSkipped(false)
     setTranscribing(true)
 
@@ -148,6 +152,7 @@ export default function Klippstudio() {
     setMediaPublicUrl(null)
     setTranscript(null)
     setRenderedVideoUrl(null)
+    setVideoFile(null)
     setTranscriptionSkipped(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
@@ -160,6 +165,7 @@ export default function Klippstudio() {
     setError(null)
     setPlan(null)
     setRenderedVideoUrl(null)
+    setVideoFile(null)
     setBrollEnabled(false)
     setBrollVideoUrl(null)
     setBrollPrompt(null)
@@ -257,6 +263,7 @@ export default function Klippstudio() {
     setRendering(true)
     setRenderStatus('queued')
     setError(null)
+    setVideoFile(null)
 
     const selectedHook = plan.hook_variants?.[selectedHookIndex]
 
@@ -288,20 +295,28 @@ export default function Klippstudio() {
     }
   }
 
-  async function handleSaveVideo() {
+  async function handlePrepareVideo() {
     if (!renderedVideoUrl) return
     setSavingVideo(true)
     setError(null)
     try {
-      await saveVideoToDevice(renderedVideoUrl, 'klipp.mp4')
+      const file = await fetchVideoAsFile(renderedVideoUrl, 'klipp.mp4')
+      setVideoFile(file)
     } catch (err) {
+      setError(err.message)
+    } finally {
+      setSavingVideo(false)
+    }
+  }
+
+  // Synkront (inget await innan share-anropet) — se kommentaren på shareVideoFile.
+  function handleShareVideo() {
+    shareVideoFile(videoFile).catch((err) => {
       // AbortError = användaren stängde delningsmenyn själv, inget fel att visa.
       if (err.name !== 'AbortError') {
         setError(err.message)
       }
-    } finally {
-      setSavingVideo(false)
-    }
+    })
   }
 
   async function handleGenerateBroll() {
@@ -569,19 +584,31 @@ export default function Klippstudio() {
                       kan den försvinna.
                     </p>
                   )}
-                  <button
-                    className="btn-primary"
-                    style={{ display: 'block', width: '100%', marginTop: 10 }}
-                    onClick={handleSaveVideo}
-                    disabled={savingVideo}
-                  >
-                    {savingVideo ? 'Förbereder…' : 'Spara video till telefonen'}
-                  </button>
+                  {videoFile ? (
+                    <button
+                      className="btn-primary"
+                      style={{ display: 'block', width: '100%', marginTop: 10 }}
+                      onClick={handleShareVideo}
+                    >
+                      Spara video till telefonen
+                    </button>
+                  ) : (
+                    <button
+                      className="btn-primary"
+                      style={{ display: 'block', width: '100%', marginTop: 10 }}
+                      onClick={handlePrepareVideo}
+                      disabled={savingVideo}
+                    >
+                      {savingVideo ? 'Förbereder…' : 'Förbered video för sparning'}
+                    </button>
+                  )}
                   <p className="placeholder-note">
-                    Öppnar delningsmenyn — välj "Spara video" (iOS) eller motsvarande för att
-                    lägga den i Bilder/galleriet. Sen kan du lägga till ljud/trendande sound
-                    och publicera direkt i TikTok-appen (tills den riktiga TikTok-kopplingen är
-                    på plats). Klippet finns alltid kvar i Bibliotek oavsett.
+                    {videoFile
+                      ? 'Videon är redo — tryck igen för att öppna delningsmenyn och välja "Spara video" (iOS) eller motsvarande.'
+                      : 'Två steg krävs på iOS: förbered videon först, tryck sedan igen för att öppna delningsmenyn.'}{' '}
+                    Sen kan du lägga till ljud/trendande sound och publicera direkt i
+                    TikTok-appen (tills den riktiga TikTok-kopplingen är på plats). Klippet
+                    finns alltid kvar i Bibliotek oavsett.
                   </p>
                 </div>
               ) : (
