@@ -32,3 +32,23 @@ export async function generateClipPlan({
 
   return data
 }
+
+// Anropar Netlify Edge Function /api/revise-plan — reviderar en BEFINTLIG klippningsplan med
+// en fri textinstruktion ("redigera med vägledning"), istället för att bara justera start-/
+// sluttid/hastighet manuellt per segment. frames: bas64 JPEG (utan data:-prefix), en per
+// segment, hämtade klientsidigt (se captureGuidanceFrames i Klippstudio.jsx).
+export async function revisePlan({ segmentsPlan, transcript = [], editInstruction, frames = [] }) {
+  const response = await fetch('/api/revise-plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ segmentsPlan, transcript, editInstruction, frames }),
+  })
+
+  const data = await parseJsonResponse(response)
+
+  if (!response.ok) {
+    throw new Error(errorMessage(data, 'Kunde inte redigera klippningsplanen.'))
+  }
+
+  return data // { segments_plan, segment_speeds, summary }
+}

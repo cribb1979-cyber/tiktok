@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient.js'
-import { generateClipPlan } from '../lib/claudeClient.js'
+import { generateClipPlan, revisePlan } from '../lib/claudeClient.js'
 import { transcribeMedia, transcribeFromUrl } from '../lib/whisperClient.js'
 import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
@@ -183,6 +183,14 @@ export default function Klippstudio() {
   const [segmentStarts, setSegmentStarts] = useState([])
   const [segmentEnds, setSegmentEnds] = useState([])
   const [segmentSpeeds, setSegmentSpeeds] = useState([])
+
+  // "Redigera med vägledning" — fri textinstruktion som Claude tolkar och applicerar på HELA
+  // segmentplanen (start/slut/hastighet), istället för att man ställer in siffror manuellt
+  // per segment. Claude får också ett fåtal nedskalade bildrutor (en per segment) för grov
+  // visuell kontext — se captureGuidanceFrames och revise-plan.ts.
+  const [editInstruction, setEditInstruction] = useState('')
+  const [revisingPlan, setRevisingPlan] = useState(false)
+  const [reviseSummary, setReviseSummary] = useState(null)
 
   const [rendering, setRendering] = useState(false)
   const [renderStatus, setRenderStatus] = useState(null)
@@ -395,6 +403,8 @@ export default function Klippstudio() {
     setGlowIntensity('medium')
     setGlowPreviewFrame(null)
     setAdvancedOpen(false)
+    setEditInstruction('')
+    setReviseSummary(null)
     setSaved(false)
     setSavedClipId(null)
     setAutoSaveError(null)
@@ -777,6 +787,98 @@ export default function Klippstudio() {
     }
   }
 
+  // Hämtar en nedskalad bildruta per segment (max 480px bredd — Claude behöver bara grov
+  // visuell kontext, inte full upplösning, och det håller anropsstorlek/kostnad nere) från
+  // källvideon, vid varje segments mittpunkt. Samma DOM-bilaga-teknik som
+  // handleCaptureGlowPreview (iOS Safari-kompatibilitet), men en video/canvas återanvänds
+  // för alla bildrutor istället för att skapas per bildruta.
+  async function captureGuidanceFrames(segmentsPlan) {
+    const MAX_FRAMES = 6
+    const targets = segmentsPlan.slice(0, MAX_FRAMES)
+
+    const video = document.createElement('video')
+    video.style.position = 'fixed'
+    video.style.left = '-9999px'
+    video.style.width = '1px'
+    video.style.height = '1px'
+    document.body.appendChild(video)
+
+    try {
+      video.crossOrigin = 'anonymous'
+      video.muted = true
+      video.playsInline = true
+      video.src = mediaPublicUrl
+
+      await Promise.race([
+        new Promise((resolve, reject) => {
+          video.addEventListener('loadedmetadata', resolve, { once: true })
+          video.addEventListener('error', () => reject(new Error('Kunde inte läsa videon.')))
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Tog för lång tid att läsa videon.')), 8000)),
+      ])
+
+      const scale = Math.min(1, 480 / video.videoWidth)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(video.videoWidth * scale)
+      canvas.height = Math.round(video.videoHeight * scale)
+      const ctx = canvas.getContext('2d')
+
+      const frames = []
+      for (const seg of targets) {
+        const start = parseTimecodeClient(seg.start)
+        const end = parseTimecodeClient(seg.end)
+        const midpoint = (start + end) / 2
+        await new Promise((resolve, reject) => {
+          video.addEventListener('seeked', resolve, { once: true })
+          video.addEventListener('error', () => reject(new Error('Kunde inte läsa videon.')), { once: true })
+          video.currentTime = Math.min(Math.max(midpoint, 0), Math.max(video.duration - 0.1, 0))
+        })
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        // Bas64 utan "data:image/jpeg;base64,"-prefixet — edge functionen vill bara ha
+        // själva datan (Claudes bild-content-block anger media_type separat).
+        frames.push(canvas.toDataURL('image/jpeg', 0.6).split(',')[1])
+      }
+      return frames
+    } finally {
+      video.remove()
+    }
+  }
+
+  async function handleReviseWithGuidance() {
+    if (!plan || !mediaPublicUrl || !editInstruction.trim()) return
+    setRevisingPlan(true)
+    setError(null)
+    setReviseSummary(null)
+    try {
+      const frames = await captureGuidanceFrames(plan.segments_plan ?? [])
+      const result = await revisePlan({
+        segmentsPlan: plan.segments_plan ?? [],
+        transcript: transcript?.segments ?? [],
+        editInstruction,
+        frames,
+      })
+      const newSegments = result.segments_plan
+      setPlan((prev) => ({ ...prev, segments_plan: newSegments }))
+      setSegmentStarts(newSegments.map((seg) => seg.start))
+      setSegmentEnds(newSegments.map((seg) => seg.end))
+      setSegmentSpeeds(
+        Array.isArray(result.segment_speeds) && result.segment_speeds.length === newSegments.length
+          ? result.segment_speeds
+          : newSegments.map(() => ''),
+      )
+      // Segmentantalet kan ha ändrats (ihopslagna/borttagna/nya segment) — gamla effekt-/
+      // filterval per index skulle annars kunna hamna fel mot de nya segmenten.
+      setSegmentEffects(newSegments.map(() => ''))
+      setSegmentFilters(newSegments.map(() => ''))
+      setReviseSummary(result.summary ?? null)
+      setEditInstruction('')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setRevisingPlan(false)
+    }
+  }
+
   async function handleSaveDraft() {
     if (!plan) return
     setSaving(true)
@@ -1042,6 +1144,47 @@ export default function Klippstudio() {
               ))}
             </ol>
           </div>
+
+          {mediaPublicUrl && (
+            <div className="clip-card" style={{ margin: 0 }}>
+              <span className="clip-hook" style={{ display: 'block', marginBottom: 6 }}>
+                Redigera med vägledning
+              </span>
+              <p className="clip-prompt" style={{ marginBottom: 10 }}>
+                Beskriv i egna ord vad som ska ändras i klippet — Claude tolkar det och
+                justerar segmentens start-/sluttider och hastighet åt dig, med hjälp av
+                transkriptet och några nedskalade bildrutor från videon som visuell kontext.
+                T.ex. "korta ner mittendelen", "sakta ner när jag säger den viktiga meningen",
+                "klipp bort de första 3 sekunderna".
+              </p>
+              <textarea
+                value={editInstruction}
+                onChange={(e) => setEditInstruction(e.target.value)}
+                rows={2}
+                placeholder="Vad vill du ändra?"
+                disabled={revisingPlan}
+              />
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ marginTop: 8 }}
+                onClick={handleReviseWithGuidance}
+                disabled={revisingPlan || !editInstruction.trim()}
+              >
+                {revisingPlan ? 'Redigerar…' : 'Redigera klippet'}
+              </button>
+              {reviseSummary && (
+                <p style={{ color: 'var(--success)', marginTop: 8 }}>✓ {reviseSummary}</p>
+              )}
+              <p className="placeholder-note">
+                Claude "ser" bara ett fåtal enskilda bildrutor, inte rörelse eller exakt
+                tajming — fungerar bäst för önskemål kopplade till vad som SÄGS eller till
+                klippets pacing, mindre bra för rent visuella önskemål ("klipp när jag vänder
+                mig om"). Ändrar antal/gränser för segmenten, så manuella effekt-/filterval
+                nollställs.
+              </p>
+            </div>
+          )}
 
           {plan.suggested_subtitles?.length > 0 && (
             <div>

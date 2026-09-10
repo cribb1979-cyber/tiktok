@@ -475,6 +475,40 @@ Sparas INTE på klippet i Supabase (`glow_effect` sparas, men detta gör det int
 mönster som `segmentEffects`/`segmentFilters`, som redan bara är engångsval för en specifik
 rendering.
 
+## Redigera med vägledning: fri textinstruktion tolkas av Claude (valfritt)
+
+Ett alternativ till att ställa in start-/sluttid/hastighet manuellt (avsnittet ovan): en
+textruta ("Redigera med vägledning") direkt under segmentlistan där du beskriver ändringen i
+vanlig text — t.ex. "korta ner mittendelen", "sakta ner när jag säger den viktiga meningen",
+"klipp bort de första 3 sekunderna" — och Claude omtolkar HELA segmentplanen (start/slut,
+description, och ev. hastighet) åt dig, istället för att du fyller i siffror.
+
+**Varför bildrutor, inte video:** Claude API tar emot bilder, inte videofiler (ingen inbyggd
+videoförståelse) — Google Gemini är det som faktiskt kan analysera en video direkt, men det
+vore en helt ny integration (egen nyckel, egen edge function, egen kostnad) utan något att
+återanvända från det som redan finns. Kompromissen: `captureGuidanceFrames` i Klippstudio.jsx
+hämtar en nedskalad bildruta (max 480px bredd) per segment, vid varje segments mittpunkt,
+klientsidigt via samma `<video>`+`<canvas>`-teknik som glow-förhandsvisningen (se den för
+varför videoelementet måste bifogas DOM:en, inte skapas "detached" — iOS Safari-kompatibilitet).
+Ger Claude grov visuell kontext, inte rörelse/exakt tajming.
+
+**Anropet** (`revise-plan.ts`, samma Claude-modell som `generate-plan.ts` för konsekvens):
+multimodalt innehåll — en textrad + bildruta per segment i ordning, följt av den fulla
+nuvarande planen, transkriptet och instruktionen som avslutande text. Strukturerat svar
+(samma `output_config.format`-mönster som `generate-plan.ts`) med `segments_plan` (ny,
+komplett plan — kan slå ihop/ta bort/lägga till segment, inte bara justera befintliga),
+`segment_speeds` (parallell array, samma `SEGMENT_SPEED_OPTIONS`-värden) och `summary` (kort
+förklaring som visas för användaren så de ser att instruktionen tolkades rätt).
+
+Instrueras uttryckligen att hålla sig INOM det tidsspann segmenten redan täcker — Claude vet
+inte hur lång källvideon är utöver det, och ska inte hitta på nya tidsintervall.
+
+**Resultatet skrivs över `plan.segments_plan`** (inte bara `segmentStarts`/`segmentEnds` som
+i det manuella läget ovan) eftersom Claude kan ändra antalet segment — därför nollställs även
+`segmentEffects`/`segmentFilters` (gamla val per index skulle annars kunna hamna fel mot nya
+segment). `editInstruction` sparas INTE på klippet, bara resultatet av den (samma engångsval-
+princip som andra segment-nivå-fält).
+
 ## Att göra: Remotion som växlingsbart renderingsalternativ (pausat, påbörjat)
 
 Uppdaterad spec vill kunna växla rendering mellan Shotstack (nuvarande, fungerar) och
