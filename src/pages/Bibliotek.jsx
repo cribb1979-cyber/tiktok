@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient.js'
 import { tiktokAdapter } from '../lib/tiktokAdapter.js'
 import { embedAndStoreClip } from '../lib/clipHistory.js'
+import { saveVideoToDevice } from '../lib/saveVideo.js'
 import { CATEGORIES, STATUSES, STATUS_LABELS } from '../constants.js'
 
 const EMPTY_FORM = {
@@ -137,6 +138,20 @@ export default function Bibliotek() {
       await loadClips()
     } catch (err) {
       setError(err.message)
+    } finally {
+      setBusyClipId(null)
+    }
+  }
+
+  async function handleSaveVideo(clip) {
+    setBusyClipId(clip.id)
+    setError(null)
+    try {
+      await saveVideoToDevice(clip.video_url, 'klipp.mp4')
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setError(err.message)
+      }
     } finally {
       setBusyClipId(null)
     }
@@ -301,15 +316,13 @@ export default function Bibliotek() {
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {clip.video_url && (
-                  <a
-                    href={clip.video_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
                     className="btn-primary"
-                    style={{ textDecoration: 'none' }}
+                    onClick={() => handleSaveVideo(clip)}
+                    disabled={busyClipId === clip.id}
                   >
-                    Öppna & spara video
-                  </a>
+                    {busyClipId === clip.id ? 'Förbereder…' : 'Spara video till telefonen'}
+                  </button>
                 )}
                 {clip.status === 'draft' && (
                   <button

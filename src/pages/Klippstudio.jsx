@@ -7,6 +7,7 @@ import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll } from '../lib/runwayClient.js'
+import { saveVideoToDevice } from '../lib/saveVideo.js'
 import { CATEGORIES } from '../constants.js'
 
 // Whisper (OpenAI) har en hård 25 MB-gräns per fil — den kan inte höjas, det är deras
@@ -67,6 +68,7 @@ export default function Klippstudio() {
   const [savedClipId, setSavedClipId] = useState(null)
   const [autoSaveError, setAutoSaveError] = useState(null)
   const [transcriptionSkipped, setTranscriptionSkipped] = useState(false)
+  const [savingVideo, setSavingVideo] = useState(false)
 
   async function handleFileChange(event) {
     const file = event.target.files?.[0]
@@ -283,6 +285,22 @@ export default function Klippstudio() {
       setError(err.message)
     } finally {
       setRendering(false)
+    }
+  }
+
+  async function handleSaveVideo() {
+    if (!renderedVideoUrl) return
+    setSavingVideo(true)
+    setError(null)
+    try {
+      await saveVideoToDevice(renderedVideoUrl, 'klipp.mp4')
+    } catch (err) {
+      // AbortError = användaren stängde delningsmenyn själv, inget fel att visa.
+      if (err.name !== 'AbortError') {
+        setError(err.message)
+      }
+    } finally {
+      setSavingVideo(false)
     }
   }
 
@@ -551,20 +569,19 @@ export default function Klippstudio() {
                       kan den försvinna.
                     </p>
                   )}
-                  <a
-                    href={renderedVideoUrl}
-                    rel="noopener noreferrer"
+                  <button
                     className="btn-primary"
-                    style={{ display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: 10 }}
+                    style={{ display: 'block', width: '100%', marginTop: 10 }}
+                    onClick={handleSaveVideo}
+                    disabled={savingVideo}
                   >
-                    Öppna & spara video
-                  </a>
+                    {savingVideo ? 'Förbereder…' : 'Spara video till telefonen'}
+                  </button>
                   <p className="placeholder-note">
-                    Öppnas i den här fliken (inte en ny) — tryck dela-ikonen och välj "Spara
-                    video" för att lägga den i Bilder, gå sedan tillbaka med bakåtknappen. Sen
-                    kan du lägga till ljud/trendande sound och publicera direkt i TikTok-appen
-                    (tills den riktiga TikTok-kopplingen är på plats). Hittar du inte tillbaka
-                    hit finns klippet redan sparat under Bibliotek.
+                    Öppnar delningsmenyn — välj "Spara video" (iOS) eller motsvarande för att
+                    lägga den i Bilder/galleriet. Sen kan du lägga till ljud/trendande sound
+                    och publicera direkt i TikTok-appen (tills den riktiga TikTok-kopplingen är
+                    på plats). Klippet finns alltid kvar i Bibliotek oavsett.
                   </p>
                 </div>
               ) : (
