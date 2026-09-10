@@ -18,6 +18,11 @@
 // default-modellen (wan-video/wan-2.1-1.3b, se nedan) finns inget sådant fält, så där gäller
 // enbart Claude-instruktionen.
 //
+// effectMode: "orb" genererar istället en overlay-ljuseffekt (t.ex. ett ljusklot) mot ren
+// svart bakgrund, tänkt att läggas OVANPÅ användarens egen video (kromakey) i render-clip.ts
+// — separat funktion från B-roll (som spleceas in som ett eget segment mellan huvudklippen).
+// Se PROMPT_SYSTEM_ORB_EFFECT längre ner.
+//
 // Leverantör/modell: default är wan-video/wan-2.1-1.3b (mindre 1.3B-modell, körs direkt via
 // Replicate utan mellanhand). Testade ursprungligen wavespeedai/wan-2.1-t2v-720p (14B,
 // snabbare/bättre kvalitet) men den leverantörens egen backend (WaveSpeedAI) hade driftstopp
@@ -55,6 +60,23 @@ i skugga eller motljus, aldrig ett tydligt porträtt. Ingen text i bilden. Svara
 prompten, max två meningar, filmisk och specifik (ljus/färg/rörelse/komposition), på engelska
 (bildmodeller fungerar bäst med engelska prompts).`
 
+// "Overlay-effekt" (t.ex. ett ljusklot) — genereras separat från B-roll ovan och läggs som
+// ett eget lager OVANPÅ användarens egen video i render-clip.ts, med chromaKey mot svart för
+// att ta bort bakgrunden. Kräver därför en ren, enkel bakgrund — annars blir kromakey-
+// borttagningen fläckig/ofullständig.
+const PROMPT_SYSTEM_ORB_EFFECT = `Du skriver en kort, visuell prompt för ett AI-genererat
+ljuseffekt-klipp som ska läggas som ett genomskinligt lager ovanpå en annan video (kromakey
+mot svart bakgrund) — t.ex. ett svävande ljusklot i ett TikTok-klipp om andlighet/medium-tema.
+
+KRITISKT:
+- Motivet är ETT enda tydligt lysande/glödande objekt (t.ex. ett runt ljusklot, en gnista, ett
+  svävande sken) — inget annat i bild.
+- Bakgrunden MÅSTE vara helt svart/mörk, utan andra objekt, rum, mönster eller ljuskällor —
+  en ren svart bakgrund krävs för att kromakey-borttagningen ska fungera.
+- Ingen text, inga personer, inga andra föremål.
+Svara med BARA prompten, max en mening, filmisk och specifik (rörelse/glöd/färg), på engelska
+(bildmodeller fungerar bäst med engelska prompts).`
+
 export default async (request: Request) => {
   if (request.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405)
@@ -83,6 +105,9 @@ export default async (request: Request) => {
   // true = bara förfina/översätta prompten via Claude och returnera den, utan att starta
   // någon (betald) Replicate-generering — låter användaren se/redigera innan de bekräftar.
   const refineOnly = body.refineOnly === true
+  // "orb" = generera en overlay-ljuseffekt (kromakey mot svart) istället för vanlig B-roll —
+  // se PROMPT_SYSTEM_ORB_EFFECT ovan och render-clip.ts för hur den läggs ovanpå videon.
+  const effectMode = body.effectMode === 'orb' ? 'orb' : null
 
   const theme = [customPrompt, body.category, body.subtopic, body.hookText]
     .filter((v) => typeof v === 'string' && v.trim())
@@ -97,9 +122,14 @@ export default async (request: Request) => {
 
   const replicateModel = Deno.env.get('REPLICATE_MODEL') || 'wan-video/wan-2.1-1.3b'
   // Uttryckligt opt-in per klipp (default false) — se kommentaren högst upp i filen för
-  // person-skyddets två lägen.
+  // person-skyddets två lägen. Ignoreras i effectMode "orb" (aldrig personer/figurer där).
   const allowIllustrativeFigures = body.allowIllustrativeFigures === true
-  const promptSystem = allowIllustrativeFigures ? PROMPT_SYSTEM_ILLUSTRATIVE : PROMPT_SYSTEM_PERSON_FREE
+  const promptSystem =
+    effectMode === 'orb'
+      ? PROMPT_SYSTEM_ORB_EFFECT
+      : allowIllustrativeFigures
+        ? PROMPT_SYSTEM_ILLUSTRATIVE
+        : PROMPT_SYSTEM_PERSON_FREE
 
   // Steg 1: Claude formulerar en filmisk visuell prompt utifrån klippets tema — person-fri
   // som default, eller med generiska/anonyma figurer tillåtna om allowIllustrativeFigures.
@@ -159,12 +189,16 @@ export default async (request: Request) => {
   }
 
   if (isWaveSpeedModel) {
-    // Extra skyddsnät utöver instruktionen i Claude-prompten — i default-läget blockeras
-    // människor helt, i illustrativt läge blockeras bara sådant som skulle göra en figur
-    // igenkännbar (tydligt ansikte/porträtt) snarare än generiska figurer i sig.
-    replicateInput.negative_prompt = allowIllustrativeFigures
-      ? 'recognizable face, close-up portrait, detailed facial features, celebrity, named real person, text, watermark'
-      : 'people, person, human face, human figure, man, woman, portrait, crowd, text, watermark'
+    // Extra skyddsnät utöver instruktionen i Claude-prompten. I orb-läge: håll bakgrunden
+    // ren svart (kromakey kräver det) och inga personer/scenobjekt. Annars: i default-läget
+    // blockeras människor helt, i illustrativt läge blockeras bara sådant som skulle göra en
+    // figur igenkännbar (tydligt ansikte/porträtt) snarare än generiska figurer i sig.
+    replicateInput.negative_prompt =
+      effectMode === 'orb'
+        ? 'room, scene, background objects, landscape, people, person, text, watermark, multiple objects'
+        : allowIllustrativeFigures
+          ? 'recognizable face, close-up portrait, detailed facial features, celebrity, named real person, text, watermark'
+          : 'people, person, human face, human figure, man, woman, portrait, crowd, text, watermark'
     // "Fast" (en sträng, inte en boolean — bekräftat via ett skarpt 422-fel: "Expected:
     // string, given: boolean") för lägre kostnad/kortare väntetid.
     replicateInput.fast_mode = 'Fast'

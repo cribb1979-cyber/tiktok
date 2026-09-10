@@ -79,6 +79,18 @@ export default function Klippstudio() {
   const [brollRefinedPrompt, setBrollRefinedPrompt] = useState('')
   const [brollRefining, setBrollRefining] = useState(false)
 
+  // AI-effekt (t.ex. ett ljusklot) — genereras separat från B-roll och läggs som ett eget
+  // lager OVANPÅ videon (kromakey mot svart bakgrund), istället för att klippas in som ett
+  // eget segment. Se effectMode "orb" i generate-broll.ts/render-clip.ts.
+  const [effectEnabled, setEffectEnabled] = useState(false)
+  const [effectGenerating, setEffectGenerating] = useState(false)
+  const [effectStatus, setEffectStatus] = useState(null)
+  const [effectVideoUrl, setEffectVideoUrl] = useState(null)
+  const [effectPrompt, setEffectPrompt] = useState(null)
+  const [effectCustomPrompt, setEffectCustomPrompt] = useState('')
+  const [effectRefinedPrompt, setEffectRefinedPrompt] = useState('')
+  const [effectRefining, setEffectRefining] = useState(false)
+
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   // Satt så fort klippet finns i Supabase (auto-sparat direkt efter rendering, se
@@ -190,6 +202,11 @@ export default function Klippstudio() {
     setBrollCustomPrompt('')
     setBrollAllowFigures(false)
     setBrollRefinedPrompt('')
+    setEffectEnabled(false)
+    setEffectVideoUrl(null)
+    setEffectPrompt(null)
+    setEffectCustomPrompt('')
+    setEffectRefinedPrompt('')
     setSaved(false)
     setSavedClipId(null)
     setAutoSaveError(null)
@@ -250,9 +267,9 @@ export default function Klippstudio() {
       broll_enabled: brollEnabled,
       broll_prompt: brollPrompt,
       broll_video_url: brollVideoUrl,
-      // Aldrig manuellt valbart — sätts automatiskt när B-roll används, enligt TikToks
-      // regler om taggning av AI-genererat innehåll.
-      ai_generated_content: brollEnabled,
+      // Aldrig manuellt valbart — sätts automatiskt när B-roll eller AI-ljuseffekten
+      // används, enligt TikToks regler om taggning av AI-genererat innehåll.
+      ai_generated_content: brollEnabled || effectEnabled,
       ...overrides,
     }
 
@@ -303,6 +320,7 @@ export default function Klippstudio() {
         segmentEffects,
         segmentFilters,
         words: transcript?.words ?? [],
+        effectVideoUrl,
         onStatus: setRenderStatus,
       })
       setRenderedVideoUrl(url)
@@ -396,6 +414,43 @@ export default function Klippstudio() {
       setError(err.message)
     } finally {
       setBrollGenerating(false)
+    }
+  }
+
+  async function handleRefineEffectPrompt() {
+    setEffectRefining(true)
+    setError(null)
+    try {
+      const refined = await refineBrollPrompt({
+        customPrompt: effectCustomPrompt,
+        effectMode: 'orb',
+      })
+      setEffectRefinedPrompt(refined)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setEffectRefining(false)
+    }
+  }
+
+  async function handleGenerateEffect() {
+    setEffectGenerating(true)
+    setEffectStatus('PENDING')
+    setError(null)
+
+    try {
+      const result = await generateBroll({
+        customPrompt: effectCustomPrompt,
+        refinedPrompt: effectRefinedPrompt,
+        effectMode: 'orb',
+        onStatus: setEffectStatus,
+      })
+      setEffectVideoUrl(result.url)
+      setEffectPrompt(result.prompt)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setEffectGenerating(false)
     }
   }
 
@@ -727,6 +782,93 @@ export default function Klippstudio() {
                       disabled={brollGenerating}
                     >
                       {brollGenerating ? BROLL_STATUS_LABELS[brollStatus] ?? 'Genererar…' : 'Generera B-roll'}
+                    </button>
+                  </>
+                ))}
+            </div>
+          )}
+
+          {mediaPublicUrl && (
+            <div className="clip-card" style={{ margin: 0 }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={effectEnabled}
+                  onChange={(e) => {
+                    setEffectEnabled(e.target.checked)
+                    if (!e.target.checked) {
+                      setEffectVideoUrl(null)
+                      setEffectPrompt(null)
+                      setEffectCustomPrompt('')
+                      setEffectRefinedPrompt('')
+                    }
+                  }}
+                  style={{ marginTop: 4 }}
+                />
+                <span>
+                  <span className="clip-hook" style={{ display: 'block' }}>
+                    AI-effekt: ljusklot i bilden (valfritt)
+                  </span>
+                  <span className="clip-prompt" style={{ display: 'block' }}>
+                    Ett AI-genererat lysande klot (eller liknande ljuseffekt) läggs ovanpå ditt
+                    eget klipp under första segmentet — som ett "orb caught on camera"-fenomen.
+                    Kromakey tar bort den svarta bakgrunden automatiskt. Taggas som AI-genererat
+                    innehåll. Generera innan du renderar om du vill ha den med.
+                  </span>
+                </span>
+              </label>
+
+              {effectEnabled &&
+                (effectVideoUrl ? (
+                  <div style={{ marginTop: 12 }}>
+                    <video src={effectVideoUrl} controls style={{ width: '100%', borderRadius: 12 }} />
+                    {effectPrompt && <p className="clip-prompt">Prompt: {effectPrompt}</p>}
+                  </div>
+                ) : (
+                  <>
+                    <label style={{ display: 'block', marginTop: 12 }}>
+                      Egen idé (valfritt)
+                      <textarea
+                        value={effectCustomPrompt}
+                        onChange={(e) => setEffectCustomPrompt(e.target.value)}
+                        rows={2}
+                        placeholder="T.ex. ett pulserande blått ljusklot som glider genom rummet — lämna tomt för ett generiskt vitt ljusklot"
+                      />
+                    </label>
+                    <p className="placeholder-note">
+                      Din text går via Claude, som skriver om den till en bildprompt med ren
+                      svart bakgrund (krävs för att kromakey ska fungera).
+                    </p>
+                    {effectRefinedPrompt ? (
+                      <label style={{ display: 'block', marginTop: 8 }}>
+                        Färdig prompt (redigerbar, engelska)
+                        <textarea
+                          value={effectRefinedPrompt}
+                          onChange={(e) => setEffectRefinedPrompt(e.target.value)}
+                          rows={2}
+                        />
+                        <span className="placeholder-note" style={{ display: 'block' }}>
+                          Detta är vad som faktiskt skickas till videomodellen — redigera fritt
+                          eller töm fältet för att låta Claude skriva om den igen.
+                        </span>
+                      </label>
+                    ) : (
+                      <button
+                        className="btn-primary"
+                        style={{ marginTop: 4 }}
+                        onClick={handleRefineEffectPrompt}
+                        disabled={effectRefining}
+                      >
+                        {effectRefining ? 'Förfinar…' : 'Förfina prompt (valfritt, förhandsgranska)'}
+                      </button>
+                    )}
+                    <button
+                      className="btn-primary"
+                      style={{ marginTop: 8 }}
+                      onClick={handleGenerateEffect}
+                      disabled={effectGenerating}
+                    >
+                      {effectGenerating ? BROLL_STATUS_LABELS[effectStatus] ?? 'Genererar…' : 'Generera ljuseffekt'}
                     </button>
                   </>
                 ))}

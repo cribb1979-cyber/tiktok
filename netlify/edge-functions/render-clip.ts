@@ -1,7 +1,8 @@
 // Steg 6: startar en rendering hos Shotstack — bränner in korta textöverlägg (nyckelfraser,
 // inte hela meningar — enligt spec: "textöverlägg vid nyckelord") med bakgrundsruta för
-// läsbarhet, varierande effekter/övergångar mellan segmenten, hook-texten i början, och
-// (valfritt) ett inklippt AI-genererat B-roll-segment mellan huvudklippen.
+// läsbarhet, varierande effekter/övergångar mellan segmenten, hook-texten i början, (valfritt)
+// ett inklippt AI-genererat B-roll-segment mellan huvudklippen, och (valfritt) en AI-genererad
+// overlay-effekt (t.ex. ett ljusklot, kromakey mot svart) ovanpå det första segmentet.
 // SHOTSTACK_API_KEY exponeras aldrig i klienten.
 
 // "stage" = Shotstack sandbox (gratis, vattenstämplat) — säkert default tills du har en
@@ -35,6 +36,12 @@ const SEGMENT_TRANSITIONS_IN = ['fadeFast', 'wipeLeft', 'wipeRight', 'slideLeft'
 // "cutaway"-snitt: shot → cutaway → tillbaka till shot) istället för att bara vara en
 // fristående, oanvänd fil.
 const BROLL_DEFAULT_DURATION = 5
+
+// AI-effekt (t.ex. ett ljusklot, genererat med ren svart bakgrund via generate-broll.ts i
+// effectMode "orb") läggs som ett eget lager OVANPÅ videon under det första segmentet —
+// kromakey mot svart tar bort bakgrunden så bara det lysande motivet syns över footaget.
+const EFFECT_DEFAULT_DURATION = 4
+const EFFECT_CHROMA_KEY = { color: '#000000', threshold: 150, halo: 100 }
 
 type Segment = { start: string; end: string; description?: string; order?: number }
 type TranscriptSegment = { start: number; end: number; text: string }
@@ -99,6 +106,12 @@ export default async (request: Request) => {
     typeof body.brollDurationSeconds === 'number' && body.brollDurationSeconds > 0
       ? body.brollDurationSeconds
       : BROLL_DEFAULT_DURATION
+  // AI-effekt (ljusklot m.m.) — läggs ovanpå videon, se EFFECT_CHROMA_KEY ovan.
+  const effectVideoUrl = typeof body.effectVideoUrl === 'string' ? body.effectVideoUrl : null
+  const effectDuration =
+    typeof body.effectDurationSeconds === 'number' && body.effectDurationSeconds > 0
+      ? body.effectDurationSeconds
+      : EFFECT_DEFAULT_DURATION
 
   if (!videoUrl || typeof videoUrl !== 'string') {
     return jsonResponse({ error: 'videoUrl krävs (publik URL till källvideon).' }, 400)
@@ -109,6 +122,7 @@ export default async (request: Request) => {
 
   const videoClips = []
   const captionClips = []
+  const effectClips = []
   let timelineCursor = 0
 
   segmentsPlan.forEach((seg, index) => {
@@ -186,6 +200,24 @@ export default async (request: Request) => {
       }
     }
 
+    // AI-effekt (t.ex. ljusklot) läggs ovanpå det första segmentet, från dess start — inte
+    // längre än segmentet själv eller effektens egen längd, det som är kortast.
+    if (index === 0 && effectVideoUrl) {
+      effectClips.push({
+        asset: {
+          type: 'video',
+          src: effectVideoUrl,
+          trim: 0,
+          volume: 0,
+          chromaKey: EFFECT_CHROMA_KEY,
+        },
+        start: timelineCursor,
+        length: Math.min(effectDuration, length),
+        scale: 0.45,
+        position: 'center',
+      })
+    }
+
     timelineCursor += length
 
     // B-roll klipps in som ett eget, kortare segment direkt efter första huvudklippet —
@@ -221,9 +253,12 @@ export default async (request: Request) => {
       ]
     : []
 
-  const tracks = [{ clips: hookClip }, { clips: captionClips }, { clips: videoClips }].filter(
-    (track) => track.clips.length > 0
-  )
+  const tracks = [
+    { clips: hookClip },
+    { clips: captionClips },
+    { clips: effectClips },
+    { clips: videoClips },
+  ].filter((track) => track.clips.length > 0)
 
   const editPayload = {
     timeline: {

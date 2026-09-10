@@ -3,8 +3,19 @@ import { errorMessage } from './apiError.js'
 // Anropar Netlify Edge Functions /api/generate-broll och /api/broll-status — aldrig
 // Replicate/Claude direkt från klienten. Byggd mot Replicate (Wan 2.1) — tidigare Runway,
 // bytt för lägre kostnad. Se generate-broll.ts för detaljer om leverantören.
+//
+// effectMode: 'orb' genererar en overlay-ljuseffekt (kromakey mot svart) istället för vanlig
+// B-roll — samma anrop/pollning, bara ett annat läge (se generate-broll.ts).
 
-async function submitBroll({ category, subtopic, hookText, customPrompt, allowIllustrativeFigures, refinedPrompt }) {
+async function submitBroll({
+  category,
+  subtopic,
+  hookText,
+  customPrompt,
+  allowIllustrativeFigures,
+  refinedPrompt,
+  effectMode,
+}) {
   const response = await fetch('/api/generate-broll', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -15,6 +26,7 @@ async function submitBroll({ category, subtopic, hookText, customPrompt, allowIl
       customPrompt,
       allowIllustrativeFigures,
       refinedPrompt,
+      effectMode,
     }),
   })
 
@@ -38,7 +50,14 @@ async function getBrollStatus(taskId) {
 // filmisk engelsk bildprompt UTAN att starta någon (betald) Replicate-generering — så
 // användaren kan se och redigera texten innan de bekräftar. Ingen polling, bara ett snabbt
 // Claude-anrop.
-export async function refineBrollPrompt({ category, subtopic, hookText, customPrompt, allowIllustrativeFigures }) {
+export async function refineBrollPrompt({
+  category,
+  subtopic,
+  hookText,
+  customPrompt,
+  allowIllustrativeFigures,
+  effectMode,
+}) {
   const response = await fetch('/api/generate-broll', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -48,6 +67,7 @@ export async function refineBrollPrompt({ category, subtopic, hookText, customPr
       hookText,
       customPrompt,
       allowIllustrativeFigures,
+      effectMode,
       refineOnly: true,
     }),
   })
@@ -72,6 +92,7 @@ export async function generateBroll({
   customPrompt,
   allowIllustrativeFigures,
   refinedPrompt,
+  effectMode,
   onStatus,
 }) {
   const { taskId, prompt } = await submitBroll({
@@ -81,6 +102,7 @@ export async function generateBroll({
     customPrompt,
     allowIllustrativeFigures,
     refinedPrompt,
+    effectMode,
   })
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
