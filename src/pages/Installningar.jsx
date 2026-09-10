@@ -4,6 +4,7 @@ import { tiktokAdapter } from '../lib/tiktokAdapter.js'
 export default function Installningar() {
   const [status, setStatus] = useState({ connected: false, accountName: null })
   const [connecting, setConnecting] = useState(false)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     setStatus(tiktokAdapter.getConnectionStatus())
@@ -11,14 +12,25 @@ export default function Installningar() {
 
   async function handleConnect() {
     setConnecting(true)
-    const connection = await tiktokAdapter.connectAccount()
-    setStatus({ connected: true, accountName: connection.accountName })
-    setConnecting(false)
+    setError(null)
+    try {
+      const connection = await tiktokAdapter.connectAccount()
+      setStatus({ connected: true, accountName: connection.accountName })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setConnecting(false)
+    }
   }
 
   async function handleDisconnect() {
-    await tiktokAdapter.disconnectAccount()
-    setStatus({ connected: false, accountName: null })
+    setError(null)
+    try {
+      await tiktokAdapter.disconnectAccount()
+      setStatus({ connected: false, accountName: null })
+    } catch (err) {
+      setError(err.message)
+    }
   }
 
   return (
@@ -26,6 +38,8 @@ export default function Installningar() {
       <header className="page-header">
         <h1>Inställningar</h1>
       </header>
+
+      {error && <p className="error-banner">{error}</p>}
 
       <div className="clip-form">
         <h2 style={{ margin: 0 }}>TikTok-koppling</h2>

@@ -46,8 +46,15 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Embeddings API-fel', detail: errText }, 502)
   }
 
-  const data = await response.json()
-  const embedding = data?.data?.[0]?.embedding
+  const rawEmbeddingText = await response.text()
+  let data: Record<string, unknown>
+  try {
+    data = JSON.parse(rawEmbeddingText)
+  } catch {
+    return jsonResponse({ error: 'Kunde inte tolka Embeddings API-svaret som JSON.', raw: rawEmbeddingText }, 502)
+  }
+
+  const embedding = (data?.data as Array<{ embedding?: unknown }> | undefined)?.[0]?.embedding
 
   if (!Array.isArray(embedding)) {
     return jsonResponse({ error: 'Oväntat svar från Embeddings API.' }, 502)

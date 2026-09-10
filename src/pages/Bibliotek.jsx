@@ -457,7 +457,11 @@ export default function Bibliotek() {
                     {busyClipId === clip.id ? 'Hämtar…' : 'Uppdatera resultat (mock)'}
                   </button>
                 )}
-                <button className="btn-danger" onClick={() => handleDelete(clip.id)}>
+                <button
+                  className="btn-danger"
+                  onClick={() => handleDelete(clip.id)}
+                  disabled={busyClipId === clip.id}
+                >
                   Ta bort
                 </button>
               </div>

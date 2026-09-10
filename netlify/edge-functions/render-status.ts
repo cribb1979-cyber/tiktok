@@ -27,17 +27,25 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Kunde inte nå Shotstack API.', detail: String(err) }, 502)
   }
 
-  const data = await shotstackResponse.json()
+  const rawText = await shotstackResponse.text()
+  let data: Record<string, unknown>
+  try {
+    data = JSON.parse(rawText)
+  } catch {
+    return jsonResponse({ error: 'Kunde inte tolka Shotstacks svar som JSON.', raw: rawText }, 502)
+  }
 
   if (!shotstackResponse.ok || !data?.response) {
     return jsonResponse({ error: 'Shotstack API-fel', detail: data }, 502)
   }
 
+  const responseData = data.response as Record<string, unknown>
+
   return jsonResponse(
     {
-      status: data.response.status,
-      url: data.response.url ?? null,
-      error: data.response.error ?? null,
+      status: responseData.status,
+      url: responseData.url ?? null,
+      error: responseData.error ?? null,
     },
     200
   )

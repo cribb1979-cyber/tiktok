@@ -127,17 +127,23 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Whisper API-fel', detail: errText }, 502)
   }
 
-  const data = await whisperResponse.json()
+  const rawWhisperText = await whisperResponse.text()
+  let data: Record<string, unknown>
+  try {
+    data = JSON.parse(rawWhisperText)
+  } catch {
+    return jsonResponse({ error: 'Kunde inte tolka Whispers svar som JSON.', raw: rawWhisperText }, 502)
+  }
 
   // Normaliserat till { start, end, text } (sekunder) — samma form som skickas vidare
   // till Claude-anropet i generate-plan.ts.
-  const segments = (data.segments ?? []).map((seg: { start: number; end: number; text: string }) => ({
+  const segments = ((data.segments as unknown[]) ?? []).map((seg: { start: number; end: number; text: string }) => ({
     start: seg.start,
     end: seg.end,
     text: (seg.text ?? '').trim(),
   }))
 
-  const words = (data.words ?? []).map((w: { word: string; start: number; end: number }) => ({
+  const words = ((data.words as unknown[]) ?? []).map((w: { word: string; start: number; end: number }) => ({
     word: (w.word ?? '').trim(),
     start: w.start,
     end: w.end,

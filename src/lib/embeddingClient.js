@@ -1,3 +1,5 @@
+import { errorMessage } from './apiError.js'
+
 // Anropar Netlify Edge Function /api/embed-text — aldrig OpenAI direkt från klienten.
 export async function embedText(text) {
   const response = await fetch('/api/embed-text', {
@@ -9,7 +11,7 @@ export async function embedText(text) {
   const data = await response.json()
 
   if (!response.ok) {
-    throw new Error(data.error ?? 'Kunde inte generera embedding.')
+    throw new Error(errorMessage(data, 'Kunde inte generera embedding.'))
   }
 
   return data.embedding

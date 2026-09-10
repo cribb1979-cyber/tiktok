@@ -10,11 +10,23 @@ export async function submitShotstackRender(apiKey: string, editPayload: unknown
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
     body: JSON.stringify(editPayload),
   })
-  const data = await response.json()
+  const data = await parseShotstackJson(response)
   if (!response.ok || !data?.response?.id) {
     throw new Error(`Shotstack render-fel: ${JSON.stringify(data)}`)
   }
   return data.response.id as string
+}
+
+// .json() kan kasta om Shotstack svarar med något som inte är giltig JSON (t.ex. en
+// HTML-felsida vid ett tillfälligt driftavbrott) — läs som text först och försök tolka, så
+// anroparen får ett förklarande Error istället för att krascha okontrollerat.
+async function parseShotstackJson(response: Response): Promise<{ response?: { id?: string; status?: string; url?: string; error?: string } }> {
+  const rawText = await response.text()
+  try {
+    return JSON.parse(rawText)
+  } catch {
+    throw new Error(`Kunde inte tolka Shotstacks svar som JSON: ${rawText}`)
+  }
 }
 
 export async function pollShotstackRender(
@@ -29,7 +41,7 @@ export async function pollShotstackRender(
     const response = await fetch(`${SHOTSTACK_HOST}/render/${id}`, {
       headers: { 'x-api-key': apiKey },
     })
-    const data = await response.json()
+    const data = await parseShotstackJson(response)
     if (!response.ok || !data?.response) {
       throw new Error(`Shotstack status-fel: ${JSON.stringify(data)}`)
     }
