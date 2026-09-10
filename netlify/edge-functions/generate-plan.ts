@@ -15,7 +15,13 @@ uppskattningar (t.ex. "00:00"–"00:05").
 Om en önskad total videolängd anges: anpassa antal segment och deras start/end-tider så att
 summan av alla segmentens längder hamnar så nära den önskade totallängden som möjligt (inom
 någon sekund). Ett kort mål (t.ex. 15s) ska ge färre/kortare segment, ett längre mål (t.ex. 60s)
-fler eller längre segment — hitta inte bara på en enda lång sekvens.`
+fler eller längre segment — hitta inte bara på en enda lång sekvens.
+
+Engagemang: TikToks algoritm belönar kommentarer och delningar mer än bara visningar. Låt
+därför minst ett hook-alternativ, eller det sista segmentets description, avsluta med en öppen
+fråga till tittaren istället för ett rent påstående (t.ex. "Skulle du testa detta?" eller
+"Har du upplevt något liknande?") när innehållet naturligt tillåter det — inte tvingat om
+ämnet inte passar en fråga.`
 
 // Svarsformatet tvingas fram strukturellt via output_config.format (json_schema) — modellen
 // kan inte avvika från detta, så inget behov av att be den "bara svara med JSON" i prompten.

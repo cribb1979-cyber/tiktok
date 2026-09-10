@@ -57,6 +57,14 @@ presterande klipp i samma kategori) — fyllt sedan steg 9 (se nedan), tom lista
 samma svar som segmentplan/hook-alternativ/nyckelfraser. Visas i Klippstudio och sparas på
 `clips.hashtags` (migration `0006_hashtags.sql`) när klippet sparas — syns även i Bibliotek.
 
+**Engagemangsstrategi (CTA):** systemprompten instruerar Claude att låta minst ett
+hook-alternativ eller sista segmentets beskrivning avsluta med en öppen fråga till tittaren
+("Skulle du testa detta?") snarare än ett rent påstående, när ämnet naturligt tillåter det —
+TikToks algoritm belönar kommentarer/delningar mer än bara visningar. Övriga tips från samma
+källa är kreatörens eget ansvar snarare än något Claude kan styra i en textgenerering: svara på
+kommentarer med video, bra ljus/ljud (stå vid ett fönster), och ladda upp regelbundet
+(3-5 ggr/vecka utspritt, inte allt på en gång).
+
 ## Whisper-integration (steg 5)
 
 `netlify/edge-functions/transcribe.ts` tar emot en uppladdad video-/ljudfil och returnerar
