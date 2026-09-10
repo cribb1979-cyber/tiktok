@@ -7,6 +7,8 @@
 // bakgrund med en AI-genererad bild (se backgroundSwapActive, generate-background.ts,
 // matte-video.ts), och (valfritt) en manuellt positionerad, pulserande glow-overlay
 // (glowEffect, se GLOW_* nedan) — fast position under ett tidsintervall, ingen AI-spårning.
+// Start-/sluttid och uppspelningshastighet per segment kan också redigeras manuellt
+// (segmentStarts/segmentEnds/segmentSpeeds) — override av AI-förslaget i segmentsPlan.
 // SHOTSTACK_API_KEY exponeras aldrig i klienten.
 
 // "stage" = Shotstack sandbox (gratis, vattenstämplat) — säkert default tills du har en
@@ -199,6 +201,14 @@ export default async (request: Request) => {
     typeof glowEffect?.start_seconds === 'number' &&
     typeof glowEffect?.end_seconds === 'number' &&
     (glowEffect.end_seconds as number) > (glowEffect.start_seconds as number)
+  // Manuell redigering av start-/sluttid och uppspelningshastighet per segment (Klippstudio
+  // segmentlista) — override av AI-förslaget i segmentsPlan[i].start/end. Tomt/saknat värde
+  // för ett index faller tillbaka till seg.start/seg.end (samma tolerans som segmentEffects/
+  // segmentFilters). segmentSpeeds är Shotstacks "speed"-fält (float-multiplikator på
+  // video-asseten, t.ex. 2 = dubbel hastighet) — saknat/ogiltigt värde = normal hastighet.
+  const segmentStarts = Array.isArray(body.segmentStarts) ? (body.segmentStarts as unknown[]) : []
+  const segmentEnds = Array.isArray(body.segmentEnds) ? (body.segmentEnds as unknown[]) : []
+  const segmentSpeeds = Array.isArray(body.segmentSpeeds) ? (body.segmentSpeeds as unknown[]) : []
 
   if (!videoUrl || typeof videoUrl !== 'string') {
     return jsonResponse({ error: 'videoUrl krävs (publik URL till källvideon).' }, 400)
@@ -226,8 +236,10 @@ export default async (request: Request) => {
   let timelineCursor = 0
 
   segmentsPlan.forEach((seg, index) => {
-    const trimStart = parseTimecode(seg.start)
-    const trimEnd = parseTimecode(seg.end)
+    const manualStart = segmentStarts[index]
+    const manualEnd = segmentEnds[index]
+    const trimStart = parseTimecode(typeof manualStart === 'string' && manualStart.trim() ? manualStart : seg.start)
+    const trimEnd = parseTimecode(typeof manualEnd === 'string' && manualEnd.trim() ? manualEnd : seg.end)
     const length = Math.max(trimEnd - trimStart, 0.5)
     const manualEffect = segmentEffects[index]
     const effect =
@@ -235,6 +247,10 @@ export default async (request: Request) => {
         ? manualEffect
         : SEGMENT_EFFECTS[index % SEGMENT_EFFECTS.length]
     const manualFilter = segmentFilters[index]
+    const manualSpeedRaw = segmentSpeeds[index]
+    const manualSpeed =
+      typeof manualSpeedRaw === 'string' && manualSpeedRaw.trim() ? Number(manualSpeedRaw) : NaN
+    const speed = Number.isFinite(manualSpeed) && manualSpeed > 0 ? manualSpeed : null
     const transition = {
       in: index === 0 ? 'fadeFast' : SEGMENT_TRANSITIONS_IN[index % SEGMENT_TRANSITIONS_IN.length],
       out: 'fadeFast',
@@ -262,6 +278,7 @@ export default async (request: Request) => {
           trim: trimStart,
           volume: 1,
           chromaKey: { color: '#00FF00', threshold: 150, halo: 100 },
+          ...(speed ? { speed } : {}),
         },
         start: timelineCursor,
         length,
@@ -271,7 +288,13 @@ export default async (request: Request) => {
       })
     } else {
       videoClips.push({
-        asset: { type: 'video', src: videoUrl, trim: trimStart, volume: 1 },
+        asset: {
+          type: 'video',
+          src: videoUrl,
+          trim: trimStart,
+          volume: 1,
+          ...(speed ? { speed } : {}),
+        },
         start: timelineCursor,
         length,
         fit: 'crop',

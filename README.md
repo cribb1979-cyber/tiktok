@@ -446,6 +446,34 @@ videon och den AI-genererade ljuseffekten men under text.
 
 Taggas INTE som AI-genererat innehåll — manuell positionering/CSS, ingen AI-generering.
 
+## Redigera start-/sluttid och hastighet per segment (valfritt)
+
+Ett enklare alternativ till en full tidslinje-editor (drag-i-tidslinjen-scrubbing avvägdes
+bort — se motiveringen i sessionshistoriken: förhandsvisningen skulle avvika från Shotstacks
+faktiska rendering, och dragbara handtag är klumpiga på mobil där videor oftast
+sparas/delas). Återanvänder samma numeriska mönster som effekt-/filterdropdownsen som redan
+fanns i segmentlistan.
+
+I segmentlistan i Klippstudio kan varje segments start-/sluttid (mm:ss, förifyllt med AI:ns
+förslag) redigeras direkt i två textfält — t.ex. för att klippa bort för mycket material om
+ett AI-föreslaget segment blev för långt. En hastighets-dropdown (`SEGMENT_SPEED_OPTIONS` i
+`constants.js`, 0.5x–2x) skapar slow-motion eller time-lapse-känsla per segment.
+
+**Kompositering** (`render-clip.ts`): `segmentStarts`/`segmentEnds` (strängar, samma mm:ss-
+format som `segments_plan[i].start/end`) skickas som parallella arrayer och används istället
+för AI-förslaget om ifyllda — precis samma override-mönster som `segmentEffects`/
+`segmentFilters`. Eftersom `trimStart`/`trimEnd` beräknas EN gång per segment och allt annat i
+loopen (ord-för-ord-undertexter, nyckelfras-fallback, AI-effekten) redan använder dessa
+variabler, kaskadar en redigerad tid automatiskt rätt genom hela segmentet utan någon extra
+kod. `segmentSpeeds` sätts som Shotstacks `speed`-fält direkt på video-asseten (float-
+multiplikator) — ändrar uppspelningstakten men INTE segmentets tilldelade tid på tidslinjen
+(`length` är oförändrad, mer eller mindre av källvideon konsumeras för att fylla samma
+tidsfönster).
+
+Sparas INTE på klippet i Supabase (`glow_effect` sparas, men detta gör det inte) — samma
+mönster som `segmentEffects`/`segmentFilters`, som redan bara är engångsval för en specifik
+rendering.
+
 ## Att göra: Remotion som växlingsbart renderingsalternativ (pausat, påbörjat)
 
 Uppdaterad spec vill kunna växla rendering mellan Shotstack (nuvarande, fungerar) och

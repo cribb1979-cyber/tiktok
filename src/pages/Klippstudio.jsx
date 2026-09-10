@@ -13,6 +13,7 @@ import {
   CATEGORIES,
   SEGMENT_EFFECT_OPTIONS,
   SEGMENT_FILTER_OPTIONS,
+  SEGMENT_SPEED_OPTIONS,
   EFFECT_TYPE_OPTIONS,
   GLOW_COLOR_OPTIONS,
   GLOW_INTENSITY_OPTIONS,
@@ -175,6 +176,13 @@ export default function Klippstudio() {
   // plan.segments_plan.
   const [segmentEffects, setSegmentEffects] = useState([])
   const [segmentFilters, setSegmentFilters] = useState([])
+  // Manuellt redigerbara start-/sluttider (förifyllda med AI-förslaget, mm:ss) och
+  // uppspelningshastighet ('' = normal) per segment — override av segments_plan[i].start/end
+  // i render-clip.ts. Låter användaren klippa bort för mycket material eller skapa
+  // slow-motion/time-lapse utan att bygga en full tidslinje-editor.
+  const [segmentStarts, setSegmentStarts] = useState([])
+  const [segmentEnds, setSegmentEnds] = useState([])
+  const [segmentSpeeds, setSegmentSpeeds] = useState([])
 
   const [rendering, setRendering] = useState(false)
   const [renderStatus, setRenderStatus] = useState(null)
@@ -410,6 +418,11 @@ export default function Klippstudio() {
       setSelectedHookIndex(0)
       setSegmentEffects((result.segments_plan ?? []).map(() => ''))
       setSegmentFilters((result.segments_plan ?? []).map(() => ''))
+      // Förifyllda med AI-förslaget (redigerbara direkt i fälten), till skillnad från
+      // effekt/filter ovan som defaultar till "automatiskt"/"inget".
+      setSegmentStarts((result.segments_plan ?? []).map((seg) => seg.start))
+      setSegmentEnds((result.segments_plan ?? []).map((seg) => seg.end))
+      setSegmentSpeeds((result.segments_plan ?? []).map(() => ''))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -510,6 +523,9 @@ export default function Klippstudio() {
         brollVideoUrl,
         segmentEffects,
         segmentFilters,
+        segmentStarts,
+        segmentEnds,
+        segmentSpeeds,
         words: transcript?.words ?? [],
         effectVideoUrl,
         effectType,
@@ -749,9 +765,9 @@ export default function Klippstudio() {
 
   // Grov uppskattning av klippets totala längd (för glow-tidsintervallets gränser i UI:t) —
   // samma räknesätt som timelineCursor i render-clip.ts, men inte auktoritativt.
-  const planTotalSeconds = (plan?.segments_plan ?? []).reduce((sum, seg) => {
-    const start = parseTimecodeClient(seg.start)
-    const end = parseTimecodeClient(seg.end)
+  const planTotalSeconds = (plan?.segments_plan ?? []).reduce((sum, seg, i) => {
+    const start = parseTimecodeClient(segmentStarts[i] || seg.start)
+    const end = parseTimecodeClient(segmentEnds[i] || seg.end)
     return sum + Math.max(end - start, 0.5)
   }, 0)
 
@@ -909,6 +925,13 @@ export default function Klippstudio() {
 
           <div>
             <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Segmentplan</p>
+            {mediaPublicUrl && (
+              <p className="placeholder-note">
+                Start-/sluttid (mm:ss) är AI:ns förslag men går att redigera direkt — t.ex. för
+                att klippa bort för mycket material. Hastighet skapar slow-motion (under 1x)
+                eller time-lapse-känsla (över 1x).
+              </p>
+            )}
             <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {(plan.segments_plan ?? []).map((seg, i) => (
                 <li key={i}>
@@ -917,7 +940,45 @@ export default function Klippstudio() {
                   </strong>{' '}
                   {seg.description}
                   {mediaPublicUrl && (
-                    <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={segmentStarts[i] ?? seg.start}
+                        onChange={(e) => {
+                          const next = [...segmentStarts]
+                          next[i] = e.target.value
+                          setSegmentStarts(next)
+                        }}
+                        aria-label="Starttid"
+                        style={{ width: 64 }}
+                      />
+                      <span style={{ color: 'var(--text-muted)' }}>–</span>
+                      <input
+                        type="text"
+                        value={segmentEnds[i] ?? seg.end}
+                        onChange={(e) => {
+                          const next = [...segmentEnds]
+                          next[i] = e.target.value
+                          setSegmentEnds(next)
+                        }}
+                        aria-label="Sluttid"
+                        style={{ width: 64 }}
+                      />
+                      <select
+                        value={segmentSpeeds[i] ?? ''}
+                        onChange={(e) => {
+                          const next = [...segmentSpeeds]
+                          next[i] = e.target.value
+                          setSegmentSpeeds(next)
+                        }}
+                        aria-label="Hastighet"
+                      >
+                        {SEGMENT_SPEED_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
                       <select
                         value={segmentEffects[i] ?? ''}
                         onChange={(e) => {

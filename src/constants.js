@@ -29,6 +29,18 @@ export const SEGMENT_EFFECT_OPTIONS = [
   { value: 'slideRight', label: 'Glid höger (mjuk)' },
 ]
 
+// Manuellt val av uppspelningshastighet per segment — Shotstacks "speed"-fält på video-
+// asset (float-multiplikator, t.ex. 2 = dubbel hastighet, 0.5 = halva), se render-clip.ts.
+// Tomt värde = normal hastighet (fältet skickas inte alls).
+export const SEGMENT_SPEED_OPTIONS = [
+  { value: '', label: 'Normal hastighet' },
+  { value: '0.5', label: 'Halv fart (0.5x)' },
+  { value: '0.75', label: 'Lite långsammare (0.75x)' },
+  { value: '1.25', label: 'Lite snabbare (1.25x)' },
+  { value: '1.5', label: 'Snabbare (1.5x)' },
+  { value: '2', label: 'Dubbel fart (2x)' },
+]
+
 // Manuellt val av färgfilter per segment — samma preset-namn som Shotstack förväntar sig
 // (clip-nivå "filter"-fält, se render-clip.ts). Tomt värde = inget filter.
 export const SEGMENT_FILTER_OPTIONS = [
