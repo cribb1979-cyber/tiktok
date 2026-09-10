@@ -226,22 +226,37 @@ pris), öppen källkod. `src/lib/replicateClient.js` (döpt om från `runwayClie
 funktionssignatur (`generateBroll`) så resten av koden (Klippstudio.jsx) inte behövde ändras.
 
 **Flöde:** `netlify/edge-functions/generate-broll.ts` ber Claude formulera en kort, filmisk,
-uttryckligen person-fri visuell prompt utifrån klippets kategori/underämne/hook — och valfritt
-en egen idé du skriver själv i Klippstudio (`customPrompt`, t.ex. "regn mot ett fönster,
-neonljus i vattenpölar"). Din text går fortfarande via Claude istället för direkt till
-videomodellen, så person-skyddet gäller även då. Prompten skickas sedan till Replicates
-`models/{model}/predictions`-endpoint (modellen `wavespeedai/wan-2.1-t2v-720p` som default,
-styrbart via `REPLICATE_MODEL`), med `negative_prompt` som extra skyddsnät mot att personer
-dyker upp i bild. `broll-status.ts` pollas (Replicates statusvärden
-starting/processing/succeeded/failed normaliseras internt till samma PENDING/RUNNING/
-SUCCEEDED/FAILED-kontrakt som tidigare, så klientkoden är oförändrad) tills videon är klar.
+visuell prompt utifrån klippets kategori/underämne/hook — och valfritt en egen idé du skriver
+själv i Klippstudio (`customPrompt`, t.ex. "regn mot ett fönster, neonljus i vattenpölar").
+Din text går fortfarande via Claude istället för direkt till videomodellen, så person-skyddet
+gäller även då. Prompten skickas sedan till Replicates `models/{model}/predictions`-endpoint.
+`broll-status.ts` pollas (Replicates statusvärden starting/processing/succeeded/failed
+normaliseras internt till samma PENDING/RUNNING/SUCCEEDED/FAILED-kontrakt som tidigare, så
+klientkoden är oförändrad) tills videon är klar.
 
-**Kontroll mot Replicates egen dokumentation (2026-09-10):** input-fälten
-(`prompt`/`negative_prompt`/`aspect_ratio`/`fast_mode`) verifierades mot modellens
-Schema-sida (`replicate.com/wavespeedai/wan-2.1-t2v-720p/api/schema`) och stämmer. Ett
-verkligt testfel (`(E002)`, `helpers.exceptions.prediction.ModelError`) visade sig reproduceras
-även i Replicates egen Playground med enkel standardprompt — dvs. en tillfällig driftstörning
-hos WaveSpeedAI (leverantören bakom just den här modellvarianten), inte ett fel i vår kod.
+**Modell/leverantör (uppdaterad 2026-09-10):** default är `wan-video/wan-2.1-1.3b` (mindre
+1.3B-modell, körs direkt via Replicate). Ursprungligen `wavespeedai/wan-2.1-t2v-720p` (14B,
+bättre kvalitet) — men den leverantören (WaveSpeedAI) hade driftstopp: samma fel (`(E002)`,
+`helpers.exceptions.prediction.ModelError`) reproducerades i Replicates egen Playground med
+enkel standardprompt, dvs. bekräftat inte ett fel i vår kod. De två modellerna har OLIKA
+input-scheman (verifierat mot respektive Schema-sida på replicate.com):
+- `wavespeedai/wan-2.1-t2v-720p`: `prompt`, `negative_prompt`, `aspect_ratio`, `fast_mode` m.fl.
+- `wan-video/wan-2.1-1.3b`: `prompt`, `aspect_ratio`, `seed`, `frame_num`, `resolution`,
+  `sample_shift`, `sample_steps`, `sample_guide_scale` — inget `negative_prompt`/`fast_mode`.
+
+`generate-broll.ts` skickar bara `negative_prompt`/`fast_mode` när `REPLICATE_MODEL` pekar på
+en `wavespeedai/`-modell (se `isWaveSpeedModel`), annars bara `prompt`/`aspect_ratio` — annars
+ger Replicate ett valideringsfel för okända fält. **Viktigt:** person-skyddet vilar i båda
+lägen på Claude-instruktionen (`PROMPT_SYSTEM_PERSON_FREE`/`PROMPT_SYSTEM_ILLUSTRATIVE`) —
+`negative_prompt` är bara ett extra skyddsnät som finns på wavespeedai-modellen, inte på
+default-modellen. Byt tillbaka via `REPLICATE_MODEL=wavespeedai/wan-2.1-t2v-720p` om
+WaveSpeedAI-driftstoppet löser sig och du vill ha 14B-kvaliteten igen.
+
+**Person-skydd, två lägen:** default är B-roll helt person-fri. Ett kryssruta i Klippstudio,
+"Illustrera min berättelse", tillåter generiska/anonyma mänskliga figurer som illustration av
+en berättelse (t.ex. "en siluett vid ett bord") — men får ALDRIG föreställa en specifik
+verklig identifierbar person, varken kontoinnehavaren eller namngivna anhöriga. Uttryckligt
+opt-in per klipp, inget default-beteende ändrat.
 
 **TikTok-taggning:** `ai_generated_content` sätts automatiskt till `true` när B-roll används
 (aldrig manuellt valbart av användaren) — Bibliotek visar en tydlig "AI-genererat
@@ -251,14 +266,7 @@ i vår databas — se kommentaren i `tiktokAdapter.js`s `publishClip`.
 
 **Miljövariabler:** `REPLICATE_API_TOKEN` (krävs för att funktionen ska gå att använda —
 kryssrutan finns kvar även utan nyckel, men genereringen felar tydligt tills den är satt) och
-valfri `REPLICATE_MODEL` (default `wavespeedai/wan-2.1-t2v-720p`).
-
-**Viktigt att veta:** fältnamnen ovan (`prompt`/`negative_prompt`/`aspect_ratio`/`fast_mode`)
-är verifierade mot Replicates publika modellsida, men själva anropet är INTE testat mot ett
-riktigt Replicate-konto i den här miljön (nätverksbegränsningar hindrade direkt verifiering av
-ett live-svar) — precis som Shotstack-integrationen ursprungligen behövde justeras efter
-första skarpa testet, räkna med att samma kan gälla här första gången du kör det mot ett
-riktigt Replicate-konto.
+valfri `REPLICATE_MODEL` (default `wan-video/wan-2.1-1.3b`).
 
 ## Att göra: Remotion som växlingsbart renderingsalternativ (pausat, påbörjat)
 

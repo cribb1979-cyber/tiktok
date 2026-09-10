@@ -13,13 +13,21 @@
 //   vid ett bord", en siluett) — men FÅR ALDRIG föreställa en specifik verklig identifierbar
 //   person (inte kontoinnehavaren, inte namngivna anhöriga). Användarens eget val, uttryckligt
 //   opt-in per klipp.
+// Skyddet vilar i båda lägena på Claude-instruktionen (PROMPT_SYSTEM_*). negative_prompt är
+// ett extra skyddsnät på modellnivå, men finns bara i wavespeedai-modellens schema — med
+// default-modellen (wan-video/wan-2.1-1.3b, se nedan) finns inget sådant fält, så där gäller
+// enbart Claude-instruktionen.
 //
-// OBS: fältnamnen nedan (prompt/negative_prompt/aspect_ratio/fast_mode) är verifierade mot
-// Replicates publika modell-sida för wavespeedai/wan-2.1-t2v-720p, men själva anropet är INTE
-// testat mot ett riktigt Replicate-konto i den här miljön (nätverksbegränsningar hindrade
-// direkt verifiering av live-svar). Samma mönster som Shotstack/Runway-integrationerna:
-// räkna med att mindre justeringar kan behövas första gången det körs skarpt — visa hela
-// felmeddelandet, justera.
+// Leverantör/modell: default är wan-video/wan-2.1-1.3b (mindre 1.3B-modell, körs direkt via
+// Replicate utan mellanhand). Testade ursprungligen wavespeedai/wan-2.1-t2v-720p (14B,
+// snabbare/bättre kvalitet) men den leverantörens egen backend (WaveSpeedAI) hade driftstopp
+// 2026-09-10 — bekräftat genom att samma fel (E002, ModelError) reproducerades i Replicates
+// egen Playground med standardprompt, dvs. inte relaterat till vårt anrop. wan-video/
+// wan-2.1-1.3b har ett ANNAT input-schema — inget negative_prompt, inget fast_mode (bara
+// prompt/seed/frame_num/resolution/aspect_ratio/sample_shift/sample_steps/sample_guide_scale,
+// verifierat mot dess Schema-sida) — koden nedan skickar bara fast_mode/negative_prompt när
+// wavespeedai-modellen används (se isWaveSpeedModel). Byt tillbaka via REPLICATE_MODEL om
+// WaveSpeedAI-driftstoppet löser sig och du vill ha 14B-kvaliteten igen.
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
 const CLAUDE_MODEL = 'claude-sonnet-5'
@@ -84,7 +92,7 @@ export default async (request: Request) => {
     )
   }
 
-  const replicateModel = Deno.env.get('REPLICATE_MODEL') || 'wavespeedai/wan-2.1-t2v-720p'
+  const replicateModel = Deno.env.get('REPLICATE_MODEL') || 'wan-video/wan-2.1-1.3b'
   // Uttryckligt opt-in per klipp (default false) — se kommentaren högst upp i filen för
   // person-skyddets två lägen.
   const allowIllustrativeFigures = body.allowIllustrativeFigures === true
@@ -123,24 +131,29 @@ export default async (request: Request) => {
   }
 
   // Steg 2: skicka prompten till Replicate (Wan 2.1) för videogenerering (asynkront,
-  // prediction-baserat). negative_prompt är ett extra skyddsnät utöver instruktionen i
-  // Claude-prompten — i default-läget blockeras människor helt, i illustrativt läge
-  // blockeras bara sådant som skulle göra en figur igenkännbar (tydligt ansikte/porträtt)
-  // snarare än generiska figurer i sig. fast_mode: "Fast" (en sträng, inte en boolean —
-  // bekräftat via ett skarpt 422-fel: "Expected: string, given: boolean") för lägre
-  // kostnad/kortare väntetid.
-  const negativePrompt = allowIllustrativeFigures
-    ? 'recognizable face, close-up portrait, detailed facial features, celebrity, named real person, text, watermark'
-    : 'people, person, human face, human figure, man, woman, portrait, crowd, text, watermark'
+  // prediction-baserat). negative_prompt/fast_mode finns bara i wavespeedai-modellens
+  // schema, inte i wan-video/wan-2.1-1.3b — skickas därför bara med när den modellen är
+  // aktiv, annars ger Replicate ett valideringsfel för okända fält.
+  const isWaveSpeedModel = replicateModel.startsWith('wavespeedai/')
 
-  const replicateBody = {
-    input: {
-      prompt: visualPrompt,
-      negative_prompt: negativePrompt,
-      aspect_ratio: '9:16', // TikTok-format
-      fast_mode: 'Fast',
-    },
+  const replicateInput: Record<string, unknown> = {
+    prompt: visualPrompt,
+    aspect_ratio: '9:16', // TikTok-format
   }
+
+  if (isWaveSpeedModel) {
+    // Extra skyddsnät utöver instruktionen i Claude-prompten — i default-läget blockeras
+    // människor helt, i illustrativt läge blockeras bara sådant som skulle göra en figur
+    // igenkännbar (tydligt ansikte/porträtt) snarare än generiska figurer i sig.
+    replicateInput.negative_prompt = allowIllustrativeFigures
+      ? 'recognizable face, close-up portrait, detailed facial features, celebrity, named real person, text, watermark'
+      : 'people, person, human face, human figure, man, woman, portrait, crowd, text, watermark'
+    // "Fast" (en sträng, inte en boolean — bekräftat via ett skarpt 422-fel: "Expected:
+    // string, given: boolean") för lägre kostnad/kortare väntetid.
+    replicateInput.fast_mode = 'Fast'
+  }
+
+  const replicateBody = { input: replicateInput }
 
   let replicateResponse: Response
   try {
