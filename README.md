@@ -177,3 +177,50 @@ dokumentation (kunde inte verifieras direkt mot ett Runway-konto i den här milj
 nätverksbegränsningar) — precis som Shotstack-integrationen ursprungligen behövde justeras
 efter första skarpa testet, räkna med att samma kan gälla här första gången du kör det mot
 ett riktigt Runway-konto.
+
+## Att göra: Remotion som växlingsbart renderingsalternativ (pausat, påbörjat)
+
+Uppdaterad spec vill kunna växla rendering mellan Shotstack (nuvarande, fungerar) och
+Remotion (self-hosted, billigare per rendering) via en miljövariabel `RENDER_PROVIDER=shotstack|remotion`,
+bakom samma `/api/render-clip` + `/api/render-status`-gränssnitt så klienten inte behöver
+bry sig om vilken som är aktiv. Pausat på användarens begäran innan implementationen — så
+här ser planen och det som redan verifierats ut:
+
+**Varför det inte kan köras i en Netlify Edge Function:** Remotion renderar via
+`@remotion/renderer`, som kräver riktig Node.js + headless Chromium + ffmpeg och tar
+betydligt längre tid än en Edge Functions körgräns tillåter. Måste köras som en egen
+server-process — t.ex. samma Render.com-tjänst som redan används för YrkesAPL, eller
+Remotion Lambda (AWS).
+
+**Redan verifierat i den här sessionen** (testat i en tillfällig scratch-mapp, inte incheckat):
+- `@remotion/renderer` + `@remotion/bundler` fungerar med `renderMedia()`/`selectComposition()`.
+- Viktig gotcha: option-namnet är `browserExecutable` (top-level), INTE `chromiumOptions.executable`
+  — fel namn ger ett förvirrande 403-fel där Remotion försöker ladda ner en egen Chromium
+  istället för att använda den angivna.
+- En annan gotcha: peka på `headless_shell`-binären, inte huvud-`chrome`-binären — vanlig
+  Chrome har tagit bort gamla headless-läget som Remotion behöver
+  ("Old Headless mode has been removed..."). På en server med egen Chromium-installation
+  (t.ex. via `npx remotion browser ensure` eller `@remotion/renderer`s inbyggda nedladdning,
+  som funkar på en riktig server med nätverksåtkomst dit) löser sig detta automatiskt —
+  gotchan gällde bara den här sandboxade miljöns nätverksbegränsningar.
+- Test-rendering (enkel textkomposition, 1080×1920, 60 frames @ 30fps) gav en giltig mp4.
+
+**Kvarstående arbete:**
+1. Ny mapp `remotion/` i repot: en komposition (`ClipVideo.tsx` e.dyl.) som återskapar
+   samma logik som `render-clip.ts` gör mot Shotstack idag — sekvensera segment med
+   trim/zoom-effekter, textöverlägg med bakgrundsruta för captions, hook-text i början,
+   B-roll inklippt efter första segmentet.
+2. En liten render-server (Express e.dyl.) i samma mapp: `POST /render` (startar jobb,
+   returnerar id), `GET /render/:id` (status + URL till resultatet, uppladdat till
+   Supabase Storage). Samma kontrakt som Shotstacks submit/poll-mönster.
+3. `render.yaml` eller `Dockerfile` för deploy till Render.com (Chromium/ffmpeg-beroenden
+   kräver troligen en Docker-baserad tjänst, inte standard Node-runtime).
+4. Uppdatera `netlify/edge-functions/render-clip.ts` och `render-status.ts`: läs
+   `RENDER_PROVIDER` — `remotion` vidarebefordrar till `REMOTION_SERVICE_URL` (den nya
+   Render.com-tjänsten), annars nuvarande Shotstack-beteende. Klientkoden
+   (`src/lib/shotstackClient.js`) ska inte behöva ändras alls.
+5. Miljövariabler att lägga till: `RENDER_PROVIDER`, `REMOTION_SERVICE_URL`, troligen en
+   delad hemlighet (`REMOTION_SERVICE_API_KEY` e.dyl.) så inte vem som helst kan trigga
+   renderingar på Render.com-tjänsten.
+
+Säg till när det här ska plockas upp igen.
