@@ -9,7 +9,12 @@ Ditt jobb: föreslå en klippningsplan för ett kort videoklipp, baserat på anv
 
 Föreslå 2-3 hook-alternativ i hook_variants. Om inget transkript finns än, basera segmentplanen
 på användarens promptbeskrivning istället och märk segmentens tider som preliminära
-uppskattningar (t.ex. "00:00"–"00:05").`
+uppskattningar (t.ex. "00:00"–"00:05").
+
+Om en önskad total videolängd anges: anpassa antal segment och deras start/end-tider så att
+summan av alla segmentens längder hamnar så nära den önskade totallängden som möjligt (inom
+någon sekund). Ett kort mål (t.ex. 15s) ska ge färre/kortare segment, ett längre mål (t.ex. 60s)
+fler eller längre segment — hitta inte bara på en enda lång sekvens.`
 
 // Svarsformatet tvingas fram strukturellt via output_config.format (json_schema) — modellen
 // kan inte avvika från detta, så inget behov av att be den "bara svara med JSON" i prompten.
@@ -86,6 +91,9 @@ export default async (request: Request) => {
     // pgvector kommer i steg 10, manuell historik i steg 9). Skickas som tom array redan nu
     // så anropsformatet inte behöver ändras när den datan väl finns.
     previousBestClips,
+    // Önskad total längd på det färdiga klippet, i sekunder (t.ex. 15/30/60/90).
+    // Valfri — om den utelämnas väljer Claude en rimlig längd själv.
+    targetDurationSeconds,
   } = body
 
   if (!prompt || typeof prompt !== 'string') {
@@ -96,6 +104,9 @@ export default async (request: Request) => {
     `Idé/prompt: ${prompt}`,
     typeof category === 'string' && category ? `Vald kategori: ${category}` : null,
     typeof subtopic === 'string' && subtopic ? `Vald underämne: ${subtopic}` : null,
+    typeof targetDurationSeconds === 'number' && targetDurationSeconds > 0
+      ? `Önskad total längd på det färdiga klippet: ca ${targetDurationSeconds} sekunder — anpassa antal segment och deras längd så att summan hamnar nära detta.`
+      : null,
     buildTrendBlock(trendContext),
     buildTranscriptBlock(transcript),
     buildFewShotBlock(previousBestClips),

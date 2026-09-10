@@ -37,6 +37,9 @@ export default function Klippstudio() {
   const [prompt, setPrompt] = useState(location.state?.prefillPrompt ?? '')
   const [category, setCategory] = useState(location.state?.prefillCategory ?? CATEGORIES[0])
   const [subtopic, setSubtopic] = useState('')
+  // Total längd på det färdiga klippet — Claude anpassar antal/längd på segmenten efter
+  // detta (se generate-plan.ts). Tom sträng = ingen preferens, Claude väljer själv.
+  const [targetDuration, setTargetDuration] = useState('')
 
   const fileInputRef = useRef(null)
   const [mediaFile, setMediaFile] = useState(null)
@@ -193,6 +196,7 @@ export default function Klippstudio() {
         transcript: transcript?.segments ?? [],
         trendContext: [],
         previousBestClips,
+        targetDurationSeconds: targetDuration ? Number(targetDuration) : null,
       })
       setPlan(result)
       setSelectedHookIndex(0)
@@ -437,6 +441,17 @@ export default function Klippstudio() {
             onChange={(e) => setSubtopic(e.target.value)}
             placeholder="Fritext (valfritt)"
           />
+        </label>
+
+        <label>
+          Total videolängd
+          <select value={targetDuration} onChange={(e) => setTargetDuration(e.target.value)}>
+            <option value="">Ingen preferens (Claude väljer)</option>
+            <option value="15">15 sekunder</option>
+            <option value="30">30 sekunder</option>
+            <option value="60">60 sekunder</option>
+            <option value="90">90 sekunder</option>
+          </select>
         </label>
 
         <p className="placeholder-note">

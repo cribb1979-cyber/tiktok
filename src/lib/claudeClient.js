@@ -8,11 +8,20 @@ export async function generateClipPlan({
   transcript = [],
   trendContext = [],
   previousBestClips = [],
+  targetDurationSeconds = null,
 }) {
   const response = await fetch('/api/generate-plan', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, category, subtopic, transcript, trendContext, previousBestClips }),
+    body: JSON.stringify({
+      prompt,
+      category,
+      subtopic,
+      transcript,
+      trendContext,
+      previousBestClips,
+      targetDurationSeconds,
+    }),
   })
 
   const data = await response.json()

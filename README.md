@@ -88,12 +88,20 @@ kan inte ta emot råa bytes direkt.
 (nyckelfraser från `suggested_subtitles`, med en halvgenomskinlig bakgrundsruta för
 läsbarhet), och visar vald hook-text i början på samma sätt. `netlify/edge-functions/render-status.ts` pollas tills renderingen är klar.
 
-**Effekter och övergångar:** varje segment cyklar igenom en lista effekter (`zoomIn`,
-`zoomInFast`, `zoomOut`, `zoomOutFast`, `slideLeft`, `slideRight`) och övergångar (`fade`,
-`wipeLeft`, `wipeRight`, `slideLeft`, `slideRight`) istället för samma svaga zoom hela tiden —
-ger en mer "klippt", redigerad känsla. Om B-roll genererats (se nedan) klipps det in som ett
-eget segment direkt efter det första huvudklippet (ett "cutaway"-snitt), inte bara som en
-fristående fil vid sidan av.
+**Effekter och övergångar:** varje segment cyklar igenom en lista effekter (`zoomInFast`,
+`zoomOutFast`, `slideLeftFast`, `slideRightFast`, `slideUpFast`, `slideDownFast`) och
+övergångar (`fadeFast`, `wipeLeft`, `wipeRight`, `slideLeft`, `slideRight`) — bara "Fast"-
+varianterna används, de långsamma presetsen (`zoomIn`/`zoomOut`/`slideLeft`/`slideRight` utan
+suffix) märktes knappt i ett kort TikTok-klipp. Ger en tydligt "klippt", redigerad känsla. Om
+B-roll genererats (se nedan) klipps det in som ett eget segment direkt efter det första
+huvudklippet (ett "cutaway"-snitt), inte bara som en fristående fil vid sidan av.
+
+**Total videolängd:** Klippstudio har en valfri väljare ("Ingen preferens", 15/30/60/90
+sekunder) som skickas som `targetDurationSeconds` till `/api/generate-plan`. Claude instrueras
+att anpassa antal segment och deras start/end-tider så att summan av segmentens längder hamnar
+nära det valda målet, istället för att alltid föreslå en fast längd. Rent förslag från Claude —
+`render-clip.ts` klipper fortfarande bara utifrån de faktiska tiderna i `segments_plan`, så
+den slutgiltiga längden kan avvika något om Claude missbedömer.
 
 `SHOTSTACK_ENV` styr miljö: `stage` (default) är Shotstacks gratis sandbox och
 vattenstämplar videon — bra för att testa flödet. Sätt `SHOTSTACK_ENV=v1` i Netlify med en
