@@ -28,7 +28,12 @@ max ca 30 tecken vardera (t.ex. "Lugnet ger energin plats" — inte hela meninga
 ger energin plats att flöda fritt genom kroppen"). Längre fraser klipps av i renderingen.
 (hook_variants.text ska fortsatt vara en fullständig, säljande hook-mening — den återanvänds
 som klippets huvudrubrik i Bibliotek, inte bara som textöverlägg, och kortas av separat bara
-i själva videoöverlägget om den är för lång.)`
+i själva videoöverlägget om den är för lång.)
+
+thought_bubbles: 2-4 korta "inre tankar" som dyker upp som glödande tankebubblor ovanpå
+bilden — i jag-form eller som retoriska frågor som förstärker känslan i klippet (t.ex. "Vad om
+det är sant?", "Jag kände det på en gång"). Max ca 25 tecken vardera, samma anledning som
+suggested_subtitles.`
 
 // Svarsformatet tvingas fram strukturellt via output_config.format (json_schema) — modellen
 // kan inte avvika från detta, så inget behov av att be den "bara svara med JSON" i prompten.
@@ -72,6 +77,12 @@ const RESPONSE_SCHEMA = {
       description:
         '3-5 relevanta TikTok-hashtags för klippet, utan "#"-tecken (läggs på i UI). Blanda breda (t.ex. andlighet, fyp) och nischade (kopplade till ämnet/kategorin).',
     },
+    thought_bubbles: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        '2-4 korta "inre tankar" (jag-form eller retoriska frågor), max ca 25 tecken vardera — visas som glödande tankebubblor ovanpå bilden, klipps av om längre.',
+    },
     category: {
       type: 'string',
       description:
@@ -79,7 +90,15 @@ const RESPONSE_SCHEMA = {
     },
     subtopic: { type: 'string' },
   },
-  required: ['segments_plan', 'hook_variants', 'suggested_subtitles', 'suggested_hashtags', 'category', 'subtopic'],
+  required: [
+    'segments_plan',
+    'hook_variants',
+    'suggested_subtitles',
+    'suggested_hashtags',
+    'thought_bubbles',
+    'category',
+    'subtopic',
+  ],
   additionalProperties: false,
 }
 

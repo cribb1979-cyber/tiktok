@@ -365,6 +365,28 @@ det här segmentet — det kan störa en redan känslig kromakey-nyckling.
   område för den här typen av modeller — förvänta dig synliga kant-/flimmerartefakter på
   vissa klipp, inte en garanterat ren klippning varje gång.
 
+## Tankebubblor: glödande "inre tankar" ovanpå bilden (valfritt, opt-in)
+
+Ren textöverlägg-effekt — ingen AI-videogenerering inblandad, bara Claude-text + Shotstacks
+`html`-asset (samma mönster som ord-för-ord-undertexterna). Claude genererar 2-4 korta,
+"inre tankar" i jag-form eller som retoriska frågor (`thought_bubbles` i `generate-plan.ts`,
+t.ex. "Vad om det är sant?"), max ca 25 tecken vardera.
+
+En kryssruta visas under klippningsplanen så fort `plan.thought_bubbles` finns — förhandsvisar
+alla genererade tankar i beskrivningstexten. Ikryssad skickas `thoughtBubbles`/
+`thoughtBubblesEnabled` till `/api/render-clip`.
+
+**Kompositering** (`render-clip.ts`): ett tankebubbla-klipp per segment (cyklar om fler segment
+än bubblor), centrerat i segmentets tidsfönster, `THOUGHT_BUBBLE_DURATION` (1,8s) långt.
+Glödande lila `box-shadow` runt en vit rundad bubbla (`THOUGHT_BUBBLE_CSS`), växlar position
+mellan `topLeft`/`topRight` per segment så det inte alltid ligger exakt likadant. Eget spår
+(`bubbleClips`) eftersom den överlappar i tid med undertext-spåret (`captionClips`) — klipp
+inom samma Shotstack-spår får inte överlappa. Spårordning (z-index): hook → tankebubblor →
+undertexter → effekt → video → bakgrund.
+
+Taggas INTE som AI-genererat innehåll (`ai_generated_content`) — konceptuellt samma sak som
+hook/undertexter (Claude-skriven text, ingen syntetisk bild/video), som redan inte taggas.
+
 ## Att göra: Remotion som växlingsbart renderingsalternativ (pausat, påbörjat)
 
 Uppdaterad spec vill kunna växla rendering mellan Shotstack (nuvarande, fungerar) och

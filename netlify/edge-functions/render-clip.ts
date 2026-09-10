@@ -28,6 +28,18 @@ const HOOK_CHARS_PER_LINE = 11
 // hex-strängen (#AARRGGBB), omvänt mot vanlig CSS — "CC" ≈ 80% opacitet.
 const TEXT_BACKGROUND = '#CC000000'
 
+// Tankebubblor — glödande, korta "inre tankar" (plan.thought_bubbles från generate-plan.ts)
+// som poppar upp ovanför bilden, ett per segment, växlande hörn. Ren Shotstack html-asset-
+// styling (som ord-för-ord-undertexterna), ingen AI-videogenerering inblandad.
+const THOUGHT_BUBBLE_MAX_CHARS = 25
+const THOUGHT_BUBBLE_DURATION = 1.8
+const THOUGHT_BUBBLE_CSS =
+  'p { font-family: Arial, Helvetica, sans-serif; color: #1a1130; font-size: 38px; ' +
+  'font-weight: 700; text-align: center; background: rgba(255,255,255,0.95); ' +
+  'border-radius: 45px; padding: 22px 30px; margin: 0; ' +
+  'box-shadow: 0 0 25px 10px rgba(178,132,255,0.9), 0 0 60px 24px rgba(124,77,255,0.55); }'
+const THOUGHT_BUBBLE_POSITIONS = ['topLeft', 'topRight']
+
 // Fler effekttyper ger mer visuell variation än samma zoom hela tiden.
 // Bara "Fast"-varianter — de långsamma presets (zoomIn/zoomOut/slideLeft/slideRight utan
 // suffix) var för subtila för att märkas i ett kort TikTok-klipp.
@@ -141,6 +153,11 @@ export default async (request: Request) => {
   const backgroundMattedVideoUrl =
     typeof body.backgroundMattedVideoUrl === 'string' ? body.backgroundMattedVideoUrl : null
   const backgroundSwapActive = Boolean(backgroundImageUrl && backgroundMattedVideoUrl)
+  // Tankebubblor (valfritt) — se THOUGHT_BUBBLE_* ovan.
+  const thoughtBubbles = Array.isArray(body.thoughtBubbles)
+    ? (body.thoughtBubbles as string[]).filter((s) => typeof s === 'string' && s.trim())
+    : []
+  const thoughtBubblesEnabled = body.thoughtBubblesEnabled === true && thoughtBubbles.length > 0
 
   if (!videoUrl || typeof videoUrl !== 'string') {
     return jsonResponse({ error: 'videoUrl krävs (publik URL till källvideon).' }, 400)
@@ -157,6 +174,10 @@ export default async (request: Request) => {
   // sekvens och inte får överlappa i tid (till skillnad från olika spår, som får överlappa
   // och då renderas ovanpå varandra enligt spårordningen).
   const backgroundClips = []
+  // Eget spår för tankebubblor — de visas samtidigt som (överlappar i tid med) de vanliga
+  // undertexterna på captionClips, bara på en annan skärmposition, så de måste ligga på ett
+  // separat spår av samma anledning som backgroundClips ovan.
+  const bubbleClips = []
   let timelineCursor = 0
 
   segmentsPlan.forEach((seg, index) => {
@@ -266,6 +287,25 @@ export default async (request: Request) => {
       }
     }
 
+    // Tankebubbla — ett per segment (cyklar om fler segment än bubblor), centrerad i
+    // segmentets tidsfönster, växlande hörn så det inte alltid är exakt samma plats.
+    if (thoughtBubblesEnabled) {
+      const bubbleText = truncateForOverlay(thoughtBubbles[index % thoughtBubbles.length], THOUGHT_BUBBLE_MAX_CHARS)
+      const bubbleLength = Math.min(THOUGHT_BUBBLE_DURATION, length)
+      bubbleClips.push({
+        asset: {
+          type: 'html',
+          html: `<p>${escapeHtml(bubbleText)}</p>`,
+          css: THOUGHT_BUBBLE_CSS,
+          width: 700,
+          height: 260,
+          position: THOUGHT_BUBBLE_POSITIONS[index % THOUGHT_BUBBLE_POSITIONS.length],
+        },
+        start: timelineCursor + Math.max((length - bubbleLength) / 2, 0),
+        length: bubbleLength,
+      })
+    }
+
     // AI-effekt läggs ovanpå det första segmentet, från dess start — inte längre än
     // segmentet själv eller effektens egen längd, det som är kortast.
     if (index === 0 && effectVideoUrl) {
@@ -323,6 +363,7 @@ export default async (request: Request) => {
 
   const tracks = [
     { clips: hookClip },
+    { clips: bubbleClips },
     { clips: captionClips },
     { clips: effectClips },
     { clips: videoClips },

@@ -107,6 +107,10 @@ export default function Klippstudio() {
   const [backgroundMatteStatus, setBackgroundMatteStatus] = useState(null)
   const [backgroundMattedVideoUrl, setBackgroundMattedVideoUrl] = useState(null)
 
+  // Tankebubblor — glödande "inre tankar" (plan.thought_bubbles) som poppar upp ovanpå
+  // bilden, ett per segment. Ren textstyling, ingen AI-videogenerering. Opt-in, default av.
+  const [thoughtBubblesEnabled, setThoughtBubblesEnabled] = useState(false)
+
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   // Satt så fort klippet finns i Supabase (auto-sparat direkt efter rendering, se
@@ -229,6 +233,7 @@ export default function Klippstudio() {
     setBackgroundImageUrl(null)
     setBackgroundPrompt(null)
     setBackgroundMattedVideoUrl(null)
+    setThoughtBubblesEnabled(false)
     setSaved(false)
     setSavedClipId(null)
     setAutoSaveError(null)
@@ -346,6 +351,8 @@ export default function Klippstudio() {
         effectType,
         backgroundImageUrl: backgroundSwapEnabled ? backgroundImageUrl : null,
         backgroundMattedVideoUrl: backgroundSwapEnabled ? backgroundMattedVideoUrl : null,
+        thoughtBubbles: plan.thought_bubbles ?? [],
+        thoughtBubblesEnabled,
         onStatus: setRenderStatus,
       })
       setRenderedVideoUrl(url)
@@ -739,6 +746,28 @@ export default function Klippstudio() {
             <div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Föreslagna hashtags</p>
               <p>{plan.suggested_hashtags.map((h) => `#${h}`).join(' ')}</p>
+            </div>
+          )}
+
+          {plan.thought_bubbles?.length > 0 && (
+            <div className="clip-card" style={{ margin: 0 }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={thoughtBubblesEnabled}
+                  onChange={(e) => setThoughtBubblesEnabled(e.target.checked)}
+                  style={{ marginTop: 4 }}
+                />
+                <span>
+                  <span className="clip-hook" style={{ display: 'block' }}>
+                    Tankebubblor (valfritt)
+                  </span>
+                  <span className="clip-prompt" style={{ display: 'block' }}>
+                    Glödande textbubblor med korta "inre tankar" poppar upp ovanpå bilden, en per
+                    segment: {plan.thought_bubbles.join(' · ')}
+                  </span>
+                </span>
+              </label>
             </div>
           )}
 
