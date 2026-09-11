@@ -9,6 +9,7 @@ import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
 import { generateBackgroundImage, matteVideo } from '../lib/backgroundClient.js'
 import { generateAvatarVideo, listAvatars, listVoices } from '../lib/heygenClient.js'
+import { generateShotlist, generateCharacterImage, generateShotImage, generateShotVideo } from '../lib/filmClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import {
   CATEGORIES,
@@ -306,6 +307,20 @@ export default function Klippstudio() {
   const [manusGenerating, setManusGenerating] = useState(false)
   const [manusStatus, setManusStatus] = useState(null)
   const [manusError, setManusError] = useState(null)
+
+  // AI-kortfilm (valfritt fjärde inmatningssätt): en fri idé bryts ner av Claude till
+  // återkommande karaktärer + en ordnad scenlista (generate-shotlist.ts), varje karaktär får
+  // en referensbild (generate-character-image.ts), varje scen genereras i två steg — en
+  // konsekvent bildruta med rätt karaktärers referensbilder (generate-shot-image.ts) som
+  // sedan animeras till video (generate-shot-video.ts). Varje färdig scens video läggs till i
+  // clips-listan OVAN i ordning, precis som Manus-lägets AI-avatar-video — samma nedströms
+  // klippningsplan-/renderingsflöde återanvänds oförändrat.
+  const [filmIdea, setFilmIdea] = useState('')
+  const [filmShotlisting, setFilmShotlisting] = useState(false)
+  const [filmShotlist, setFilmShotlist] = useState(null)
+  const [filmGenerating, setFilmGenerating] = useState(false)
+  const [filmProgress, setFilmProgress] = useState(null)
+  const [filmError, setFilmError] = useState(null)
 
   // Avatar-/röstväljare (se list-avatars.ts/list-voices.ts) — hämtas en gång när sidan
   // laddas (bara metadata, kostar inget). Tomt val ('') betyder "använd HEYGEN_AVATAR_ID/
@@ -631,6 +646,8 @@ export default function Klippstudio() {
           transcribing: true,
           transcriptionSkipped: false,
           error: null,
+          // Styr ai_generated_content (TikToks krav på AI-taggning) — se computed nedan.
+          aiGenerated: true,
         },
       ])
       setRenderedVideoUrl(null)
@@ -648,6 +665,89 @@ export default function Klippstudio() {
       setManusError(err.message)
     }
     setManusGenerating(false)
+  }
+
+  async function handleGenerateShotlist() {
+    if (!filmIdea.trim()) return
+    setFilmShotlisting(true)
+    setFilmError(null)
+    setFilmShotlist(null)
+    try {
+      const result = await generateShotlist(filmIdea)
+      setFilmShotlist(result)
+    } catch (err) {
+      setFilmError(err.message)
+    }
+    setFilmShotlisting(false)
+  }
+
+  // Orkestrerar hela AI-kortfilm-genereringen: en referensbild per karaktär (parallellt, de
+  // är oberoende av varandra), sedan scen för scen I ORDNING — bildruta (med rätt karaktärers
+  // referensbilder) → video — eftersom scenernas resultat läggs till i clips-listan i samma
+  // ordning som berättelsen. Varje steg rapporteras via filmProgress så den långa väntetiden
+  // (flera minuter, flera Replicate-anrop i kedja) inte känns som att appen hängt sig.
+  async function handleGenerateFilm() {
+    if (!filmShotlist || filmShotlist.shots.length === 0) return
+
+    setFilmGenerating(true)
+    setFilmError(null)
+    try {
+      const characters = filmShotlist.characters ?? []
+      setFilmProgress(`Genererar karaktärsbilder (0/${characters.length})…`)
+      let doneCount = 0
+      const characterImages = await Promise.all(
+        characters.map(async (c) => {
+          const imageUrl = await generateCharacterImage(c.description)
+          doneCount += 1
+          setFilmProgress(`Genererar karaktärsbilder (${doneCount}/${characters.length})…`)
+          return [c.tag, imageUrl]
+        })
+      )
+      const imageByTag = new Map(characterImages)
+
+      const shots = filmShotlist.shots
+      const shotVideoUrls = []
+      for (let i = 0; i < shots.length; i++) {
+        const shot = shots[i]
+        setFilmProgress(`Scen ${i + 1}/${shots.length}: skapar bildruta…`)
+        const characterRefs = (shot.character_tags ?? [])
+          .filter((tag) => imageByTag.has(tag))
+          .map((tag) => ({ tag, imageUrl: imageByTag.get(tag) }))
+        const imageUrl = await generateShotImage({ imagePrompt: shot.image_prompt, characterRefs })
+
+        setFilmProgress(`Scen ${i + 1}/${shots.length}: animerar till video…`)
+        const videoUrl = await generateShotVideo({
+          imageUrl,
+          motionPrompt: shot.motion_prompt,
+          durationSeconds: shot.duration_seconds,
+        })
+        shotVideoUrls.push(videoUrl)
+      }
+
+      setClips((prev) => [
+        ...prev,
+        ...shotVideoUrls.map((videoUrl, i) => ({
+          id: `c${nextClipIdRef.current++}`,
+          name: `AI-kortfilm scen ${i + 1}`,
+          publicUrl: videoUrl,
+          transcript: null,
+          transcribing: false,
+          transcriptionSkipped: false,
+          error: null,
+          aiGenerated: true,
+        })),
+      ])
+      setRenderedVideoUrl(null)
+      setPreviewVideoUrl(null)
+      setVideoFile(null)
+      setFilmProgress(null)
+      setFilmShotlist(null)
+      setFilmIdea('')
+    } catch (err) {
+      setFilmError(err.message)
+      setFilmProgress(null)
+    }
+    setFilmGenerating(false)
   }
 
   async function handleGenerate(event) {
@@ -771,9 +871,11 @@ export default function Klippstudio() {
             intensity: glowIntensity,
           }
         : null,
-      // Aldrig manuellt valbart — sätts automatiskt när B-roll eller AI-ljuseffekten
-      // används, enligt TikToks regler om taggning av AI-genererat innehåll.
-      ai_generated_content: brollEnabled || effectEnabled || backgroundSwapEnabled,
+      // Aldrig manuellt valbart — sätts automatiskt när B-roll, AI-ljuseffekten, eller ett
+      // Manus-/AI-kortfilm-genererat klipp (aiGenerated på clip-objektet) används, enligt
+      // TikToks regler om taggning av AI-genererat innehåll.
+      ai_generated_content:
+        brollEnabled || effectEnabled || backgroundSwapEnabled || clips.some((c) => c.aiGenerated),
       ...overrides,
     }
 
@@ -1417,6 +1519,65 @@ export default function Klippstudio() {
                 </button>
               </>
             )}
+          </div>
+        )}
+      </div>
+
+      <div className="clip-form" style={{ marginBottom: 16 }}>
+        <label>
+          AI-kortfilm (valfritt) — en fri idé för en kort berättelse med återkommande
+          karaktärer över flera AI-genererade scener, t.ex. &quot;två personer hittar ett
+          ödehus, kliver in, dörren stängs och märkliga saker händer — spänningen stiger tills
+          något kommer emot dem&quot;. Karaktärerna hålls generiska/påhittade (aldrig en
+          verklig person) och genereras scen för scen — tar flera minuter och kostar per scen
+          hos Replicate/Runway.
+          <textarea
+            rows={4}
+            value={filmIdea}
+            onChange={(e) => setFilmIdea(e.target.value)}
+            placeholder="Två personer hittar ett ödehus i skogen…"
+            disabled={filmShotlisting || filmGenerating}
+          />
+        </label>
+        <button
+          type="button"
+          className="btn-primary"
+          style={{ marginTop: 8 }}
+          onClick={handleGenerateShotlist}
+          disabled={!filmIdea.trim() || filmShotlisting || filmGenerating}
+        >
+          {filmShotlisting ? 'Skapar scenlista…' : 'Skapa scenlista'}
+        </button>
+
+        {filmError && <p className="error-banner">{filmError}</p>}
+
+        {filmShotlist && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+            <p className="clip-category">{filmShotlist.title}</p>
+            {(filmShotlist.characters ?? []).map((c) => (
+              <div key={c.tag} className="clip-card" style={{ margin: 0 }}>
+                <p className="clip-category">@{c.tag}</p>
+                <p className="clip-prompt">{c.description}</p>
+              </div>
+            ))}
+            {filmShotlist.shots.map((shot, i) => (
+              <div key={i} className="clip-card" style={{ margin: 0 }}>
+                <p className="clip-category">
+                  Scen {i + 1} ({shot.duration_seconds}s)
+                </p>
+                <p className="clip-prompt">{shot.image_prompt}</p>
+                <p className="clip-prompt">🎬 {shot.motion_prompt}</p>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ marginTop: 8 }}
+              onClick={handleGenerateFilm}
+              disabled={filmGenerating}
+            >
+              {filmGenerating ? filmProgress ?? 'Genererar…' : 'Generera film'}
+            </button>
           </div>
         )}
       </div>

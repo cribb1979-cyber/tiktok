@@ -456,6 +456,55 @@ i vår databas — se kommentaren i `tiktokAdapter.js`s `publishClip`.
 kryssrutan finns kvar även utan nyckel, men genereringen felar tydligt tills den är satt) och
 valfri `REPLICATE_MODEL` (default `wan-video/wan-2.1-1.3b`).
 
+## AI-kortfilm: en hel berättelse över flera scener (valfritt tillval, opt-in)
+
+Ett steg upp från B-roll (som bara är korta, person-fria atmosfärklipp): en fri idé (t.ex.
+"två personer hittar ett ödehus, kliver in, dörren stängs och märkliga saker händer") blir en
+hel liten film med SAMMA återkommande karaktärer genom flera scener. Bygger på Runway
+Gen-4 Image/Turbo via Replicate (samma leverantör/nyckel som B-roll) — vald efter research
+(WebSearch, 2026-09) av Kling/Veo/Runway: Gen-4s referensbild-baserade karaktärskonsistens
+(en bild, ingen träning) matchar behovet bäst, och `runwayml/gen4-turbo` kostar ~$0,05/sekund
+genererad video, billigast av de tre. En ~45-sekunders film med 5-6 scener kostar ungefär
+20-25 kr per försök, mer om enstaka scener behöver köras om.
+
+**Flöde (fyra Netlify Edge Functions, alla Replicate-baserade steg pollas via BEFINTLIGA
+`/api/broll-status` — Replicates predictions-endpoint är modelloberoende, samma id fungerar
+oavsett vilken modell som skapade predictionen, så inga nya statusendpoints behövdes):**
+1. `generate-shotlist.ts` (Claude): idén blir en karaktärslista (1-3 st, generiska/påhittade —
+   se person-skyddet nedan) och en ordnad scenlista (4-8 scener, varje med en bildbeskrivning,
+   en rörelsebeskrivning, längd 5 eller 10 sekunder, och vilka karaktärer som syns).
+2. `generate-character-image.ts`: EN referensbild per karaktär (Runway Gen-4 Image).
+3. `generate-shot-image.ts`: en konsekvent bildruta per scen — samma karaktärers
+   referensbilder skickas med (`reference_images`/`reference_tags`, @tag-syntax i prompten)
+   så de känns igen scen till scen.
+4. `generate-shot-video.ts`: animerar scenens bildruta till en 5-10 sekunders videoklipp
+   (Runway Gen-4 Turbo, bild-till-video).
+
+Klippstudio (`handleGenerateFilm`) orkestrerar hela kedjan: karaktärsbilder genereras
+parallellt (oberoende av varandra), sedan scen för scen i ordning (bildruta → video, eftersom
+nästa scen inte beror på föregåendes video men resultaten läggs till i `clips`-listan i
+berättelsens ordning). Varje färdig scens video blir ETT klipp i `clips`-listan — precis som
+ett uppladdat klipp eller en Manus-genererad AI-avatar-video — så hela klippningsplan-/
+renderingsflödet återanvänds oförändrat, ingen ny renderingskod.
+
+**Person-skydd:** samma princip som B-rollens "Illustrera min berättelse"-läge — karaktärerna
+MÅSTE vara påhittade/generiska (`generate-shotlist.ts`s systemprompt), aldrig kontoinnehavaren
+eller en namngiven verklig person. `ai_generated_content` sätts automatiskt (`aiGenerated` på
+klipp-objektet, samma flagga som Manus-lägets AI-avatar-klipp använder).
+
+**Osäkerhet i Replicate-fältnamn:** exakta input-fältnamn för `runwayml/gen4-image`/
+`gen4-turbo` (t.ex. `reference_images`/`reference_tags`, `prompt_image`) är sammanställda från
+tredjepartsdokumentation och ett bekräftat exempel-payload — **inte** verifierade direkt mot
+`replicate.com` härifrån (nätverksbegränsningar i den här miljön). Om ett skarpt anrop ger ett
+fältnamnsfel: justera enligt Replicates egna felmeddelande i respektive edge function (samma
+mönster som tidigare Bria/Shotstack-fältnamnsfixar i den här appen).
+
+**Miljövariabler:** ingen ny — återanvänder `REPLICATE_API_TOKEN` och `CLAUDE_API_KEY` som
+redan krävs för B-roll respektive klippningsplanen.
+
+**Inte byggt:** dialog/tal för karaktärerna (Gen-4 Turbo genererar ingen röst) — filmen blir
+tyst bild+rörelse, eventuell musik/ljud får läggas på separat om det behövs.
+
 ## AI-effekt: paranormala fenomen ovanpå videon (valfritt tillval, opt-in)
 
 Utöver B-roll (som klipps in som ett eget segment): ett andra kryssruta i Klippstudio
