@@ -11,7 +11,8 @@ npm run dev
 ```
 
 `npm run dev` kör bara Vite (klienten). Klippstudions AI-anrop går till `/api/generate-plan`,
-`/api/transcribe`, `/api/render-clip` och `/api/render-status` — fyra Netlify Edge Functions.
+`/api/transcribe` (+ `/api/transcribe-convert` för .mov, se nedan), `/api/render-clip` och
+`/api/render-status` — Netlify Edge Functions.
 För att testa dem lokalt behövs [Netlify CLI](https://docs.netlify.com/cli/get-started/):
 
 ```bash
@@ -84,10 +85,29 @@ också kan behöva höjas om stora uppladdningar ändå fastnar.
 **.mov (iPhone/iPad):** Whisper accepterar inte .mov, och Safari på iOS saknar stöd för att
 konvertera videon i webbläsaren (varken `decodeAudioData` för videocontainrar eller
 `captureStream` fungerar där). För `.mov`-filer laddas videon istället upp till Supabase
-Storage först (samma bucket som används för rendering), och `/api/transcribe` konverterar den
-server-side via Shotstack (en enkel passthrough-rendering till mp4) innan den skickas till
-Whisper. Detta kostar en liten extra Shotstack-rendering och några extra sekunders väntetid
-för just .mov-uppladdningar.
+Storage först (samma bucket som används för rendering), och konverteras server-side via
+Shotstack (en enkel passthrough-rendering till mp4) innan den skickas till Whisper.
+
+Detta sker i tre klientstyrda steg istället för ett enda serveranrop som gör allt:
+1. `/api/transcribe-convert` submittar Shotstack-konverteringen och svarar direkt med ett
+   render-id (submittar bara, väntar inte på att den blir klar).
+2. Klienten (`transcribeFromUrl` i `whisperClient.js`) pollar `/api/render-status` (samma
+   endpoint som videorenderingen redan pollar) var tredje sekund tills konverteringen är
+   klar, upp till ~3 minuter.
+3. `/api/transcribe` får den redan färdiga mp4-URL:en och skickar den vidare till Whisper.
+
+Anledning: Netlify Edge Functions måste svara med headers inom 40 sekunder, annars dödar
+plattformen funktionen mitt i anropet — och en Shotstack-konvertering kan själv ta längre än
+så. Ett tidigare enda kombinerat anrop (submit+poll+hämta+transkribera i samma edge function)
+riskerade därför att bli dödat av plattformen mitt under pollningen, vilket visade sig som att
+klippet blev stående på "Bearbetar…" i Klippstudio för alltid — varken fel eller resultat kom
+någonsin tillbaka till klienten, och hela uppladdnings-/genereringsflödet blev låst (filinput
+och "Skapa klippningsplan" är avstängda medan något klipp fortfarande bearbetas). Uppdelningen
+i tre korta anrop håller varje enskilt serveranrop väl under 40-sekundersgränsen. Klienten
+sätter dessutom en egen 60-sekunders timeout (`AbortController`) på varje enskilt anrop som en
+extra spärr, så ett hängande `fetch()` (som saknar egen timeout) aldrig kan låsa UI:t för
+evigt — statustexten ("Konverterar video…" / "Transkriberar…") uppdateras löpande via en
+`onStatus`-callback.
 
 ## Flera klipp: klippa ihop flera korta råklipp till ett (valfritt)
 

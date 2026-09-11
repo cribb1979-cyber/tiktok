@@ -1,8 +1,6 @@
 // Steg 5: transkribering med tidsstämplar via Whisper API (OpenAI).
 // Körs server-side som Netlify Edge Function — WHISPER_API_KEY exponeras aldrig i klienten.
 
-import { submitShotstackRender, pollShotstackRender } from './_lib/shotstack.ts'
-
 const WHISPER_API_URL = 'https://api.openai.com/v1/audio/transcriptions'
 
 // OpenAIs whisper-1-endpoint har en hård gräns på 25 MB per fil.
@@ -24,15 +22,12 @@ export default async (request: Request) => {
   if (contentType.includes('application/json')) {
     // Format Whisper inte accepterar direkt (t.ex. .mov från iPhone/iPad — Safari på iOS
     // saknar både decodeAudioData-stöd för videocontainrar och captureStream, så
-    // client-side konvertering är inte möjlig där). Klienten skickar istället en publik
-    // URL till källvideon (redan uppladdad till Supabase Storage för renderingssteget) —
-    // Shotstack (server-side, riktig omkodning) gör en enkel passthrough-rendering till
-    // mp4 innan vi skickar resultatet vidare till Whisper.
-    const shotstackApiKey = Deno.env.get('SHOTSTACK_API_KEY')
-    if (!shotstackApiKey) {
-      return jsonResponse({ error: 'SHOTSTACK_API_KEY saknas i Netlify-miljövariabler.' }, 500)
-    }
-
+    // client-side konvertering är inte möjlig där). Klienten har redan konverterat videon
+    // via /api/transcribe-convert + /api/render-status (se whisperClient.js) INNAN den
+    // anropar oss — vi får bara den redan klara mp4-URL:en här. Att göra submit+poll av
+    // Shotstack-konverteringen i DETTA anrop (som tidigare) riskerade att överskrida
+    // Netlify Edge Functions 40-sekundersgräns för att svara med headers, vilket lät
+    // hela anropet hänga sig utan att någonsin lyckas eller felas.
     let body: Record<string, unknown>
     try {
       body = await request.json()
@@ -40,24 +35,9 @@ export default async (request: Request) => {
       return jsonResponse({ error: 'Ogiltig JSON i request-body.' }, 400)
     }
 
-    const videoUrl = body.videoUrl
-    if (!videoUrl || typeof videoUrl !== 'string') {
-      return jsonResponse({ error: 'videoUrl krävs.' }, 400)
-    }
-
-    let mp4Url: string
-    try {
-      const renderId = await submitShotstackRender(shotstackApiKey, {
-        timeline: {
-          tracks: [{ clips: [{ asset: { type: 'video', src: videoUrl }, start: 0, length: 'auto' }] }],
-        },
-        // Shotstack kräver antingen "resolution" eller "size" i output — glömdes här
-        // (render-clip.ts hade det redan rätt), vilket gav ett Bad Request-fel.
-        output: { format: 'mp4', resolution: 'sd' },
-      })
-      mp4Url = await pollShotstackRender(shotstackApiKey, renderId)
-    } catch (err) {
-      return jsonResponse({ error: 'Kunde inte konvertera videon (Shotstack).', detail: String(err) }, 502)
+    const mp4Url = body.mp4Url
+    if (!mp4Url || typeof mp4Url !== 'string') {
+      return jsonResponse({ error: 'mp4Url krävs.' }, 400)
     }
 
     let mp4Response: Response

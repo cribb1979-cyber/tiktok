@@ -282,8 +282,8 @@ export default function Klippstudio() {
 
   const fileInputRef = useRef(null)
   // Ett eller flera råklipp, tillagda ett i taget ("Lägg till klipp"). Varje element:
-  // { id, name, publicUrl, transcript, transcribing, transcriptionSkipped, error }. Den råa
-  // File-blobben sparas INTE här (se kommentaren i handleAddClip för varför).
+  // { id, name, publicUrl, transcript, transcribing, statusLabel, transcriptionSkipped, error }.
+  // Den råa File-blobben sparas INTE här (se kommentaren i handleAddClip för varför).
   // id är en stabil sträng ("c0", "c1", …) oberoende av array-index (som kan ändras vid
   // borttagning) — samma id skickas till generate-plan.ts/render-clip.ts som clip_id på
   // varje segment, så AI:n och renderingen vet vilket klipp ett segment hör till.
@@ -486,7 +486,11 @@ export default function Klippstudio() {
       try {
         const publicUrl = await uploadRawClip(file)
         updateClip(id, { publicUrl })
-        const result = await transcribeFromUrl(publicUrl)
+        const result = await transcribeFromUrl(publicUrl, (status) => {
+          updateClip(id, {
+            statusLabel: status === 'converting' ? 'Konverterar video…' : 'Transkriberar…',
+          })
+        })
         updateClip(id, { transcript: result })
       } catch (err) {
         updateClip(id, { error: err.message })
@@ -1206,7 +1210,11 @@ export default function Klippstudio() {
               <div key={clip.id} className="clip-card" style={{ margin: 0 }}>
                 <div className="clip-card-header">
                   <span className="status-pill status-posted">
-                    {clip.transcribing ? 'Bearbetar…' : clip.publicUrl ? 'Uppladdat' : 'Väntar…'}
+                    {clip.transcribing
+                      ? clip.statusLabel || 'Bearbetar…'
+                      : clip.publicUrl
+                        ? 'Uppladdat'
+                        : 'Väntar…'}
                   </span>
                   <span className="clip-category">
                     {i + 1}. {clip.name}
