@@ -203,9 +203,11 @@ INTE byggt än, prioriterat bort till förmån för AI-avatar-vägen.
    faktiskt stödjer pauser — kolla `support_pause`-fältet för din röst via
    `GET https://api.heygen.com/v2/voices` (se "Miljövariabler" nedan för hur du listar dem).
 3. `netlify/edge-functions/generate-avatar-video.ts` tar emot den färdiga texten (med
-   ev. `<break>`-taggar redan inbakade) och submittar den till HeyGens `v2/video/generate` —
-   bara submit, svarar direkt (samma anledning som `.mov`-konverteringen ovan: videogenerering
-   kan ta längre än Netlify Edge Functions 40-sekundersgräns för att svara med headers).
+   ev. `<break>`-taggar redan inbakade), plus ev. valda `avatarId`/`voiceId` från
+   avatar-/röstväljaren (se "Avatar-/röstväljare" nedan — annars miljövariabel-standardvalet),
+   och submittar det till HeyGens `v2/video/generate` — bara submit, svarar direkt (samma
+   anledning som `.mov`-konverteringen ovan: videogenerering kan ta längre än Netlify Edge
+   Functions 40-sekundersgräns för att svara med headers).
 4. Klienten (`generateAvatarVideo` i `src/lib/heygenClient.js`) pollar
    `netlify/edge-functions/avatar-video-status.ts` (samma
    PENDING/RUNNING/SUCCEEDED/FAILED-kontrakt som B-roll/bakgrundsbild) tills videon är klar.
@@ -226,12 +228,18 @@ API-åtkomst — de lägre planerna (`$110`/`$220` per månad) har ingen API all
 appens övriga mönster bäst: betala per faktisk användning (som Shotstack/Replicate), inget
 fast månadsåtagande för en funktion som används oregelbundet.
 
-**Miljövariabler:** `HEYGEN_API_KEY` (från HeyGens dashboard → API-nycklar), `HEYGEN_AVATAR_ID`
-och `HEYGEN_VOICE_ID`. Avatar/röst väljs INTE i appens UI i den här första versionen — hämta
-ett avatar-id (t.ex. en av HeyGens standardavatarer, eller en egen instant/foto-avatar du
-skapat i HeyGens dashboard) och ett röst-id (HeyGens `/v2/voices`-lista) en gång, sätt dem som
-Netlify-miljövariabler. Enklare att komma igång med än en egen väljar-UI — kan byggas senare
-om flera avatarer/röster behöver väljas per klipp.
+**Miljövariabler:** `HEYGEN_API_KEY` (från HeyGens dashboard → API-nycklar), plus valfria
+`HEYGEN_AVATAR_ID`/`HEYGEN_VOICE_ID` som ETT förvalt standardval.
+
+**Avatar-/röstväljare:** Klippstudio hämtar (via `netlify/edge-functions/list-avatars.ts` och
+`list-voices.ts` — rena proxyanrop mot HeyGens `/v2/avatars`/`/v2/voices`, nyckeln stannar
+server-side) hela ditt HeyGen-kontos avatar-/röstbibliotek och visar dem som två dropdowns
+ovanför manusfältet, en gång per sidladdning (bara metadata, kostar inget). Väljer du inget
+(eller om listorna inte gick att hämta, t.ex. fel API-nyckel — visas då som en varning istället
+för att blockera Manus-läget) faller `generate-avatar-video.ts` tillbaka på
+`HEYGEN_AVATAR_ID`/`HEYGEN_VOICE_ID`-miljövariablerna. Röstlistan visar "— stödjer paus" för
+röster där `support_pause` är sant (se pausfunktionen ovan) — välj en sådan om manuset
+använder `[paus]`/`[tystnad]`.
 
 **Datamodell:** `scripts`-tabellen (`0008_scripts.sql`) sparar `raw_text`/`parsed_beats` som
 historik — `clip_id` sätts inte automatiskt idag (kopplas inte till det sparade klippet i

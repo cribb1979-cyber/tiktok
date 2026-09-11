@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient.js'
 import { generateClipPlan, revisePlan, parseScript } from '../lib/claudeClient.js'
@@ -8,7 +8,7 @@ import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
 import { generateBackgroundImage, matteVideo } from '../lib/backgroundClient.js'
-import { generateAvatarVideo } from '../lib/heygenClient.js'
+import { generateAvatarVideo, listAvatars, listVoices } from '../lib/heygenClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import {
   CATEGORIES,
@@ -307,6 +307,25 @@ export default function Klippstudio() {
   const [manusStatus, setManusStatus] = useState(null)
   const [manusError, setManusError] = useState(null)
 
+  // Avatar-/röstväljare (se list-avatars.ts/list-voices.ts) — hämtas en gång när sidan
+  // laddas (bara metadata, kostar inget). Tomt val ('') betyder "använd HEYGEN_AVATAR_ID/
+  // HEYGEN_VOICE_ID-standardvalet server-side" (se generate-avatar-video.ts) — låter appen
+  // fortsätta fungera oförändrat även om listorna inte kunde hämtas (t.ex. fel API-nyckel).
+  const [avatarOptions, setAvatarOptions] = useState([])
+  const [voiceOptions, setVoiceOptions] = useState([])
+  const [selectedAvatarId, setSelectedAvatarId] = useState('')
+  const [selectedVoiceId, setSelectedVoiceId] = useState('')
+  const [avatarOptionsError, setAvatarOptionsError] = useState(null)
+
+  useEffect(() => {
+    listAvatars()
+      .then(setAvatarOptions)
+      .catch((err) => setAvatarOptionsError(err.message))
+    listVoices()
+      .then(setVoiceOptions)
+      .catch((err) => setAvatarOptionsError(err.message))
+  }, [])
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null)
@@ -594,7 +613,12 @@ export default function Klippstudio() {
     setManusError(null)
     setManusStatus(null)
     try {
-      const videoUrl = await generateAvatarVideo({ inputText: spokenText, onStatus: setManusStatus })
+      const videoUrl = await generateAvatarVideo({
+        inputText: spokenText,
+        avatarId: selectedAvatarId || undefined,
+        voiceId: selectedVoiceId || undefined,
+        onStatus: setManusStatus,
+      })
 
       const id = `c${nextClipIdRef.current++}`
       setClips((prev) => [
@@ -1289,6 +1313,55 @@ export default function Klippstudio() {
             disabled={manusParsing || manusGenerating}
           />
         </label>
+
+        {avatarOptionsError && (
+          <p className="clip-prompt">
+            Kunde inte hämta avatar-/röstlistan från HeyGen ({avatarOptionsError}) — använder
+            standardvalet från Netlify-miljövariablerna istället.
+          </p>
+        )}
+
+        {(avatarOptions.length > 0 || voiceOptions.length > 0) && (
+          <div className="form-grid">
+            {avatarOptions.length > 0 && (
+              <label>
+                Avatar
+                <select
+                  value={selectedAvatarId}
+                  onChange={(e) => setSelectedAvatarId(e.target.value)}
+                  disabled={manusGenerating}
+                >
+                  <option value="">Standard (HEYGEN_AVATAR_ID)</option>
+                  {avatarOptions.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {voiceOptions.length > 0 && (
+              <label>
+                Röst
+                <select
+                  value={selectedVoiceId}
+                  onChange={(e) => setSelectedVoiceId(e.target.value)}
+                  disabled={manusGenerating}
+                >
+                  <option value="">Standard (HEYGEN_VOICE_ID)</option>
+                  {voiceOptions.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                      {v.language ? ` (${v.language})` : ''}
+                      {v.supportPause ? ' — stödjer paus' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+        )}
+
         <button
           type="button"
           className="btn-primary"

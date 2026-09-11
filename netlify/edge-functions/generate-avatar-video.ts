@@ -12,8 +12,9 @@
 // prislista. Matchar appens övriga mönster (Shotstack/Replicate, betala per användning,
 // inget fast månadsåtagande för en funktion som används oregelbundet).
 //
-// avatar_id/voice_id är kontospecifika (väljs en gång i HeyGens dashboard/API, se README) —
-// satta via miljövariabler istället för en egen väljar-UI, för att hålla första versionen enkel.
+// avatar_id/voice_id är kontospecifika. Klienten kan skicka med ett eget val (se
+// list-avatars.ts/list-voices.ts + avatar-/röstväljaren i Klippstudio.jsx) — annars faller
+// vi tillbaka på HEYGEN_AVATAR_ID/HEYGEN_VOICE_ID-miljövariablerna som ett förvalt standardval.
 
 const HEYGEN_GENERATE_URL = 'https://api.heygen.com/v2/video/generate'
 
@@ -26,13 +27,8 @@ export default async (request: Request) => {
   }
 
   const apiKey = Deno.env.get('HEYGEN_API_KEY')
-  const avatarId = Deno.env.get('HEYGEN_AVATAR_ID')
-  const voiceId = Deno.env.get('HEYGEN_VOICE_ID')
-  if (!apiKey || !avatarId || !voiceId) {
-    return jsonResponse(
-      { error: 'HEYGEN_API_KEY, HEYGEN_AVATAR_ID och HEYGEN_VOICE_ID krävs i Netlify-miljövariabler.' },
-      500
-    )
+  if (!apiKey) {
+    return jsonResponse({ error: 'HEYGEN_API_KEY saknas i Netlify-miljövariabler.' }, 500)
   }
 
   let body: Record<string, unknown>
@@ -45,6 +41,21 @@ export default async (request: Request) => {
   const inputText = typeof body.inputText === 'string' ? body.inputText.trim() : ''
   if (!inputText) {
     return jsonResponse({ error: 'inputText (sammanslagen talbar dialog) krävs.' }, 400)
+  }
+
+  // Klientens val (avatar-/röstväljaren i Klippstudio, se list-avatars.ts/list-voices.ts)
+  // vinner om det finns — annars miljövariablerna som ett förvalt standardval.
+  const avatarId =
+    (typeof body.avatarId === 'string' && body.avatarId) || Deno.env.get('HEYGEN_AVATAR_ID') || ''
+  const voiceId = (typeof body.voiceId === 'string' && body.voiceId) || Deno.env.get('HEYGEN_VOICE_ID') || ''
+  if (!avatarId || !voiceId) {
+    return jsonResponse(
+      {
+        error:
+          'Ingen avatar/röst vald och HEYGEN_AVATAR_ID/HEYGEN_VOICE_ID saknas som standardval i Netlify-miljövariabler.',
+      },
+      400
+    )
   }
 
   let heygenResponse: Response
