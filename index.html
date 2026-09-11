@@ -5,6 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0f0f12" />
     <title>Klippapp</title>
+
+    <!-- Installerbar webbapp (PWA) — "Lägg till på hemskärmen" på iPhone/iPad ger en
+         fullskärmsikon utan webbläsarramar, se README "Installerbar webbapp". -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <!-- iOS ignorerar manifest.webmanifest för "Lägg till på hemskärmen" och kräver dessa
+         separata meta-taggar istället för att öppna i eget fönster utan Safaris UI. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Klippapp" />
   </head>
   <body>
     <div id="root"></div>

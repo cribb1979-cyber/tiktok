@@ -24,6 +24,22 @@ netlify dev
 `SHOTSTACK_API_KEY`, `SHOTSTACK_ENV`) från `.env` (lokalt) eller Netlifys site-inställningar
 (i produktion) — lägg aldrig till dem i `.env.example` med riktiga värden.
 
+## Installerbar webbapp (PWA)
+
+`index.html` länkar en `public/manifest.webmanifest` + ikonuppsättning
+(`public/icon-192.png`/`icon-512.png`/`apple-touch-icon.png`/`favicon*`) — genererade från en
+användartillhandahållen ikon (klappbräda + sax + TikTok-loggan). Öppna sajten i Safari på
+iPhone/iPad → Dela → "Lägg till på hemskärmen" för en fullskärmsikon utan webbläsarramar,
+matchar spec-kravet "enkelt att använda från iPad/iPhone i webbläsaren". iOS läser INTE
+`manifest.webmanifest` för det här (bara Android/Chrome gör) — därför finns även
+`apple-mobile-web-app-capable`/`apple-touch-icon`-metataggarna i `index.html`, som är det iOS
+faktiskt använder.
+
+Medvetet INGEN service worker/offline-cache — appen är helt beroende av Netlify Edge
+Functions/Supabase/externa AI-API:er ändå (offline-stöd skulle inte göra den användbar utan
+uppkoppling), och en cachead service worker på en app som redeployas ofta riskerar att visa
+gamla versioner tills cachen går ut, vilket hade varit förvirrande under aktiv utveckling.
+
 ## Supabase-setup
 
 1. Skapa ett Supabase-projekt (eller peka mot ett befintligt).
