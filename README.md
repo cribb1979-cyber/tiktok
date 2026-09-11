@@ -114,10 +114,22 @@ evigt — statustexten ("Konverterar video…" / "Transkriberar…") uppdateras 
 communauté d'Amara.org", m.fl. på flera språk) på tyst/nästan tyst ljud — ett känt
 artefaktmönster från träningsdatan (YouTube-avslutningskort och undertext-communities).
 `transcribe.ts` filtrerar bort segment som antingen matchar en känd fras, ELLER har hög
-`no_speech_prob` (Whisper API:ts egen skattning av sannolikheten att segmentet är tyst) —
-den generiska signalen fångar även varianter/språk som inte finns i frastexten. Enstaka ord
-ur en filtrerad fras (t.ex. "SOUS") filtreras separat bort ur ord-listan via tidsstämpel mot
-det hallucinerade segmentets tidsintervall, eftersom ett enskilt ord inte matchar frasen.
+`no_speech_prob` (Whisper API:ts egen skattning av sannolikheten att segmentet är tyst), ELLER
+innehåller CJK-skript (kinesiska/japanska/koreanska tecken) — de generiska signalerna fångar
+även varianter/språk som inte finns i frastexten. CJK-filtret är strukturellt snarare än en
+fraslista: @stoffe_medium är ett svenskt konto där legitimt CJK-tal i praktiken aldrig
+förekommer, och Shotstacks textöverlägg använder Arial/Helvetica utan CJK-glyfer — sådan text
+hade ändå bara blivit fyrkantiga "tofu"-placeholders i den brända-in undertexten (observerat i
+en riktig rendering). Enstaka ord ur en filtrerad fras (t.ex. "SOUS") filtreras separat bort
+ur ord-listan via tidsstämpel mot det hallucinerade segmentets tidsintervall (eftersom ett
+enskilt ord inte matchar frasen), och CJK-ord filtreras dessutom direkt oavsett segmentgräns.
+
+**Överlappande ord-för-ord-undertexter:** Whisper ger enstaka gånger lätt överlappande eller
+icke-monotona tidsstämplar mellan ord i samma segment (särskilt nära gränser för filtrerade
+segment) — utan åtgärd hann nästa ords bildtext börja innan föregåendes hunnit försvinna,
+synligt som två sammanflätade texter i samma bildruta i en riktig rendering. `render-clip.ts`
+sorterar nu segmentets ord i tidsordning och klämmer varje ords visningslängd så den aldrig
+går förbi nästa ords starttid.
 
 **Tillfälliga uppladdningsfel:** `uploadRawClip` (`src/lib/storage.js`) gör upp till två
 återförsök med kort paus vid fel mot Supabase Storage, eftersom stora videouppladdningar från

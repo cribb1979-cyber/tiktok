@@ -130,6 +130,15 @@ export default async (request: Request) => {
       text
     )
 
+  // @stoffe_medium är ett svenskt konto — legitimt tal på kinesiska/japanska/koreanska är i
+  // praktiken aldrig relevant, och render-clip.ts's html/title-textöverlägg använder
+  // Arial/Helvetica (inga CJK-glyfer i Shotstacks renderingsmiljö) — sådan text skulle ändå
+  // bara visas som fyrkantiga "tofu"-placeholders i den brända-in undertexten om den slank
+  // igenom. Filtreras därför bort strukturellt via skript istället för att jaga enskilda
+  // hallucinerade fraser (som isKnownHallucinationPhrase ovan aldrig kan täcka fullständigt).
+  const hasUnsupportedScript = (text: string) =>
+    /[぀-ヿ㐀-䶿一-鿿가-힯豈-﫿]/.test(text)
+
   // Normaliserat till { start, end, text } (sekunder) — samma form som skickas vidare
   // till Claude-anropet i generate-plan.ts. no_speech_prob används bara internt för
   // hallucinationsfiltret nedan, skickas inte vidare.
@@ -142,7 +151,8 @@ export default async (request: Request) => {
     })
   )
   const isWhisperHallucination = (seg: { text: string; noSpeechProb: number }) =>
-    seg.text.length > 0 && (isKnownHallucinationPhrase(seg.text) || seg.noSpeechProb > 0.85)
+    seg.text.length > 0 &&
+    (isKnownHallucinationPhrase(seg.text) || seg.noSpeechProb > 0.85 || hasUnsupportedScript(seg.text))
 
   const hallucinatedRanges = rawSegments.filter(isWhisperHallucination)
   const segments = rawSegments
@@ -151,14 +161,19 @@ export default async (request: Request) => {
 
   // Enskilda ord ur en hallucinerad fras ("Sous", "titres", "par", ...) innehåller själva
   // inte "amara.org" och matchar därför inte isWhisperHallucination direkt — filtreras
-  // istället bort via tidsstämpel mot de hallucinerade segmentens tidsintervall.
+  // istället bort via tidsstämpel mot de hallucinerade segmentens tidsintervall. Ord med
+  // CJK-skript filtreras dessutom bort direkt (samma anledning som hasUnsupportedScript
+  // ovan), oavsett om deras segment redan filtrerats bort eller ej — ett extra skyddsnät
+  // eftersom ord-för-ord-undertexterna i render-clip.ts läser direkt från denna lista.
   const words = ((data.words as unknown[]) ?? [])
     .map((w: { word: string; start: number; end: number }) => ({
       word: (w.word ?? '').trim(),
       start: w.start,
       end: w.end,
     }))
-    .filter((w) => !hallucinatedRanges.some((r) => w.start >= r.start && w.start < r.end))
+    .filter(
+      (w) => !hasUnsupportedScript(w.word) && !hallucinatedRanges.some((r) => w.start >= r.start && w.start < r.end)
+    )
 
   // data.text (Whisperts egen sammanslagna helhetstext) är opåverkad av filtreringen ovan —
   // bygg om den från de rensade segmenten istället, så förhandsvisningen i Klippstudio inte

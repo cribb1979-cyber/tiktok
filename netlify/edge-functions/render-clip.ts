@@ -371,9 +371,17 @@ export default async (request: Request) => {
     const segmentWords = clipWords.filter((w) => w.start >= trimStart && w.start < trimEnd)
 
     if (segmentWords.length > 0) {
-      for (const w of segmentWords) {
+      // Sorterade i tidsordning — Whisper ger enstaka gånger lätt överlappande eller
+      // icke-monotona tidsstämplar mellan ord (särskilt nära gränser för filtrerade/
+      // hallucinerade segment). Utan klämning mot nästa ords starttid hinner nästa ords
+      // bildtext börja innan föregåendes hunnit försvinna — syntes som två sammanflätade
+      // texter i samma bildruta i en riktig rendering (rapporterad bugg).
+      const sortedWords = [...segmentWords].sort((a, b) => a.start - b.start)
+      sortedWords.forEach((w, i) => {
         const word = w.word.trim()
-        if (!word) continue
+        if (!word) return
+        const next = sortedWords[i + 1]
+        const clampedEnd = next ? Math.min(w.end, next.start) : w.end
         captionClips.push({
           asset: {
             type: 'html',
@@ -384,9 +392,9 @@ export default async (request: Request) => {
             position: 'bottom',
           },
           start: timelineCursor + Math.max(w.start - trimStart, 0),
-          length: Math.max(w.end - w.start, WORD_CAPTION_MIN_LENGTH),
+          length: Math.max(clampedEnd - w.start, WORD_CAPTION_MIN_LENGTH),
         })
-      }
+      })
     } else {
       // Nyckelfras framför allt — matchar spec ("textöverlägg vid nyckelord") och är
       // strukturellt kort nog att aldrig gå utanför bildkanten. Faller tillbaka till
