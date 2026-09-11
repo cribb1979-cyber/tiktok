@@ -282,7 +282,8 @@ export default function Klippstudio() {
 
   const fileInputRef = useRef(null)
   // Ett eller flera råklipp, tillagda ett i taget ("Lägg till klipp"). Varje element:
-  // { id, file, name, publicUrl, transcript, transcribing, transcriptionSkipped, error }.
+  // { id, name, publicUrl, transcript, transcribing, transcriptionSkipped, error }. Den råa
+  // File-blobben sparas INTE här (se kommentaren i handleAddClip för varför).
   // id är en stabil sträng ("c0", "c1", …) oberoende av array-index (som kan ändras vid
   // borttagning) — samma id skickas till generate-plan.ts/render-clip.ts som clip_id på
   // varje segment, så AI:n och renderingen vet vilket klipp ett segment hör till.
@@ -439,7 +440,12 @@ export default function Klippstudio() {
       ...prev,
       {
         id,
-        file,
+        // Den råa File-blobben (kan vara upp till 200 MB) sparas MEDVETET inte i state —
+        // bara i den lokala `file`-variabeln ovan, som räcker för uppladdningen nedan.
+        // Att hålla kvar den i React-state efter att den laddats upp håller onödigt mycket
+        // videodata i minnet samtidigt för varje tillagt klipp — en trolig orsak till att
+        // iOS Safari (strama minnesgränser för videoavkodning) kraschar/laddar om fliken
+        // när ett andra klipp läggs till.
         name: file.name,
         publicUrl: null,
         transcript: null,
