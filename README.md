@@ -38,7 +38,7 @@ netlify dev
 ## Sidor
 
 - **Idébank** – fungerande: trenddata (hashtags/ljud/kategori) läggs in manuellt på två sätt — antingen ett fält i taget, eller genom att klistra in en hashtag-lista (t.ex. kopierad direkt från TikTok Creative Centers webbgränssnitt) som tolkas till klickbara kandidater du väljer bland innan de sparas i bulk. Visas sedan ett kort i taget — "Hoppa över" eller "Bygg vidare" (skickar dig till Klippstudio med prompt/kategori förifyllda utifrån trenden). Automatisk skrapning/API-hämtning av trenddata byggs inte — TikTok har ingen öppen API för det (Research API är akademisk/icke-kommersiell, Creative Center har ingen offentlig API), så tredjepartsskrapning skulle innebära löpande kostnad och osäker ToS-status. Klistra-in-flödet är den medvetna kompromissen: du hittar trenden själv på riktiga TikTok/Creative Center, appen sköter bara tolkning och urval.
-- **Klippstudio** – fungerande: ladda upp råmaterial (video/ljud, valfritt) för tidsstämplad transkribering, skriv prompt + kategori/underämne → Claude föreslår klippningsplan och 2-3 hook-alternativ. Om råmaterial laddats upp kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek. De valfria AI-tilläggen (B-roll, AI-effekt, bakgrundsbyte, tankebubblor, glow — se respektive avsnitt nedan) döljs bakom en hopfälld "Avancerat"-knapp under klippningsplanen (`advancedOpen`-state, default stängd) — infört efter att standardflödet blivit rörigt med fem separata korta synliga samtidigt. Allt finns kvar, bara ur vägen tills man aktivt öppnar sektionen.
+- **Klippstudio** – fungerande: ladda upp ett eller flera korta råklipp (video/ljud, valfritt — "Lägg till klipp" för fler, se "Flera klipp" nedan) för tidsstämplad transkribering, skriv prompt + kategori/underämne → Claude föreslår en klippningsplan (som kan klippa ihop segment från flera olika uppladdade klipp) och 2-3 hook-alternativ. Om råmaterial laddats upp kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek. De valfria AI-tilläggen (B-roll, AI-effekt, bakgrundsbyte, tankebubblor, glow — se respektive avsnitt nedan) döljs bakom en hopfälld "Avancerat"-knapp under klippningsplanen (`advancedOpen`-state, default stängd) — infört efter att standardflödet blivit rörigt med fem separata korta synliga samtidigt. Allt finns kvar, bara ur vägen tills man aktivt öppnar sektionen.
 - **Bibliotek** – fungerande: lista, lägg till och ta bort klipp manuellt, sortera på bäst presterande, filtrera på kategori. "Visa genererad text" expanderar kortet med sparade hook-alternativ och segmentplan i sin helhet, "Generera om" kör Claude-genereringen igen för klippets sparade prompt/kategori/underämne och skriver över hook-alternativ/segmentplan/hashtags med ett nytt förslag. Utkast kan "Publiceras (mock)" och publicerade klipp kan få simulerade resultat via "Uppdatera resultat (mock)".
 - **Kalender** – platshållare
 - **Inställningar** – fungerande: TikTok-koppling (mock, se nedan). API-nycklar hanteras i Netlify, inte här.
@@ -88,6 +88,44 @@ Storage först (samma bucket som används för rendering), och `/api/transcribe`
 server-side via Shotstack (en enkel passthrough-rendering till mp4) innan den skickas till
 Whisper. Detta kostar en liten extra Shotstack-rendering och några extra sekunders väntetid
 för just .mov-uppladdningar.
+
+## Flera klipp: klippa ihop flera korta råklipp till ett (valfritt)
+
+Klippstudio stödjer flera uppladdade råklipp istället för bara ett — "Lägg till klipp" kan
+tryckas flera gånger, varje klipp laddas upp/transkriberas separat och visas som ett eget
+kort (namn, status, "Ta bort"). Ett enda klipp fungerar precis som tidigare, bara som en
+lista med ett element.
+
+**Övergångar kräver INGEN ny logik** — `render-clip.ts` växlar redan effekt/övergång
+(`fadeFast`/`wipeLeft`/`wipeRight`/`slideLeft`/`slideRight`) per segment; Shotstack bryr sig
+inte om två på varandra följande segment kommer från samma eller olika källfiler, samma
+mekanik gäller rakt av över klippgränser.
+
+**Datamodell:** varje klipp får ett stabilt id (`c0`, `c1`, … — genererat klientsidigt,
+oberoende av array-index som ändras vid borttagning). Claude (`generate-plan.ts` och
+`revise-plan.ts`) får alla klipps transkript, och varje segment i `segments_plan` får ett
+`clip_id` som pekar ut VILKET klipp segmentets start/end (alltid relativa till DET klippets
+egen tidslinje, aldrig en gemensam) kommer från. Claude instrueras att använda klippen i
+uppladdningsordning om inget annat gör mer narrativ mening, och behöver inte använda hela
+eller ens alla klipp.
+
+`render-clip.ts` tar emot `clips: [{id, url, transcript, words}]` istället för en enskild
+`videoUrl`/`transcript`/`words` — för varje segment slås `clip_id` upp mot listan
+(`resolveClip`, med fallback till första klippet om id:t saknas/inte hittas) för att avgöra
+både videokällan (`asset.src`) OCH vilka ord-för-ord-tidsstämplar/transkriptrader som hör
+till just det segmentets tidsintervall (dessa är per-klipp, inte globala — flera klipp har
+annars överlappande egna 0:00-baserade tidslinjer).
+
+**Tar bort ett klipp efter att en plan redan genererats:** planen nollställs och användaren
+ombeds generera på nytt, istället för att riskera `clip_id`-referenser mot ett klipp som
+inte längre finns (`handleRemoveClip` i `Klippstudio.jsx`).
+
+**Avancerade tillval som är förankrade till "första segmentet"** (glow-förhandsvisningens
+bildruta, bakgrundsbytets källvideo) använder `primaryClip` — det uppladdade klipp som
+`segments_plan[0].clip_id` faktiskt pekar på (eller det först uppladdade, innan en plan
+finns) — istället för ett fast, enda klipp. `captureGuidanceFrames` (Redigera med
+vägledning) går längre och slår upp RÄTT klipp per segment individuellt, eftersom Claude kan
+blanda segment från olika klipp i samma reviderade plan.
 
 ## Shotstack-integration (steg 6)
 

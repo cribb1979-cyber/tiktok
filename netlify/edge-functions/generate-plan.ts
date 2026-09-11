@@ -8,9 +8,20 @@ const SYSTEM_PROMPT = `Du är en TikTok-klippstrateg för kontot @stoffe_medium 
 Ditt jobb: föreslå en klippningsplan för ett kort videoklipp, baserat på användarens idé.
 
 Föreslå 2-3 hook-alternativ i hook_variants, och 3-5 relevanta hashtags i suggested_hashtags
-(utan "#"-tecken, blanda breda och nischade). Om inget transkript finns än, basera segmentplanen
-på användarens promptbeskrivning istället och märk segmentens tider som preliminära
-uppskattningar (t.ex. "00:00"–"00:05").
+(utan "#"-tecken, blanda breda och nischade). Om inga klipp är uppladdade än, basera
+segmentplanen på användarens promptbeskrivning istället och märk segmentens tider som
+preliminära uppskattningar (t.ex. "00:00"–"00:05").
+
+Ett eller flera RÅKLIPP kan vara uppladdade (se "Uppladdade klipp" nedan), varje med ett
+eget id och eget transkript. VIKTIGT om flera klipp finns:
+- Varje segment i segments_plan MÅSTE ha ett clip_id som anger VILKET klipp segmentets
+  start/end-tider syftar på — start/end är alltid relativa till DET klippets EGEN tidslinje,
+  aldrig en gemensam tidslinje över flera klipp.
+- Använd klippen i den ordning de laddades upp om inget annat gör mer narrativ mening (t.ex.
+  om ett senare klipp faktiskt är en bättre öppning) — hitta inte på en konstlad ordning.
+  Du behöver inte använda hela varje klipp eller ens alla klipp.
+- Om bara ett klipp finns, sätt clip_id till det klippets id på alla segment (samma beteende
+  som tidigare, bara uttryckt explicit).
 
 Om en önskad total videolängd anges: anpassa antal segment och deras start/end-tider så att
 summan av alla segmentens längder hamnar så nära den önskade totallängden som möjligt (inom
@@ -45,12 +56,17 @@ const RESPONSE_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          start: { type: 'string', description: 'Starttid, mm:ss' },
-          end: { type: 'string', description: 'Sluttid, mm:ss' },
+          clip_id: {
+            type: 'string',
+            description:
+              'Vilket uppladdat klipp (matchar id i "Uppladdade klipp") segmentets start/end syftar på. Lämna tom sträng om inga klipp finns uppladdade.',
+          },
+          start: { type: 'string', description: 'Starttid INOM det klippet, mm:ss' },
+          end: { type: 'string', description: 'Sluttid INOM det klippet, mm:ss' },
           description: { type: 'string' },
           order: { type: 'integer' },
         },
-        required: ['start', 'end', 'description', 'order'],
+        required: ['clip_id', 'start', 'end', 'description', 'order'],
         additionalProperties: false,
       },
     },
@@ -123,8 +139,10 @@ export default async (request: Request) => {
     prompt,
     category,
     subtopic,
-    // Transkript med tidsstämplar från Whisper. Tom array tills steg 5 kopplas på.
-    transcript,
+    // Ett eller flera uppladdade råklipp: [{ id, transcript }]. transcript är samma
+    // segment-med-tidsstämplar-form som tidigare (från Whisper), bara nästlad per klipp.
+    // Tom array om inget råmaterial laddats upp än.
+    clips,
     // Dagens trenddata (hashtags/ljud). Tom/utelämnad tills Idébanken (steg 7) kopplas på.
     trendContext,
     // Few-shot-kontext: tidigare bäst presterande klipp i samma kategori (retrieval via
@@ -148,7 +166,7 @@ export default async (request: Request) => {
       ? `Önskad total längd på det färdiga klippet: ca ${targetDurationSeconds} sekunder — anpassa antal segment och deras längd så att summan hamnar nära detta.`
       : null,
     buildTrendBlock(trendContext),
-    buildTranscriptBlock(transcript),
+    buildClipsBlock(clips),
     buildFewShotBlock(previousBestClips),
   ]
     .filter(Boolean)
@@ -224,11 +242,21 @@ Klippningsplan: ${JSON.stringify(c.segments_plan ?? [])}`
   return `Tidigare bäst presterande klipp (few-shot-exempel, samma kategori):\n\n${examples}`
 }
 
-function buildTranscriptBlock(transcript: unknown) {
-  if (!Array.isArray(transcript) || transcript.length === 0) {
-    return 'Transkript: inget bifogat för det här klippet. Basera planen på prompten istället.'
+function buildClipsBlock(clips: unknown): string {
+  if (!Array.isArray(clips) || clips.length === 0) {
+    return 'Uppladdade klipp: inga än. Basera planen på prompten istället — lämna clip_id som tom sträng på alla segment.'
   }
-  return `Transkript (segment med start/end i sekunder, från Whisper):\n${JSON.stringify(transcript)}`
+  const blocks = clips.map((c, i) => {
+    const clip = c as Record<string, unknown>
+    const id = typeof clip.id === 'string' && clip.id ? clip.id : `clip-${i}`
+    const transcript = Array.isArray(clip.transcript) ? clip.transcript : []
+    const transcriptText =
+      transcript.length > 0
+        ? `Transkript (segment med start/end i sekunder, relativt DETTA klipps egen tidslinje):\n${JSON.stringify(transcript)}`
+        : 'Inget transkript för det här klippet (troligen för stor fil för Whisper, eller tyst ljud) — basera segment från det här klippet på prompten istället.'
+    return `Klipp "${id}" (uppladdningsordning ${i + 1} av ${clips.length}):\n${transcriptText}`
+  })
+  return `Uppladdade klipp:\n\n${blocks.join('\n\n')}`
 }
 
 function buildTrendBlock(trendContext: unknown) {

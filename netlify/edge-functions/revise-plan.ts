@@ -12,19 +12,24 @@ const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
 const CLAUDE_MODEL = 'claude-sonnet-5'
 
 const SYSTEM_PROMPT = `Du är en TikTok-klippstrateg för kontot @stoffe_medium (andlighet/medium-nisch).
-Du har redan föreslagit en klippningsplan (segments_plan) för ett klipp. Användaren har nu skrivit
-en fri instruktion om hur planen ska ÄNDRAS (t.ex. "korta ner mittendelen", "sakta ner när jag säger
-den viktiga meningen", "klipp bort de första 3 sekunderna", "gör klippet mer punchy").
+Du har redan föreslagit en klippningsplan (segments_plan) för ett klipp — eventuellt klippt ur
+FLERA uppladdade råklipp (se "Uppladdade klipp"). Användaren har nu skrivit en fri instruktion
+om hur planen ska ÄNDRAS (t.ex. "korta ner mittendelen", "sakta ner när jag säger den viktiga
+meningen", "klipp bort de första 3 sekunderna", "gör klippet mer punchy").
 
-Du får: den nuvarande segmentplanen, transkriptet (om det finns), ett fåtal nedskalade bildrutor
-(en per segment, i samma ordning som segmenten — använd dem för grov visuell kontext, de är INTE
-en fullständig video och du kan inte se rörelse/tajming i dem), och användarens instruktion.
+Du får: den nuvarande segmentplanen (varje segment märkt med vilket klipp det kommer från),
+alla uppladdade klipps transkript, ett fåtal nedskalade bildrutor (en per segment, i samma
+ordning som segmenten, från RÄTT klipp — använd dem för grov visuell kontext, de är INTE en
+fullständig video och du kan inte se rörelse/tajming i dem), och användarens instruktion.
 
 VIKTIGT:
-- Håll dig INOM det tidsspann som redan täcks av segmenten — hitta inte på nya tidsintervall
-  utanför vad som redan beskrivits/visats, du vet inte hur lång källvideon faktiskt är utöver det.
-- Du får korta ner, förlänga (inom befintligt spann), ta bort, slå ihop eller lägga till kortare
-  segment mellan befintliga, samt skriva om description-fälten så de stämmer med den nya planen.
+- Varje segment i den nya segments_plan MÅSTE ha ett clip_id (matchar ett av de uppladdade
+  klippens id). Håll start/end INOM det tidsspann som redan täcks av segment FRÅN DET klippet
+  — hitta inte på nya tidsintervall utanför vad som redan beskrivits/visats för det klippet.
+- Du får korta ner, förlänga (inom befintligt spann per klipp), ta bort, slå ihop, byta
+  ordning på eller lägga till kortare segment mellan befintliga (även från ett ANNAT uppladdat
+  klipp än originalsegmentet, om instruktionen ber om det eller det gör klippet bättre), samt
+  skriva om description-fälten så de stämmer med den nya planen.
 - segment_speeds är en array i SAMMA ordning som den nya segments_plan — sätt en snabbare/
   långsammare hastighet bara där instruktionen uttryckligen ber om det (slow-motion, time-lapse),
   annars tomt värde ('') för normal hastighet. Måste vara exakt lika lång som segments_plan.
@@ -41,12 +46,13 @@ const RESPONSE_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          start: { type: 'string', description: 'Starttid, mm:ss' },
-          end: { type: 'string', description: 'Sluttid, mm:ss' },
+          clip_id: { type: 'string', description: 'Vilket uppladdat klipp (matchar ett klipp-id) segmentet kommer från.' },
+          start: { type: 'string', description: 'Starttid INOM det klippet, mm:ss' },
+          end: { type: 'string', description: 'Sluttid INOM det klippet, mm:ss' },
           description: { type: 'string' },
           order: { type: 'integer' },
         },
-        required: ['start', 'end', 'description', 'order'],
+        required: ['clip_id', 'start', 'end', 'description', 'order'],
         additionalProperties: false,
       },
     },
@@ -64,8 +70,9 @@ const RESPONSE_SCHEMA = {
   additionalProperties: false,
 }
 
-type Segment = { start: string; end: string; description?: string; order?: number }
+type Segment = { clip_id?: string; start: string; end: string; description?: string; order?: number }
 type TranscriptSegment = { start: number; end: number; text: string }
+type ClipInput = { id: string; transcript?: TranscriptSegment[] }
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -85,11 +92,13 @@ export default async (request: Request) => {
   }
 
   const segmentsPlan = Array.isArray(body.segmentsPlan) ? (body.segmentsPlan as Segment[]) : []
-  const transcript = Array.isArray(body.transcript) ? (body.transcript as TranscriptSegment[]) : []
+  // Ett eller flera uppladdade klipp: [{ id, transcript }] — samma form som generate-plan.ts.
+  const clips = Array.isArray(body.clips) ? (body.clips as ClipInput[]) : []
   const editInstruction = typeof body.editInstruction === 'string' ? body.editInstruction.trim() : ''
   // Bas64-kodade JPEG-bildrutor (utan "data:image/jpeg;base64,"-prefix), en per segment,
   // hämtade klientsidigt i Klippstudio.jsx (samma <video>+<canvas>-teknik som glow-
-  // förhandsvisningen, nedskalade till max 480px bredd för rimlig anropsstorlek/kostnad).
+  // förhandsvisningen, nedskalade till max 480px bredd för rimlig anropsstorlek/kostnad) —
+  // från RÄTT klipp per segment (captureGuidanceFrames slår upp seg.clip_id).
   const frames = Array.isArray(body.frames)
     ? (body.frames as unknown[]).filter((f) => typeof f === 'string' && f.length > 0)
     : []
@@ -102,12 +111,18 @@ export default async (request: Request) => {
   }
 
   const planText = segmentsPlan
-    .map((seg, i) => `${i + 1}. ${seg.start}–${seg.end}: ${seg.description ?? ''}`)
+    .map((seg, i) => `${i + 1}. [klipp ${seg.clip_id ?? '?'}] ${seg.start}–${seg.end}: ${seg.description ?? ''}`)
     .join('\n')
   const transcriptText =
-    transcript.length > 0
-      ? transcript.map((t) => `[${t.start}s–${t.end}s] ${t.text}`).join('\n')
-      : 'Inget transkript tillgängligt.'
+    clips.length > 0
+      ? clips
+          .map((c) => {
+            const t = Array.isArray(c.transcript) ? c.transcript : []
+            const text = t.length > 0 ? t.map((s) => `[${s.start}s–${s.end}s] ${s.text}`).join('\n') : 'Inget transkript.'
+            return `Klipp "${c.id}":\n${text}`
+          })
+          .join('\n\n')
+      : 'Inga klipp/transkript tillgängliga.'
 
   // Multimodalt innehåll: en textrad + bildruta per segment (i ordning), sen den fulla
   // planen/transkriptet/instruktionen som avslutande text.
@@ -116,7 +131,9 @@ export default async (request: Request) => {
     const seg = segmentsPlan[i]
     content.push({
       type: 'text',
-      text: seg ? `Bildruta för segment ${i + 1} (${seg.start}–${seg.end}):` : `Bildruta ${i + 1}:`,
+      text: seg
+        ? `Bildruta för segment ${i + 1} [klipp ${seg.clip_id ?? '?'}] (${seg.start}–${seg.end}):`
+        : `Bildruta ${i + 1}:`,
     })
     content.push({
       type: 'image',

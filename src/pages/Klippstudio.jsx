@@ -281,10 +281,17 @@ export default function Klippstudio() {
   const [targetDuration, setTargetDuration] = useState('')
 
   const fileInputRef = useRef(null)
-  const [mediaFile, setMediaFile] = useState(null)
-  const [mediaPublicUrl, setMediaPublicUrl] = useState(null)
-  const [transcribing, setTranscribing] = useState(false)
-  const [transcript, setTranscript] = useState(null)
+  // Ett eller flera råklipp, tillagda ett i taget ("Lägg till klipp"). Varje element:
+  // { id, file, name, publicUrl, transcript, transcribing, transcriptionSkipped, error }.
+  // id är en stabil sträng ("c0", "c1", …) oberoende av array-index (som kan ändras vid
+  // borttagning) — samma id skickas till generate-plan.ts/render-clip.ts som clip_id på
+  // varje segment, så AI:n och renderingen vet vilket klipp ett segment hör till.
+  const [clips, setClips] = useState([])
+  const nextClipIdRef = useRef(0)
+
+  function updateClip(id, patch) {
+    setClips((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+  }
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -406,33 +413,47 @@ export default function Klippstudio() {
   // handleRender) — gör efterföljande sparningar till uppdateringar istället för dubbletter.
   const [savedClipId, setSavedClipId] = useState(null)
   const [autoSaveError, setAutoSaveError] = useState(null)
-  const [transcriptionSkipped, setTranscriptionSkipped] = useState(false)
   // Tvåstegs-sparning: videon hämtas i bakgrunden först (videoFile), delningsmenyn öppnas
   // sedan vid ett nytt, direkt knapptryck — se kommentaren på shareVideoFile för varför.
   const [savingVideo, setSavingVideo] = useState(false)
   const [videoFile, setVideoFile] = useState(null)
 
-  async function handleFileChange(event) {
+  // Lägger till ETT nytt klipp i listan (upprepa för flera — "Lägg till klipp" i UI:t).
+  // Samma uppladdnings-/transkriberingslogik som tidigare (Whisper-storleksgräns, .mov-
+  // serverkonvertering), bara riktad mot en post i clips-arrayen istället för global state.
+  async function handleAddClip(event) {
     const file = event.target.files?.[0]
     if (!file) return
+    event.target.value = '' // så samma fil kan väljas igen om man vill lägga till den två gånger
 
     if (file.size > UPLOAD_MAX_FILE_BYTES) {
       setError(
         `Filen är för stor (max ${Math.round(UPLOAD_MAX_FILE_BYTES / (1024 * 1024))} MB). Korta ner klippet och försök igen.`
       )
-      event.target.value = ''
       return
     }
 
+    const id = `c${nextClipIdRef.current++}`
     setError(null)
-    setMediaFile(file)
-    setMediaPublicUrl(null)
-    setTranscript(null)
+    setClips((prev) => [
+      ...prev,
+      {
+        id,
+        file,
+        name: file.name,
+        publicUrl: null,
+        transcript: null,
+        transcribing: true,
+        transcriptionSkipped: false,
+        error: null,
+      },
+    ])
+    // Ett nytt klipp gör en tidigare rendering/förhandsgranskning inaktuell (de speglar inte
+    // längre alla uppladdade klipp) — men INTE en redan genererad plan, den kan fortfarande
+    // vara giltig för de klipp som redan fanns när den skapades.
     setRenderedVideoUrl(null)
     setPreviewVideoUrl(null)
     setVideoFile(null)
-    setTranscriptionSkipped(false)
-    setTranscribing(true)
 
     if (file.size > WHISPER_MAX_FILE_BYTES) {
       // Över Whisper-gränsen (25 MB, satt av OpenAI — kan inte höjas). Ladda upp för
@@ -440,12 +461,11 @@ export default function Klippstudio() {
       // flödet — klippningsplanen baseras då på prompten istället för transkriptet.
       try {
         const publicUrl = await uploadRawClip(file)
-        setMediaPublicUrl(publicUrl)
-        setTranscriptionSkipped(true)
+        updateClip(id, { publicUrl, transcriptionSkipped: true })
       } catch (err) {
-        setError(err.message)
+        updateClip(id, { error: err.message })
       }
-      setTranscribing(false)
+      updateClip(id, { transcribing: false })
       return
     }
 
@@ -459,11 +479,11 @@ export default function Klippstudio() {
     if (needsServerTranscode) {
       try {
         const publicUrl = await uploadRawClip(file)
-        setMediaPublicUrl(publicUrl)
+        updateClip(id, { publicUrl })
         const result = await transcribeFromUrl(publicUrl)
-        setTranscript(result)
+        updateClip(id, { transcript: result })
       } catch (err) {
-        setError(err.message)
+        updateClip(id, { error: err.message })
       }
     } else {
       const [transcriptResult, uploadResult] = await Promise.allSettled([
@@ -471,31 +491,39 @@ export default function Klippstudio() {
         uploadRawClip(file),
       ])
 
-      if (transcriptResult.status === 'fulfilled') {
-        setTranscript(transcriptResult.value)
-      } else {
-        setError(transcriptResult.reason.message)
-      }
+      // Bara det FÖRSTA felet sparas (om båda misslyckas) — samma "tappa inte det första
+      // felet"-princip som tidigare, fast som en enda sammanslagen uppdatering istället för
+      // två separata (updateClip slår bara ihop ett rakt patch-objekt, stödjer inte en
+      // funktionell uppdaterare per fält som setError kunde).
+      const clipError =
+        transcriptResult.status === 'rejected'
+          ? transcriptResult.reason.message
+          : uploadResult.status === 'rejected'
+            ? uploadResult.reason.message
+            : null
 
-      if (uploadResult.status === 'fulfilled') {
-        setMediaPublicUrl(uploadResult.value)
-      } else {
-        setError((prev) => prev ?? uploadResult.reason.message)
-      }
+      updateClip(id, {
+        ...(transcriptResult.status === 'fulfilled' ? { transcript: transcriptResult.value } : {}),
+        ...(uploadResult.status === 'fulfilled' ? { publicUrl: uploadResult.value } : {}),
+        ...(clipError ? { error: clipError } : {}),
+      })
     }
 
-    setTranscribing(false)
+    updateClip(id, { transcribing: false })
   }
 
-  function clearMedia() {
-    setMediaFile(null)
-    setMediaPublicUrl(null)
-    setTranscript(null)
+  function handleRemoveClip(id) {
+    setClips((prev) => prev.filter((c) => c.id !== id))
+    // Ett borttaget klipp kan göra en redan genererad plans clip_id-referenser ogiltiga —
+    // säkrast att be om en ny plan istället för att riskera att rendera mot ett klipp som
+    // inte längre finns.
+    if (plan) {
+      setPlan(null)
+      setError('Ett klipp togs bort — generera klippningsplanen på nytt.')
+    }
     setRenderedVideoUrl(null)
     setPreviewVideoUrl(null)
     setVideoFile(null)
-    setTranscriptionSkipped(false)
-    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   async function handleGenerate(event) {
@@ -561,7 +589,7 @@ export default function Klippstudio() {
         prompt,
         category,
         subtopic,
-        transcript: transcript?.segments ?? [],
+        clips: clips.map((c) => ({ id: c.id, transcript: c.transcript?.segments ?? [] })),
         trendContext: [],
         previousBestClips,
         targetDurationSeconds: targetDuration ? Number(targetDuration) : null,
@@ -658,9 +686,15 @@ export default function Klippstudio() {
   function buildRenderParams() {
     const selectedHook = plan.hook_variants?.[selectedHookIndex]
     return {
-      videoUrl: mediaPublicUrl,
+      clips: clips
+        .filter((c) => c.publicUrl)
+        .map((c) => ({
+          id: c.id,
+          url: c.publicUrl,
+          transcript: c.transcript?.segments ?? [],
+          words: c.transcript?.words ?? [],
+        })),
       segmentsPlan: plan.segments_plan ?? [],
-      transcript: transcript?.segments ?? [],
       hookText: selectedHook?.text ?? '',
       suggestedSubtitles: plan.suggested_subtitles ?? [],
       brollVideoUrl,
@@ -669,7 +703,6 @@ export default function Klippstudio() {
       segmentStarts,
       segmentEnds,
       segmentSpeeds,
-      words: transcript?.words ?? [],
       effectVideoUrl,
       effectType,
       backgroundImageUrl: backgroundSwapEnabled ? backgroundImageUrl : null,
@@ -694,7 +727,7 @@ export default function Klippstudio() {
   }
 
   async function handlePreviewRender() {
-    if (!plan || !mediaPublicUrl) return
+    if (!plan || !hasUploadedClip) return
     if (glowEnabled && glowEndSeconds <= glowStartSeconds) {
       setError('Glow-effektens sluttid måste vara efter starttiden.')
       return
@@ -717,7 +750,7 @@ export default function Klippstudio() {
   }
 
   async function handleRender() {
-    if (!plan || !mediaPublicUrl) return
+    if (!plan || !hasUploadedClip) return
     if (glowEnabled && glowEndSeconds <= glowStartSeconds) {
       setError('Glow-effektens sluttid måste vara efter starttiden.')
       return
@@ -883,12 +916,12 @@ export default function Klippstudio() {
   }
 
   async function handleMatteBackground() {
-    if (!mediaPublicUrl) return
+    if (!primaryClipUrl) return
     setBackgroundMatting(true)
     setBackgroundMatteStatus('PENDING')
     setError(null)
     try {
-      const url = await matteVideo({ videoUrl: mediaPublicUrl, onStatus: setBackgroundMatteStatus })
+      const url = await matteVideo({ videoUrl: primaryClipUrl, onStatus: setBackgroundMatteStatus })
       setBackgroundMattedVideoUrl(url)
     } catch (err) {
       setError(err.message)
@@ -903,7 +936,7 @@ export default function Klippstudio() {
   // "tainted") utan att blockera funktionen — positionering fungerar ändå via procentvärden
   // mot en tom ruta med samma proportioner.
   async function handleCaptureGlowPreview() {
-    if (!mediaPublicUrl) return
+    if (!primaryClipUrl) return
     setGlowCapturing(true)
     setError(null)
 
@@ -924,7 +957,7 @@ export default function Klippstudio() {
       video.crossOrigin = 'anonymous'
       video.muted = true
       video.playsInline = true
-      video.src = mediaPublicUrl
+      video.src = primaryClipUrl
 
       await Promise.race([
         new Promise((resolve, reject) => {
@@ -956,10 +989,11 @@ export default function Klippstudio() {
   }
 
   // Hämtar en nedskalad bildruta per segment (max 480px bredd — Claude behöver bara grov
-  // visuell kontext, inte full upplösning, och det håller anropsstorlek/kostnad nere) från
-  // källvideon, vid varje segments mittpunkt. Samma DOM-bilaga-teknik som
-  // handleCaptureGlowPreview (iOS Safari-kompatibilitet), men en video/canvas återanvänds
-  // för alla bildrutor istället för att skapas per bildruta.
+  // visuell kontext, inte full upplösning, och det håller anropsstorlek/kostnad nere), vid
+  // varje segments mittpunkt, FRÅN RÄTT KLIPP (seg.clip_id — segment kan komma från olika
+  // uppladdade klipp). Samma DOM-bilaga-teknik som handleCaptureGlowPreview (iOS Safari-
+  // kompatibilitet). Ett video/canvas-par återanvänds, men video.src laddas om varje gång
+  // klippet skiljer sig från föregående segments (annars samma element, ingen omladdning).
   async function captureGuidanceFrames(segmentsPlan) {
     const MAX_FRAMES = 6
     const targets = segmentsPlan.slice(0, MAX_FRAMES)
@@ -975,24 +1009,32 @@ export default function Klippstudio() {
       video.crossOrigin = 'anonymous'
       video.muted = true
       video.playsInline = true
-      video.src = mediaPublicUrl
 
-      await Promise.race([
-        new Promise((resolve, reject) => {
-          video.addEventListener('loadedmetadata', resolve, { once: true })
-          video.addEventListener('error', () => reject(new Error('Kunde inte läsa videon.')))
-        }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Tog för lång tid att läsa videon.')), 8000)),
-      ])
-
-      const scale = Math.min(1, 480 / video.videoWidth)
       const canvas = document.createElement('canvas')
-      canvas.width = Math.round(video.videoWidth * scale)
-      canvas.height = Math.round(video.videoHeight * scale)
       const ctx = canvas.getContext('2d')
-
+      let loadedUrl = null
       const frames = []
+
       for (const seg of targets) {
+        const clip = clips.find((c) => c.id === seg.clip_id) ?? clips[0]
+        const url = clip?.publicUrl
+        if (!url) continue
+
+        if (url !== loadedUrl) {
+          video.src = url
+          await Promise.race([
+            new Promise((resolve, reject) => {
+              video.addEventListener('loadedmetadata', resolve, { once: true })
+              video.addEventListener('error', () => reject(new Error('Kunde inte läsa videon.')), { once: true })
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Tog för lång tid att läsa videon.')), 8000)),
+          ])
+          loadedUrl = url
+          const scale = Math.min(1, 480 / video.videoWidth)
+          canvas.width = Math.round(video.videoWidth * scale)
+          canvas.height = Math.round(video.videoHeight * scale)
+        }
+
         const start = parseTimecodeClient(seg.start)
         const end = parseTimecodeClient(seg.end)
         const midpoint = (start + end) / 2
@@ -1013,7 +1055,7 @@ export default function Klippstudio() {
   }
 
   async function handleReviseWithGuidance() {
-    if (!plan || !mediaPublicUrl || !editInstruction.trim()) return
+    if (!plan || !hasUploadedClip || !editInstruction.trim()) return
     setRevisingPlan(true)
     setError(null)
     setReviseSummary(null)
@@ -1021,7 +1063,7 @@ export default function Klippstudio() {
       const frames = await captureGuidanceFrames(plan.segments_plan ?? [])
       const result = await revisePlan({
         segmentsPlan: plan.segments_plan ?? [],
-        transcript: transcript?.segments ?? [],
+        clips: clips.map((c) => ({ id: c.id, transcript: c.transcript?.segments ?? [] })),
         editInstruction,
         frames,
       })
@@ -1061,6 +1103,16 @@ export default function Klippstudio() {
       setSaving(false)
     }
   }
+
+  // Finns minst ett klipp med en publik URL (uppladdningen klar) — motsvarar den gamla
+  // enkla mediaPublicUrl-kollen, fast över listan.
+  const hasUploadedClip = clips.some((c) => c.publicUrl)
+  // Klippet som "avancerade" tillval anchorade till segment 0 (glow-förhandsvisning,
+  // bakgrundsbyte) ska utgå från — det uppladdade klipp som segment 0 i den aktuella planen
+  // faktiskt kommer från, annars det först uppladdade (innan en plan finns, eller om
+  // segment 0:s clip_id av någon anledning inte matchar något kvarvarande klipp).
+  const primaryClip = clips.find((c) => c.id === plan?.segments_plan?.[0]?.clip_id) ?? clips[0] ?? null
+  const primaryClipUrl = primaryClip?.publicUrl ?? null
 
   // Grov uppskattning av klippets totala längd (för glow-tidsintervallets gränser i UI:t) —
   // samma räknesätt som timelineCursor i render-clip.ts, men inte auktoritativt.
@@ -1125,42 +1177,56 @@ export default function Klippstudio() {
 
       <form className="clip-form" onSubmit={handleGenerate}>
         <label>
-          Råmaterial (video/ljud, valfritt)
+          Råmaterial (video/ljud, valfritt — lägg till flera korta klipp för att klippa ihop dem)
           <input
             ref={fileInputRef}
             type="file"
             accept="video/*,audio/*"
-            onChange={handleFileChange}
-            disabled={transcribing}
+            onChange={handleAddClip}
+            disabled={clips.some((c) => c.transcribing)}
           />
         </label>
 
-        {transcribing && (
+        {clips.some((c) => c.transcribing) && (
           <p className="placeholder-note">
             Transkriberar och laddar upp… (för .mov-filer konverteras videon server-side
             först, vilket kan ta ytterligare någon minut — lämna inte sidan)
           </p>
         )}
 
-        {mediaFile && (transcript || mediaPublicUrl) && (
-          <div className="clip-card" style={{ margin: 0 }}>
-            <div className="clip-card-header">
-              <span className="status-pill status-posted">
-                {mediaPublicUrl ? 'Uppladdat' : 'Transkriberat'}
-              </span>
-              <span className="clip-category">{mediaFile.name}</span>
-            </div>
-            {transcript && <p className="clip-prompt">{transcript.text || 'Inget tal upptäcktes.'}</p>}
-            {transcriptionSkipped && (
-              <p className="clip-prompt">
-                Filen är större än 25 MB — transkribering hoppades över (Whisper-gränsen är
-                satt av OpenAI, kan inte höjas). Klippningsplanen baseras på din prompt
-                istället. Rendering fungerar som vanligt.
-              </p>
-            )}
-            <button type="button" className="btn-danger" onClick={clearMedia}>
-              Ta bort
-            </button>
+        {clips.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {clips.map((clip, i) => (
+              <div key={clip.id} className="clip-card" style={{ margin: 0 }}>
+                <div className="clip-card-header">
+                  <span className="status-pill status-posted">
+                    {clip.transcribing ? 'Bearbetar…' : clip.publicUrl ? 'Uppladdat' : 'Väntar…'}
+                  </span>
+                  <span className="clip-category">
+                    {i + 1}. {clip.name}
+                  </span>
+                </div>
+                {clip.transcript && (
+                  <p className="clip-prompt">{clip.transcript.text || 'Inget tal upptäcktes.'}</p>
+                )}
+                {clip.transcriptionSkipped && (
+                  <p className="clip-prompt">
+                    Filen är större än 25 MB — transkribering hoppades över (Whisper-gränsen är
+                    satt av OpenAI, kan inte höjas). Klippningsplanen baseras på din prompt för
+                    den här delen istället. Rendering fungerar som vanligt.
+                  </p>
+                )}
+                {clip.error && <p className="error-banner">{clip.error}</p>}
+                <button
+                  type="button"
+                  className="btn-danger"
+                  onClick={() => handleRemoveClip(clip.id)}
+                  disabled={clip.transcribing}
+                >
+                  Ta bort
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
@@ -1208,12 +1274,12 @@ export default function Klippstudio() {
         </label>
 
         <p className="placeholder-note">
-          {transcript
-            ? 'Klippningsplanen baseras på transkriptet ovan tillsammans med din prompt.'
+          {clips.some((c) => c.transcript)
+            ? 'Klippningsplanen baseras på transkripten ovan tillsammans med din prompt.'
             : 'Ladda upp råmaterial för tidsstämplad transkribering, eller lämna tomt och basera planen enbart på prompten.'}
         </p>
 
-        <button className="btn-primary" type="submit" disabled={loading || transcribing}>
+        <button className="btn-primary" type="submit" disabled={loading || clips.some((c) => c.transcribing)}>
           {loading ? 'Genererar…' : 'Föreslå klippningsplan'}
         </button>
       </form>
@@ -1269,7 +1335,7 @@ export default function Klippstudio() {
 
           <div>
             <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Segmentplan</p>
-            {mediaPublicUrl && (
+            {hasUploadedClip && (
               <p className="placeholder-note">
                 Start-/sluttid (mm:ss) är AI:ns förslag men går att redigera direkt — t.ex. för
                 att klippa bort för mycket material. Hastighet skapar slow-motion (under 1x)
@@ -1282,8 +1348,13 @@ export default function Klippstudio() {
                   <strong>
                     {seg.start}–{seg.end}
                   </strong>{' '}
+                  {clips.length > 1 && (
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      [{clips.find((c) => c.id === seg.clip_id)?.name ?? seg.clip_id}]{' '}
+                    </span>
+                  )}
                   {seg.description}
-                  {mediaPublicUrl && (
+                  {hasUploadedClip && (
                     <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                       <input
                         type="text"
@@ -1358,7 +1429,7 @@ export default function Klippstudio() {
             </ol>
           </div>
 
-          {mediaPublicUrl && (
+          {hasUploadedClip && (
             <div className="clip-card" style={{ margin: 0 }}>
               <span className="clip-hook" style={{ display: 'block', marginBottom: 6 }}>
                 Redigera med vägledning
@@ -1403,7 +1474,7 @@ export default function Klippstudio() {
             <div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Föreslagna nyckelfraser</p>
               <p>{plan.suggested_subtitles.join(' · ')}</p>
-              {transcript?.words?.length > 0 && (
+              {clips.some((c) => c.transcript?.words?.length > 0) && (
                 <p className="placeholder-note">
                   Används bara som reserv — eftersom ett riktigt transkript finns renderas
                   ord-för-ord-undertexter synkade mot talet istället.
@@ -1419,7 +1490,7 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {mediaPublicUrl && (
+          {hasUploadedClip && (
             <button
               type="button"
               className="btn-primary"
@@ -1432,7 +1503,7 @@ export default function Klippstudio() {
             </button>
           )}
 
-          {advancedOpen && mediaPublicUrl && (
+          {advancedOpen && hasUploadedClip && (
             <div className="clip-card" style={{ margin: 0 }}>
               <span className="clip-hook" style={{ display: 'block', marginBottom: 6 }}>
                 Klippets sammansättning
@@ -1493,7 +1564,7 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {advancedOpen && mediaPublicUrl && (
+          {advancedOpen && hasUploadedClip && (
             <div className="clip-card" style={{ margin: 0 }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
                 <input
@@ -1594,7 +1665,7 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {advancedOpen && mediaPublicUrl && (
+          {advancedOpen && hasUploadedClip && (
             <div className="clip-card" style={{ margin: 0 }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
                 <input
@@ -1703,7 +1774,7 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {advancedOpen && mediaPublicUrl && (
+          {advancedOpen && hasUploadedClip && (
             <div className="clip-card" style={{ margin: 0 }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
                 <input
@@ -1797,7 +1868,7 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {advancedOpen && mediaPublicUrl && (
+          {advancedOpen && hasUploadedClip && (
             <div className="clip-card" style={{ margin: 0 }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
                 <input
@@ -1888,7 +1959,7 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {mediaPublicUrl && !renderedVideoUrl && (
+          {hasUploadedClip && !renderedVideoUrl && (
             <div className="clip-card" style={{ margin: 0 }}>
               <span className="clip-hook" style={{ display: 'block', marginBottom: 6 }}>
                 Snabb förhandsgranskning (gratis)
@@ -1916,7 +1987,7 @@ export default function Klippstudio() {
             </div>
           )}
 
-          {mediaPublicUrl ? (
+          {hasUploadedClip ? (
             <>
               {renderedVideoUrl ? (
                 <div>

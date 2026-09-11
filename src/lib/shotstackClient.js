@@ -2,11 +2,15 @@ import { errorMessage, parseJsonResponse } from './apiError.js'
 
 // Anropar Netlify Edge Functions /api/render-clip och /api/render-status — aldrig
 // Shotstack API direkt från klienten.
+//
+// clips: [{ id, url, transcript, words }] — ett eller flera uppladdade råklipp. Varje
+// segment i segmentsPlan har ett clip_id som pekar ut vilket av dem det klipps från (satt
+// av generate-plan.ts/revise-plan.ts). Ett enda klipp fungerar som tidigare, bara som en
+// lista med ett element.
 
 async function submitRender({
-  videoUrl,
+  clips,
   segmentsPlan,
-  transcript,
   hookText,
   suggestedSubtitles,
   brollVideoUrl,
@@ -15,7 +19,6 @@ async function submitRender({
   segmentStarts,
   segmentEnds,
   segmentSpeeds,
-  words,
   effectVideoUrl,
   effectType,
   backgroundImageUrl,
@@ -31,9 +34,8 @@ async function submitRender({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      videoUrl,
+      clips,
       segmentsPlan,
-      transcript,
       hookText,
       suggestedSubtitles,
       brollVideoUrl,
@@ -42,7 +44,6 @@ async function submitRender({
       segmentStarts,
       segmentEnds,
       segmentSpeeds,
-      words,
       effectVideoUrl,
       effectType,
       backgroundImageUrl,
@@ -85,9 +86,8 @@ const MAX_POLL_ATTEMPTS = 60 // ~3 minuter
 // riktiga renderingen. Måste skickas med till BÅDE submit och varje statuspollning, annars
 // letar pollningen i fel Shotstack-miljö efter jobbet.
 export async function renderClip({
-  videoUrl,
+  clips,
   segmentsPlan,
-  transcript,
   hookText,
   suggestedSubtitles,
   brollVideoUrl,
@@ -96,7 +96,6 @@ export async function renderClip({
   segmentStarts,
   segmentEnds,
   segmentSpeeds,
-  words,
   effectVideoUrl,
   effectType,
   backgroundImageUrl,
@@ -110,9 +109,8 @@ export async function renderClip({
   onStatus,
 }) {
   const id = await submitRender({
-    videoUrl,
+    clips,
     segmentsPlan,
-    transcript,
     hookText,
     suggestedSubtitles,
     brollVideoUrl,
@@ -121,7 +119,6 @@ export async function renderClip({
     segmentStarts,
     segmentEnds,
     segmentSpeeds,
-    words,
     effectVideoUrl,
     effectType,
     backgroundImageUrl,

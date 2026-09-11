@@ -1,11 +1,13 @@
 import { errorMessage, parseJsonResponse } from './apiError.js'
 
 // Anropar Netlify Edge Function /api/generate-plan — aldrig Claude API direkt från klienten.
+// clips: [{ id, transcript }] — ett eller flera uppladdade råklipp, se
+// buildClipsFromState i Klippstudio.jsx.
 export async function generateClipPlan({
   prompt,
   category,
   subtopic,
-  transcript = [],
+  clips = [],
   trendContext = [],
   previousBestClips = [],
   targetDurationSeconds = null,
@@ -17,7 +19,7 @@ export async function generateClipPlan({
       prompt,
       category,
       subtopic,
-      transcript,
+      clips,
       trendContext,
       previousBestClips,
       targetDurationSeconds,
@@ -37,11 +39,11 @@ export async function generateClipPlan({
 // en fri textinstruktion ("redigera med vägledning"), istället för att bara justera start-/
 // sluttid/hastighet manuellt per segment. frames: bas64 JPEG (utan data:-prefix), en per
 // segment, hämtade klientsidigt (se captureGuidanceFrames i Klippstudio.jsx).
-export async function revisePlan({ segmentsPlan, transcript = [], editInstruction, frames = [] }) {
+export async function revisePlan({ segmentsPlan, clips = [], editInstruction, frames = [] }) {
   const response = await fetch('/api/revise-plan', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ segmentsPlan, transcript, editInstruction, frames }),
+    body: JSON.stringify({ segmentsPlan, clips, editInstruction, frames }),
   })
 
   const data = await parseJsonResponse(response)

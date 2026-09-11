@@ -10,6 +10,13 @@
 // Start-/sluttid och uppspelningshastighet per segment kan också redigeras manuellt
 // (segmentStarts/segmentEnds/segmentSpeeds) — override av AI-förslaget i segmentsPlan.
 // SHOTSTACK_API_KEY exponeras aldrig i klienten.
+//
+// Flera klipp: `clips` är en lista av uppladdade råklipp ([{id, url, transcript, words}]) —
+// varje segment i segmentsPlan pekar ut VILKET klipp (clip_id, satt av generate-plan.ts eller
+// revise-plan.ts) dess start/end/undertexter kommer från. Ett enda uppladdat klipp fungerar
+// precis som tidigare, bara som en lista med ett element. Övergångarna mellan segment
+// (SEGMENT_TRANSITIONS_IN) bryr sig inte om två på varandra följande segment kommer från
+// samma eller olika klipp — samma Shotstack-mekanik fungerar oförändrat över klippgränser.
 
 // "stage" = Shotstack sandbox (gratis, vattenstämplat, 512×288@15fps oavsett begärd
 // output.size/quality) — säkert default tills du har en produktionsnyckel. Sätt
@@ -126,9 +133,13 @@ const EFFECT_COMPOSITE: Record<
 }
 const DEFAULT_EFFECT_COMPOSITE = EFFECT_COMPOSITE.orb
 
-type Segment = { start: string; end: string; description?: string; order?: number }
+type Segment = { clip_id?: string; start: string; end: string; description?: string; order?: number }
 type TranscriptSegment = { start: number; end: number; text: string }
 type WordTiming = { word: string; start: number; end: number }
+// Ett uppladdat råklipp — flera kan vara aktuella samtidigt (se "Flera klipp" nedan).
+// transcript/words är samma form som tidigare (från Whisper via transcribe.ts), bara
+// nästlade per klipp istället för en enda global lista.
+type ClipInput = { id: string; url: string; transcript?: TranscriptSegment[]; words?: WordTiming[] }
 
 // Ord-för-ord-undertexter byggs som korta html-klipp (ett ord i taget, stort och fetstilat) —
 // samma mönster som Shotstacks eget "kinetic-text"-exempel, verifierat schema. Undviker den
@@ -171,9 +182,18 @@ export default async (request: Request) => {
   const preview = body.preview === true
   const shotstackHost = resolveShotstackHost(preview)
 
-  const videoUrl = body.videoUrl
+  // Flera klipp: varje segment pekar ut VILKET uppladdat klipp (clip_id) dess start/end
+  // syftar på — se generate-plan.ts. Ett enda uppladdat klipp fungerar precis som tidigare,
+  // bara uttryckt som en lista med ett element istället för en enskild videoUrl.
+  const clips = Array.isArray(body.clips) ? (body.clips as ClipInput[]) : []
+  const clipById = new Map(clips.map((c) => [c.id, c]))
+  // Fallback till första klippet om ett segments clip_id saknas/inte hittas — defensivt,
+  // inte den normala vägen (generate-plan.ts instrueras att alltid sätta ett giltigt id).
+  function resolveClip(clipId: string | undefined): ClipInput | undefined {
+    return (clipId && clipById.get(clipId)) || clips[0]
+  }
+
   const segmentsPlan = Array.isArray(body.segmentsPlan) ? (body.segmentsPlan as Segment[]) : []
-  const transcript = Array.isArray(body.transcript) ? (body.transcript as TranscriptSegment[]) : []
   const hookText = typeof body.hookText === 'string' ? body.hookText : ''
   const suggestedSubtitles = Array.isArray(body.suggestedSubtitles)
     ? (body.suggestedSubtitles as string[]).filter((s) => typeof s === 'string' && s.trim())
@@ -186,10 +206,6 @@ export default async (request: Request) => {
   // Manuellt val av färgfilter per segment (se SEGMENT_FILTER_OPTIONS i constants.js) — tomt
   // värde betyder inget filter alls (inte cyklande automatik, till skillnad från effect).
   const segmentFilters = Array.isArray(body.segmentFilters) ? (body.segmentFilters as unknown[]) : []
-  // Ord-nivå-tidsstämplar från Whisper (transcribe.ts), för ord-för-ord-animerade
-  // undertexter (CapCut/TikTok-stil) istället för statiska frasöverlägg. Tom lista om
-  // transkribering hoppades över (fil >25 MB) eller inget råmaterial finns.
-  const words = Array.isArray(body.words) ? (body.words as WordTiming[]) : []
   const brollDuration =
     typeof body.brollDurationSeconds === 'number' && body.brollDurationSeconds > 0
       ? body.brollDurationSeconds
@@ -250,8 +266,8 @@ export default async (request: Request) => {
   const segmentEnds = Array.isArray(body.segmentEnds) ? (body.segmentEnds as unknown[]) : []
   const segmentSpeeds = Array.isArray(body.segmentSpeeds) ? (body.segmentSpeeds as unknown[]) : []
 
-  if (!videoUrl || typeof videoUrl !== 'string') {
-    return jsonResponse({ error: 'videoUrl krävs (publik URL till källvideon).' }, 400)
+  if (clips.length === 0 || !clips.every((c) => typeof c.url === 'string' && c.url)) {
+    return jsonResponse({ error: 'clips (icke-tom lista, varje med giltig url) krävs.' }, 400)
   }
   if (segmentsPlan.length === 0) {
     return jsonResponse({ error: 'segmentsPlan (icke-tom lista) krävs.' }, 400)
@@ -276,6 +292,12 @@ export default async (request: Request) => {
   let timelineCursor = 0
 
   segmentsPlan.forEach((seg, index) => {
+    // Vilket uppladdat klipp DETTA segment klipps ur — avgör både videokällan och vilka
+    // ord/transkriptrader som hör till segmentets tidsintervall (dessa är per-klipp, inte
+    // globala, eftersom flera klipp kan ha överlappande egna tidslinjer 0:00–).
+    const clip = resolveClip(seg.clip_id)
+    const clipWords = clip?.words ?? []
+    const clipTranscript = clip?.transcript ?? []
     const manualStart = segmentStarts[index]
     const manualEnd = segmentEnds[index]
     const trimStart = parseTimecode(typeof manualStart === 'string' && manualStart.trim() ? manualStart : seg.start)
@@ -330,7 +352,7 @@ export default async (request: Request) => {
       videoClips.push({
         asset: {
           type: 'video',
-          src: videoUrl,
+          src: clip?.url,
           trim: trimStart,
           volume: 1,
           ...(speed ? { speed } : {}),
@@ -346,7 +368,7 @@ export default async (request: Request) => {
 
     // Ord-för-ord om vi har riktiga tidsstämplar för det här segmentet (CapCut/TikTok-stil,
     // synkat exakt mot talet) — annars en statisk frasöverlägg som tidigare.
-    const segmentWords = words.filter((w) => w.start >= trimStart && w.start < trimEnd)
+    const segmentWords = clipWords.filter((w) => w.start >= trimStart && w.start < trimEnd)
 
     if (segmentWords.length > 0) {
       for (const w of segmentWords) {
@@ -372,7 +394,7 @@ export default async (request: Request) => {
       const rawCaption =
         suggestedSubtitles.length > 0
           ? suggestedSubtitles[index % suggestedSubtitles.length]
-          : transcript
+          : clipTranscript
               .filter((t) => t.start >= trimStart && t.start < trimEnd)
               .map((t) => t.text)
               .join(' ')
