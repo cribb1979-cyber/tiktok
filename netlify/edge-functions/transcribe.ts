@@ -115,22 +115,39 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Kunde inte tolka Whispers svar som JSON.', raw: rawWhisperText }, 502)
   }
 
-  // Whisper hallucinerar ibland en fast fransk boilerplate-fras ("Sous-titres réalisés par la
-  // communauté d'Amara.org" och varianter) på tyst/nästan tyst ljud — ett känt artefaktmönster
-  // från träningsdatan (Amara.org är en community för crowd-sourcade undertexter). Filtreras
-  // bort här, innan Claude-planeringen eller undertextrenderingen någonsin ser den — annars
-  // dyker enstaka ord ur frasen (t.ex. "SOUS") upp som meningslösa ord-för-ord-undertexter.
-  const isWhisperHallucination = (text: string) => /amara\.org|sous-titres/i.test(text)
+  // Whisper hallucinerar ibland fasta boilerplate-fraser på tyst/nästan tyst ljud — kända
+  // artefaktmönster från träningsdatan: undertext-communityn Amara.org, och gott om
+  // "tack för att ni tittade"-avslutningskort från YouTube-videor, på flera språk (engelska,
+  // koreanska, japanska, kinesiska, spanska, tyska, ...). Listan nedan täcker bara de vi känner
+  // till namnet på — kompletteras därför med en generisk signal: Whisper svarar med en
+  // no_speech_prob per segment (modellens egen skattning av sannolikheten att segmentet är
+  // tyst). Hög no_speech_prob + ändå returnerad text är ett starkt tecken på hallucination
+  // även för fraser som inte matchar listan. Filtreras bort här, innan Claude-planeringen
+  // eller undertextrenderingen någonsin ser dem — annars dyker enstaka ord ur frasen (t.ex.
+  // "SOUS") upp som meningslösa ord-för-ord-undertexter.
+  const isKnownHallucinationPhrase = (text: string) =>
+    /amara\.org|sous-titres|thanks? (for watching|you for watching)|please (subscribe|like)|시청해 ?주셔서|구독.*좋아요|ご視聴ありがとう|感谢(观看|收看)|gracias por ver|danke f(ü|u)rs? zuschauen/i.test(
+      text
+    )
 
   // Normaliserat till { start, end, text } (sekunder) — samma form som skickas vidare
-  // till Claude-anropet i generate-plan.ts.
-  const rawSegments = ((data.segments as unknown[]) ?? []).map((seg: { start: number; end: number; text: string }) => ({
-    start: seg.start,
-    end: seg.end,
-    text: (seg.text ?? '').trim(),
-  }))
-  const hallucinatedRanges = rawSegments.filter((seg) => isWhisperHallucination(seg.text))
-  const segments = rawSegments.filter((seg) => !isWhisperHallucination(seg.text))
+  // till Claude-anropet i generate-plan.ts. no_speech_prob används bara internt för
+  // hallucinationsfiltret nedan, skickas inte vidare.
+  const rawSegments = ((data.segments as unknown[]) ?? []).map(
+    (seg: { start: number; end: number; text: string; no_speech_prob?: number }) => ({
+      start: seg.start,
+      end: seg.end,
+      text: (seg.text ?? '').trim(),
+      noSpeechProb: typeof seg.no_speech_prob === 'number' ? seg.no_speech_prob : 0,
+    })
+  )
+  const isWhisperHallucination = (seg: { text: string; noSpeechProb: number }) =>
+    seg.text.length > 0 && (isKnownHallucinationPhrase(seg.text) || seg.noSpeechProb > 0.85)
+
+  const hallucinatedRanges = rawSegments.filter(isWhisperHallucination)
+  const segments = rawSegments
+    .filter((seg) => !isWhisperHallucination(seg))
+    .map(({ start, end, text }) => ({ start, end, text }))
 
   // Enskilda ord ur en hallucinerad fras ("Sous", "titres", "par", ...) innehåller själva
   // inte "amara.org" och matchar därför inte isWhisperHallucination direkt — filtreras

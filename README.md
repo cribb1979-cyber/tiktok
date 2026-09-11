@@ -109,6 +109,21 @@ extra spärr, så ett hängande `fetch()` (som saknar egen timeout) aldrig kan l
 evigt — statustexten ("Konverterar video…" / "Transkriberar…") uppdateras löpande via en
 `onStatus`-callback.
 
+**Hallucinerade boilerplate-undertexter:** Whisper hittar ibland på fasta avslutningsfraser
+("Thank you for watching", "시청해 주셔서 감사합니다", "Sous-titres réalisés par la
+communauté d'Amara.org", m.fl. på flera språk) på tyst/nästan tyst ljud — ett känt
+artefaktmönster från träningsdatan (YouTube-avslutningskort och undertext-communities).
+`transcribe.ts` filtrerar bort segment som antingen matchar en känd fras, ELLER har hög
+`no_speech_prob` (Whisper API:ts egen skattning av sannolikheten att segmentet är tyst) —
+den generiska signalen fångar även varianter/språk som inte finns i frastexten. Enstaka ord
+ur en filtrerad fras (t.ex. "SOUS") filtreras separat bort ur ord-listan via tidsstämpel mot
+det hallucinerade segmentets tidsintervall, eftersom ett enskilt ord inte matchar frasen.
+
+**Tillfälliga uppladdningsfel:** `uploadRawClip` (`src/lib/storage.js`) gör upp till två
+återförsök med kort paus vid fel mot Supabase Storage, eftersom stora videouppladdningar från
+mobil är känsliga för tillfälliga nätverks-/Cloudflare-hicka (observerat: "HTTP 520 error")
+som normalt lyckas vid omförsök.
+
 ## Flera klipp: klippa ihop flera korta råklipp till ett (valfritt)
 
 Klippstudio stödjer flera uppladdade råklipp istället för bara ett — "Lägg till klipp" kan
