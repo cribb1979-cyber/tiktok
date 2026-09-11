@@ -570,9 +570,20 @@ export default function Klippstudio() {
   // ord-för-ord-undertexter/klippningsplan fungerar identiskt med ett uppladdat klipp.
   async function handleGenerateAvatarVideo() {
     if (!manusBeats || manusBeats.length === 0) return
+    // HeyGen stödjer riktiga pauser via en <break time="Xs"/>-tagg inline i texten (den enda
+    // taggen den stödjer — INTE en full SSML-<speak>-inpackning, det ger enligt HeyGens egen
+    // dokumentation extra uppläst brus). Utan detta läste avataren upp replikerna rakt igenom
+    // utan att respektera tystnad/paus markerad i manuset (rapporterad bugg). Kräver att den
+    // valda HEYGEN_VOICE_ID faktiskt stödjer pauser (voice.support_pause via /v2/voices) —
+    // annars kan taggen ignoreras eller läsas upp bokstavligt.
     const spokenText = manusBeats
-      .map((b) => b.line)
-      .filter((line) => typeof line === 'string' && line.trim())
+      .map((b) => {
+        const line = typeof b.line === 'string' ? b.line.trim() : ''
+        if (!line) return ''
+        const pause = typeof b.pause_after_seconds === 'number' && b.pause_after_seconds > 0 ? b.pause_after_seconds : 0
+        return pause > 0 ? `${line} <break time="${pause}s"/>` : line
+      })
+      .filter(Boolean)
       .join(' ')
     if (!spokenText.trim()) {
       setManusError('Manuset innehåller ingen talbar dialog (bara regianvisningar?).')
@@ -1300,6 +1311,9 @@ export default function Klippstudio() {
                   <div key={i} className="clip-card" style={{ margin: 0 }}>
                     {beat.direction && <p className="clip-category">[{beat.direction}]</p>}
                     <p className="clip-prompt">{beat.line}</p>
+                    {beat.pause_after_seconds > 0 && (
+                      <p className="clip-prompt">⏸ Paus efter: {beat.pause_after_seconds}s</p>
+                    )}
                   </div>
                 ))}
                 <button

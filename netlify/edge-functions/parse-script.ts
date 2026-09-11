@@ -28,10 +28,19 @@ VIKTIGT:
   text-till-tal-tjänst. Ändra inte innebörden eller ordvalet i själva dialogen.
 - beat.direction: regianvisningen (utan hakparenteser) som hör till den raden, eller tom
   sträng om ingen fanns precis före den raden.
+- beat.pause_after_seconds: om regianvisningen (antingen den som hör till DENNA rad, eller en
+  fristående regianvisning direkt EFTER raden, före nästa dialog) uttryckligen ber om en paus/
+  tystnad (t.ex. "[paus]", "[tystnad]", "[Paus, luta dig fram]") — uppskatta en rimlig längd i
+  sekunder: en explicit angiven längd om en sådan finns (t.ex. "[3 sekunders tystnad]" → 3),
+  annars en kort paus (~1s) för "paus" och en längre (~2-3s) för "tystnad"/"lång paus". 0 om
+  ingen paus/tystnad efterfrågas efter raden.
 - suggested_duration_seconds: en grov uppskattning baserad på radens längd (räkna ca 2,5
-  ord/sekund naturligt talat svenska), avrundat till närmaste halva sekund.
+  ord/sekund naturligt talat svenska), avrundat till närmaste halva sekund. Inkludera INTE
+  pause_after_seconds i detta tal, de är separata.
 - Hoppa över rader som ENDAST är regianvisningar utan någon efterföljande dialog (de har
-  inget ljud att generera).
+  inget ljud att generera) — men om en sådan fristående regianvisning ber om paus/tystnad,
+  lägg den paus-längden på pause_after_seconds för FÖREGÅENDE beat istället för att tappa bort
+  den.
 - Om manuset är tomt eller inte innehåller någon talbar dialog alls: returnera en tom
   parsed_beats-lista, gissa inte fram påhittad dialog.`
 
@@ -46,8 +55,12 @@ const RESPONSE_SCHEMA = {
           line: { type: 'string', description: 'Enbart den talbara dialogen, utan regianvisningar/hakparenteser.' },
           direction: { type: 'string', description: 'Regianvisningen som hör till raden, eller tom sträng.' },
           suggested_duration_seconds: { type: 'number' },
+          pause_after_seconds: {
+            type: 'number',
+            description: 'Uppskattad paus/tystnad (sekunder) efter raden, 0 om ingen paus efterfrågas.',
+          },
         },
-        required: ['line', 'direction', 'suggested_duration_seconds'],
+        required: ['line', 'direction', 'suggested_duration_seconds', 'pause_after_seconds'],
         additionalProperties: false,
       },
     },

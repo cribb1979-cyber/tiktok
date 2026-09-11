@@ -186,18 +186,30 @@ INTE byggt än, prioriterat bort till förmån för AI-avatar-vägen.
 
 **Flöde:**
 1. `netlify/edge-functions/parse-script.ts` (Claude) tolkar det fritt skrivna manuset till
-   `parsed_beats`: `[{ line, direction, suggested_duration_seconds }]` per rad — `line` är
-   BARA den talbara dialogen (regianvisningar bortrensade), `direction` regianvisningen som
-   hörde till raden. Visas i Klippstudio som en granskningslista innan man går vidare (video-
-   generering kostar riktiga pengar per sekund, värt att kunna se/ångra innan man trycker).
-2. `netlify/edge-functions/generate-avatar-video.ts` slår ihop alla `parsed_beats[].line` till
-   en sammanhängande text och submittar den till HeyGens `v2/video/generate` — bara submit,
-   svarar direkt (samma anledning som `.mov`-konverteringen ovan: videogenerering kan ta
-   längre än Netlify Edge Functions 40-sekundersgräns för att svara med headers).
-3. Klienten (`generateAvatarVideo` i `src/lib/heygenClient.js`) pollar
+   `parsed_beats`: `[{ line, direction, suggested_duration_seconds, pause_after_seconds }]` per
+   rad — `line` är BARA den talbara dialogen (regianvisningar bortrensade), `direction`
+   regianvisningen som hörde till raden, `pause_after_seconds` en uppskattad paus/tystnad
+   (sekunder, 0 om ingen) om regianvisningen bad om det (t.ex. "[paus]", "[tystnad]", eller en
+   explicit längd som "[3 sekunders tystnad]"). Visas i Klippstudio som en granskningslista
+   innan man går vidare (videogenerering kostar riktiga pengar per sekund, värt att kunna
+   se/ångra innan man trycker).
+2. Klippstudio (`handleGenerateAvatarVideo`) slår ihop alla `parsed_beats[].line` till en
+   sammanhängande text, och lägger in en `<break time="Xs"/>`-tagg efter varje rad som har
+   `pause_after_seconds > 0` — HeyGens `input_text` stödjer den taggen (den ENDA taggen den
+   stödjer, ingen full SSML-`<speak>`-inpackning, det ger enligt HeyGens dokumentation extra
+   uppläst brus) för riktiga pauser i talet. Utan detta läste avataren tidigare upp replikerna
+   rakt igenom utan att respektera tystnad markerad i manuset (rapporterad bugg — hela poängen
+   med en regianvisning som "[tystnad]" gick förlorad). Kräver att den valda `HEYGEN_VOICE_ID`
+   faktiskt stödjer pauser — kolla `support_pause`-fältet för din röst via
+   `GET https://api.heygen.com/v2/voices` (se "Miljövariabler" nedan för hur du listar dem).
+3. `netlify/edge-functions/generate-avatar-video.ts` tar emot den färdiga texten (med
+   ev. `<break>`-taggar redan inbakade) och submittar den till HeyGens `v2/video/generate` —
+   bara submit, svarar direkt (samma anledning som `.mov`-konverteringen ovan: videogenerering
+   kan ta längre än Netlify Edge Functions 40-sekundersgräns för att svara med headers).
+4. Klienten (`generateAvatarVideo` i `src/lib/heygenClient.js`) pollar
    `netlify/edge-functions/avatar-video-status.ts` (samma
    PENDING/RUNNING/SUCCEEDED/FAILED-kontrakt som B-roll/bakgrundsbild) tills videon är klar.
-4. Den färdiga videon läggs till i `clips`-listan i Klippstudio.jsx precis som ett vanligt
+5. Den färdiga videon läggs till i `clips`-listan i Klippstudio.jsx precis som ett vanligt
    uppladdat klipp — samma `{ id, name, publicUrl, transcript, transcribing, ... }`-form,
    samma nedströms klippningsplan-/renderingsflöde återanvänds oförändrat. Transkriberas via
    `transcribeMp4Url` (`whisperClient.js`) — en ny, enklare variant av `transcribeFromUrl` som
