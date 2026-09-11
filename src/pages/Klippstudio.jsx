@@ -1349,13 +1349,28 @@ export default function Klippstudio() {
                   disabled={manusGenerating}
                 >
                   <option value="">Standard (HEYGEN_VOICE_ID)</option>
-                  {voiceOptions.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                      {v.language ? ` (${v.language})` : ''}
-                      {v.supportPause ? ' — stödjer paus' : ''}
-                    </option>
-                  ))}
+                  {/* Servern (list-voices.ts) filtrerar redan till bara svenska + 10 engelska
+                      röster — grupperat här bara för tydlighet i dropdownen. */}
+                  <optgroup label="Svenska">
+                    {voiceOptions
+                      .filter((v) => v.language?.toLowerCase().includes('swedish'))
+                      .map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name}
+                          {v.supportPause ? ' — stödjer paus' : ''}
+                        </option>
+                      ))}
+                  </optgroup>
+                  <optgroup label="Engelska">
+                    {voiceOptions
+                      .filter((v) => v.language?.toLowerCase().includes('english'))
+                      .map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name}
+                          {v.supportPause ? ' — stödjer paus' : ''}
+                        </option>
+                      ))}
+                  </optgroup>
                 </select>
               </label>
             )}

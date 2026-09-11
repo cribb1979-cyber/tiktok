@@ -233,12 +233,17 @@ fast månadsåtagande för en funktion som används oregelbundet.
 
 **Avatar-/röstväljare:** Klippstudio hämtar (via `netlify/edge-functions/list-avatars.ts` och
 `list-voices.ts` — rena proxyanrop mot HeyGens `/v2/avatars`/`/v2/voices`, nyckeln stannar
-server-side) hela ditt HeyGen-kontos avatar-/röstbibliotek och visar dem som två dropdowns
-ovanför manusfältet, en gång per sidladdning (bara metadata, kostar inget). Väljer du inget
-(eller om listorna inte gick att hämta, t.ex. fel API-nyckel — visas då som en varning istället
-för att blockera Manus-läget) faller `generate-avatar-video.ts` tillbaka på
-`HEYGEN_AVATAR_ID`/`HEYGEN_VOICE_ID`-miljövariablerna. Röstlistan visar "— stödjer paus" för
-röster där `support_pause` är sant (se pausfunktionen ovan) — välj en sådan om manuset
+server-side) ditt HeyGen-kontos avatar-/röstbibliotek och visar dem som två dropdowns ovanför
+manusfältet, en gång per sidladdning (bara metadata, kostar inget). Väljer du inget (eller om
+listorna inte gick att hämta, t.ex. fel API-nyckel — visas då som en varning istället för att
+blockera Manus-läget) faller `generate-avatar-video.ts` tillbaka på
+`HEYGEN_AVATAR_ID`/`HEYGEN_VOICE_ID`-miljövariablerna.
+
+Röstlistan filtreras i `list-voices.ts` till bara **svenska röster** plus ett urval på
+**`ENGLISH_VOICE_LIMIT` (10) engelska röster** — @stoffe_medium är ett svenskt konto, och
+HeyGens fulla bibliotek har hundratals röster över dussintals språk som annars gör dropdownen
+oanvändbart lång. Visas grupperat (Svenska/Engelska) i UI:t. Röstlistan visar "— stödjer paus"
+för röster där `support_pause` är sant (se pausfunktionen ovan) — välj en sådan om manuset
 använder `[paus]`/`[tystnad]`.
 
 **Datamodell:** `scripts`-tabellen (`0008_scripts.sql`) sparar `raw_text`/`parsed_beats` som
