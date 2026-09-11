@@ -1,13 +1,14 @@
 import { useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient.js'
-import { generateClipPlan, revisePlan } from '../lib/claudeClient.js'
-import { transcribeMedia, transcribeFromUrl } from '../lib/whisperClient.js'
+import { generateClipPlan, revisePlan, parseScript } from '../lib/claudeClient.js'
+import { transcribeMedia, transcribeFromUrl, transcribeMp4Url } from '../lib/whisperClient.js'
 import { uploadRawClip } from '../lib/storage.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
 import { generateBackgroundImage, matteVideo } from '../lib/backgroundClient.js'
+import { generateAvatarVideo } from '../lib/heygenClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import {
   CATEGORIES,
@@ -294,6 +295,18 @@ export default function Klippstudio() {
     setClips((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
   }
 
+  // Manus-läge (valfritt tredje inmatningssätt utöver uppladdning/fri prompt): dialog +
+  // regianvisningar i hakparenteser tolkas av Claude till beats (parse-script.ts), den
+  // sammanslagna talbara dialogen skickas till HeyGen som genererar en talande AI-avatar-
+  // video — som sedan läggs till i clips-listan OVAN precis som ett vanligt uppladdat klipp,
+  // så hela transkriberings-/planerings-/renderingsflödet återanvänds oförändrat.
+  const [manusText, setManusText] = useState('')
+  const [manusParsing, setManusParsing] = useState(false)
+  const [manusBeats, setManusBeats] = useState(null)
+  const [manusGenerating, setManusGenerating] = useState(false)
+  const [manusStatus, setManusStatus] = useState(null)
+  const [manusError, setManusError] = useState(null)
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null)
@@ -534,6 +547,72 @@ export default function Klippstudio() {
     setRenderedVideoUrl(null)
     setPreviewVideoUrl(null)
     setVideoFile(null)
+  }
+
+  async function handleParseManus() {
+    if (!manusText.trim()) return
+    setManusParsing(true)
+    setManusError(null)
+    setManusBeats(null)
+    try {
+      const result = await parseScript(manusText)
+      setManusBeats(result.parsed_beats)
+    } catch (err) {
+      setManusError(err.message)
+    }
+    setManusParsing(false)
+  }
+
+  // Skickar den tolkade dialogen till HeyGen, pollar tills videon är klar, och lägger sedan
+  // till den som ett vanligt klipp i clips-listan (samma { id, name, publicUrl, transcript,
+  // transcribing, ... }-form som handleAddClip bygger) — transkriberas här via
+  // transcribeMp4Url (HeyGen levererar redan mp4, ingen Shotstack-konvertering behövs) så
+  // ord-för-ord-undertexter/klippningsplan fungerar identiskt med ett uppladdat klipp.
+  async function handleGenerateAvatarVideo() {
+    if (!manusBeats || manusBeats.length === 0) return
+    const spokenText = manusBeats
+      .map((b) => b.line)
+      .filter((line) => typeof line === 'string' && line.trim())
+      .join(' ')
+    if (!spokenText.trim()) {
+      setManusError('Manuset innehåller ingen talbar dialog (bara regianvisningar?).')
+      return
+    }
+
+    setManusGenerating(true)
+    setManusError(null)
+    setManusStatus(null)
+    try {
+      const videoUrl = await generateAvatarVideo({ inputText: spokenText, onStatus: setManusStatus })
+
+      const id = `c${nextClipIdRef.current++}`
+      setClips((prev) => [
+        ...prev,
+        {
+          id,
+          name: 'AI-avatar (manus)',
+          publicUrl: videoUrl,
+          transcript: null,
+          transcribing: true,
+          transcriptionSkipped: false,
+          error: null,
+        },
+      ])
+      setRenderedVideoUrl(null)
+      setPreviewVideoUrl(null)
+      setVideoFile(null)
+
+      try {
+        const result = await transcribeMp4Url(videoUrl)
+        updateClip(id, { transcript: result })
+      } catch (err) {
+        updateClip(id, { error: err.message })
+      }
+      updateClip(id, { transcribing: false })
+    } catch (err) {
+      setManusError(err.message)
+    }
+    setManusGenerating(false)
   }
 
   async function handleGenerate(event) {
@@ -1184,6 +1263,61 @@ export default function Klippstudio() {
       </header>
 
       {error && <p className="error-banner">{error}</p>}
+
+      <div className="clip-form" style={{ marginBottom: 16 }}>
+        <label>
+          Manus (valfritt) — dialog + regianvisningar i hakparenteser, t.ex. &quot;[Lugn
+          början – du sitter stilla] Har du någonsin känt...&quot;. En AI-avatar läser upp
+          dialogen och blir ett klipp du kan bygga en klippningsplan från, precis som
+          uppladdat råmaterial.
+          <textarea
+            rows={5}
+            value={manusText}
+            onChange={(e) => setManusText(e.target.value)}
+            placeholder={'[Lugn början – du sitter stilla]\nHar du någonsin känt att någon var i rummet, fast du var ensam?'}
+            disabled={manusParsing || manusGenerating}
+          />
+        </label>
+        <button
+          type="button"
+          className="btn-primary"
+          style={{ marginTop: 8 }}
+          onClick={handleParseManus}
+          disabled={!manusText.trim() || manusParsing || manusGenerating}
+        >
+          {manusParsing ? 'Tolkar manus…' : 'Tolka manus'}
+        </button>
+
+        {manusError && <p className="error-banner">{manusError}</p>}
+
+        {manusBeats && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+            {manusBeats.length === 0 ? (
+              <p className="clip-prompt">Ingen talbar dialog hittades i manuset.</p>
+            ) : (
+              <>
+                {manusBeats.map((beat, i) => (
+                  <div key={i} className="clip-card" style={{ margin: 0 }}>
+                    {beat.direction && <p className="clip-category">[{beat.direction}]</p>}
+                    <p className="clip-prompt">{beat.line}</p>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ marginTop: 8 }}
+                  onClick={handleGenerateAvatarVideo}
+                  disabled={manusGenerating}
+                >
+                  {manusGenerating
+                    ? BROLL_STATUS_LABELS[manusStatus] ?? 'Genererar AI-avatar-video…'
+                    : 'Generera AI-avatar-video'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       <form className="clip-form" onSubmit={handleGenerate}>
         <label>

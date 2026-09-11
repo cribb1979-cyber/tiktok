@@ -41,6 +41,33 @@ export async function transcribeMedia(file) {
   return data // { text, segments: [{ start, end, text }], words: [{ word, start, end }] }
 }
 
+// Delad av transcribeFromUrl (efter Shotstack-konvertering) och transcribeMp4Url (redan mp4,
+// t.ex. en HeyGen-avatarvideo i Manus-läget) — båda skickar en redan Whisper-kompatibel
+// mp4-URL rakt av, utan någon konverteringspollning.
+async function transcribeConvertedMp4(mp4Url) {
+  const response = await fetchWithTimeout('/api/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mp4Url }),
+  })
+
+  const data = await parseJsonResponse(response)
+
+  if (!response.ok) {
+    throw new Error(errorMessage(data, 'Något gick fel vid transkribering.'))
+  }
+
+  return data
+}
+
+// För en video som redan är i ett Whisper-kompatibelt mp4-format och redan publikt nåbar
+// (t.ex. en HeyGen-genererad AI-avatar-video i Manus-läget) — hoppar över
+// Shotstack-konverteringssteget helt eftersom det bara behövs för format Whisper inte
+// accepterar direkt (.mov m.fl.).
+export async function transcribeMp4Url(mp4Url) {
+  return transcribeConvertedMp4(mp4Url)
+}
+
 const CONVERT_POLL_INTERVAL_MS = 3000
 const CONVERT_MAX_POLL_ATTEMPTS = 60 // ~3 minuter
 
@@ -93,17 +120,5 @@ export async function transcribeFromUrl(videoUrl, onStatus) {
   }
 
   onStatus?.('transcribing')
-  const response = await fetchWithTimeout('/api/transcribe', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mp4Url }),
-  })
-
-  const data = await parseJsonResponse(response)
-
-  if (!response.ok) {
-    throw new Error(errorMessage(data, 'Något gick fel vid transkribering.'))
-  }
-
-  return data
+  return transcribeConvertedMp4(mp4Url)
 }

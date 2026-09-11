@@ -32,6 +32,7 @@ netlify dev
    - `0002_storage_bucket.sql` — skapar en publik storage-bucket `raw-clips` för uppladdat råmaterial (Shotstack behöver en URL till videon, inte råa bytes)
    - `0003_pgvector_retrieval.sql` — aktiverar `pgvector`, lägger till `embedding vector(1536)` på `clips`, och skapar `match_clips`-funktionen för semantisk sökning
    - `0004_broll.sql` — lägger till `broll_enabled`, `broll_prompt`, `broll_video_url` och `ai_generated_content` på `clips` (valfritt B-roll-tillval, se nedan)
+   - `0008_scripts.sql` — skapar tabellen `scripts` (manus + tolkade beats, se "Manus-läge" nedan)
 
    Alla är idempotenta och ofarliga att köra mot ett projekt som redan har annat innehåll.
 3. Kopiera projektets URL och anon-nyckel till `.env`.
@@ -39,7 +40,7 @@ netlify dev
 ## Sidor
 
 - **Idébank** – fungerande: trenddata (hashtags/ljud/kategori) läggs in manuellt på två sätt — antingen ett fält i taget, eller genom att klistra in en hashtag-lista (t.ex. kopierad direkt från TikTok Creative Centers webbgränssnitt) som tolkas till klickbara kandidater du väljer bland innan de sparas i bulk. Visas sedan ett kort i taget — "Hoppa över" eller "Bygg vidare" (skickar dig till Klippstudio med prompt/kategori förifyllda utifrån trenden). Automatisk skrapning/API-hämtning av trenddata byggs inte — TikTok har ingen öppen API för det (Research API är akademisk/icke-kommersiell, Creative Center har ingen offentlig API), så tredjepartsskrapning skulle innebära löpande kostnad och osäker ToS-status. Klistra-in-flödet är den medvetna kompromissen: du hittar trenden själv på riktiga TikTok/Creative Center, appen sköter bara tolkning och urval.
-- **Klippstudio** – fungerande: ladda upp ett eller flera korta råklipp (video/ljud, valfritt — "Lägg till klipp" för fler, se "Flera klipp" nedan) för tidsstämplad transkribering, skriv prompt + kategori/underämne → Claude föreslår en klippningsplan (som kan klippa ihop segment från flera olika uppladdade klipp) och 2-3 hook-alternativ. Om råmaterial laddats upp kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek. De valfria AI-tilläggen (B-roll, AI-effekt, bakgrundsbyte, tankebubblor, glow — se respektive avsnitt nedan) döljs bakom en hopfälld "Avancerat"-knapp under klippningsplanen (`advancedOpen`-state, default stängd) — infört efter att standardflödet blivit rörigt med fem separata korta synliga samtidigt. Allt finns kvar, bara ur vägen tills man aktivt öppnar sektionen.
+- **Klippstudio** – fungerande: ladda upp ett eller flera korta råklipp (video/ljud, valfritt — "Lägg till klipp" för fler, se "Flera klipp" nedan), ELLER skriv ett manus som blir en AI-avatar-video (se "Manus-läge" nedan) — båda vägarna landar i samma `clips`-lista. Skriv prompt + kategori/underämne → Claude föreslår en klippningsplan (som kan klippa ihop segment från flera olika klipp, oavsett om de är uppladdade eller AI-avatar-genererade) och 2-3 hook-alternativ. Om råmaterial finns kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek. De valfria AI-tilläggen (B-roll, AI-effekt, bakgrundsbyte, tankebubblor, glow — se respektive avsnitt nedan) döljs bakom en hopfälld "Avancerat"-knapp under klippningsplanen (`advancedOpen`-state, default stängd) — infört efter att standardflödet blivit rörigt med fem separata korta synliga samtidigt. Allt finns kvar, bara ur vägen tills man aktivt öppnar sektionen.
 - **Bibliotek** – fungerande: lista, lägg till och ta bort klipp manuellt, sortera på bäst presterande, filtrera på kategori. "Visa genererad text" expanderar kortet med sparade hook-alternativ och segmentplan i sin helhet, "Generera om" kör Claude-genereringen igen för klippets sparade prompt/kategori/underämne och skriver över hook-alternativ/segmentplan/hashtags med ett nytt förslag. Utkast kan "Publiceras (mock)" och publicerade klipp kan få simulerade resultat via "Uppdatera resultat (mock)".
 - **Kalender** – platshållare
 - **Inställningar** – fungerande: TikTok-koppling (mock, se nedan). API-nycklar hanteras i Netlify, inte här.
@@ -173,6 +174,56 @@ bildruta, bakgrundsbytets källvideo) använder `primaryClip` — det uppladdade
 finns) — istället för ett fast, enda klipp. `captureGuidanceFrames` (Redigera med
 vägledning) går längre och slår upp RÄTT klipp per segment individuellt, eftersom Claude kan
 blanda segment från olika klipp i samma reviderade plan.
+
+## Manus-läge (steg 7): dialog → AI-avatar-video (valfritt)
+
+Ett tredje sätt att få ett klipp in i `clips`-listan, utöver att ladda upp råmaterial: skriv
+ett manus (dialog blandat med regianvisningar i hakparenteser, t.ex. `[Lugn början – du
+sitter stilla]`) i Klippstudio, och en AI-avatar-tjänst (HeyGen) genererar en talande video av
+manuset. Byggt som huvudvägen enligt spec-dokumentet ("tidsbrist gör att filma själv sällan
+är realistiskt") — det sekundära, valbara "Guidning/filma själv"-läget (teleprompter-vy) är
+INTE byggt än, prioriterat bort till förmån för AI-avatar-vägen.
+
+**Flöde:**
+1. `netlify/edge-functions/parse-script.ts` (Claude) tolkar det fritt skrivna manuset till
+   `parsed_beats`: `[{ line, direction, suggested_duration_seconds }]` per rad — `line` är
+   BARA den talbara dialogen (regianvisningar bortrensade), `direction` regianvisningen som
+   hörde till raden. Visas i Klippstudio som en granskningslista innan man går vidare (video-
+   generering kostar riktiga pengar per sekund, värt att kunna se/ångra innan man trycker).
+2. `netlify/edge-functions/generate-avatar-video.ts` slår ihop alla `parsed_beats[].line` till
+   en sammanhängande text och submittar den till HeyGens `v2/video/generate` — bara submit,
+   svarar direkt (samma anledning som `.mov`-konverteringen ovan: videogenerering kan ta
+   längre än Netlify Edge Functions 40-sekundersgräns för att svara med headers).
+3. Klienten (`generateAvatarVideo` i `src/lib/heygenClient.js`) pollar
+   `netlify/edge-functions/avatar-video-status.ts` (samma
+   PENDING/RUNNING/SUCCEEDED/FAILED-kontrakt som B-roll/bakgrundsbild) tills videon är klar.
+4. Den färdiga videon läggs till i `clips`-listan i Klippstudio.jsx precis som ett vanligt
+   uppladdat klipp — samma `{ id, name, publicUrl, transcript, transcribing, ... }`-form,
+   samma nedströms klippningsplan-/renderingsflöde återanvänds oförändrat. Transkriberas via
+   `transcribeMp4Url` (`whisperClient.js`) — en ny, enklare variant av `transcribeFromUrl` som
+   hoppar över Shotstack-konverteringssteget helt, eftersom HeyGen redan levererar ett
+   Whisper-kompatibelt mp4 (konverteringen behövs bara för format Whisper inte tar direkt,
+   som `.mov`).
+
+**Leverantörsval (HeyGen, inte Synthesia/Arcads)** — research (WebSearch, 2026-09):
+HeyGens API är rent pay-as-you-go per genererad sekund (från ca $1/min vid 1080p,
+"Avatar III"-kvalitet) UTAN krav på något månadsabonnemang för API-åtkomst. Synthesia kräver
+minst $89/månaden-planen för API-åtkomst överhuvudtaget (30 min/månad ingår, sen $2-5/min
+extra). Arcads kräver en anpassad "Pro"-plan (ingen öppen prislista, kontakta säljteam) för
+API-åtkomst — de lägre planerna (`$110`/`$220` per månad) har ingen API alls. HeyGen matchar
+appens övriga mönster bäst: betala per faktisk användning (som Shotstack/Replicate), inget
+fast månadsåtagande för en funktion som används oregelbundet.
+
+**Miljövariabler:** `HEYGEN_API_KEY` (från HeyGens dashboard → API-nycklar), `HEYGEN_AVATAR_ID`
+och `HEYGEN_VOICE_ID`. Avatar/röst väljs INTE i appens UI i den här första versionen — hämta
+ett avatar-id (t.ex. en av HeyGens standardavatarer, eller en egen instant/foto-avatar du
+skapat i HeyGens dashboard) och ett röst-id (HeyGens `/v2/voices`-lista) en gång, sätt dem som
+Netlify-miljövariabler. Enklare att komma igång med än en egen väljar-UI — kan byggas senare
+om flera avatarer/röster behöver väljas per klipp.
+
+**Datamodell:** `scripts`-tabellen (`0008_scripts.sql`) sparar `raw_text`/`parsed_beats` som
+historik — `clip_id` sätts inte automatiskt idag (kopplas inte till det sparade klippet i
+Bibliotek ännu), bara till för framtida bruk enligt spec-dokumentets datamodell.
 
 ## Shotstack-integration (steg 6)
 

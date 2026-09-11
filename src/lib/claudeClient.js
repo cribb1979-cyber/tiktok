@@ -54,3 +54,23 @@ export async function revisePlan({ segmentsPlan, clips = [], editInstruction, fr
 
   return data // { segments_plan, segment_speeds, summary }
 }
+
+// Anropar Netlify Edge Function /api/parse-script — tolkar ett fritt skrivet manus (dialog +
+// regianvisningar i hakparenteser) till beats: [{ line, direction, suggested_duration_seconds }].
+// line innehåller BARA talbar dialog, redan bortrensad från regianvisningar — se
+// parse-script.ts och handleGenerateAvatarVideo i Klippstudio.jsx.
+export async function parseScript(rawText) {
+  const response = await fetch('/api/parse-script', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rawText }),
+  })
+
+  const data = await parseJsonResponse(response)
+
+  if (!response.ok) {
+    throw new Error(errorMessage(data, 'Kunde inte tolka manuset.'))
+  }
+
+  return data // { parsed_beats }
+}
