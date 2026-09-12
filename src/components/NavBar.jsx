@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom'
 const TABS = [
   { to: '/', label: 'Idébank', icon: '💡' },
   { to: '/studio', label: 'Studio', icon: '🎬' },
+  { to: '/tips', label: 'Tips', icon: '🎓' },
   { to: '/bibliotek', label: 'Bibliotek', icon: '📚' },
   { to: '/kalender', label: 'Kalender', icon: '📅' },
   { to: '/installningar', label: 'Inst.', icon: '⚙️' },

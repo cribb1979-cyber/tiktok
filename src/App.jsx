@@ -5,6 +5,7 @@ import Klippstudio from './pages/Klippstudio.jsx'
 import Bibliotek from './pages/Bibliotek.jsx'
 import Kalender from './pages/Kalender.jsx'
 import Installningar from './pages/Installningar.jsx'
+import Tips from './pages/Tips.jsx'
 import { supabaseConfigured } from './lib/supabaseClient.js'
 
 export default function App() {
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/bibliotek" element={<Bibliotek />} />
           <Route path="/kalender" element={<Kalender />} />
           <Route path="/installningar" element={<Installningar />} />
+          <Route path="/tips" element={<Tips />} />
         </Routes>
       </main>
       <NavBar />
