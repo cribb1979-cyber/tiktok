@@ -38,8 +38,14 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'description (karaktärsbeskrivning) krävs.' }, 400)
   }
 
+  // Prompt-ordval justerat efter ett skarpt fel: "Full body portrait" av en persons
+  // kroppsbeskrivning gav "AiError: NSFW content detected" från FLUX Schnells inbyggda
+  // klassificerare trots en helt vardaglig, fullt påklädd beskrivning (t.ex. "en kvinna i
+  // medelåldern... lugn och samlad hållning") — ett känt falskt-positivt-mönster för den
+  // typen av frasering. "Editorial character reference photo" + uttryckligt "fully clothed"
+  // undviker samma träffbild utan att stänga av modellens säkerhetsfiltrering.
   const replicateInput = {
-    prompt: `Full body portrait, neutral studio background, cinematic lighting: ${description}`,
+    prompt: `Editorial character reference photo, fully clothed, neutral studio background, cinematic lighting: ${description}`,
     aspect_ratio: '9:16',
   }
 

@@ -556,6 +556,18 @@ utgick från). Bytt till `image`. `prompt`/`duration`/`ratio` är fortfarande in
 mot ett skarpt svar — justera enligt Replicates felmeddelande om nästa test visar ett nytt
 fältnamnsfel, samma mönster som ovan.
 
+**Korrigering #3 (skarpt test):** en helt vardaglig karaktärsbeskrivning ("en kvinna i
+medelåldern... lugn och samlad hållning") gav `AiError: NSFW content detected` från FLUX
+Schnell — ett känt falskt-positivt-mönster hos den här modellfamiljens inbyggda
+NSFW-klassificerare, troligen utlöst av frasen "Full body portrait" i
+`generate-character-image.ts`s prompt-mall i kombination med en persons kroppsbeskrivning,
+inte av något olämpligt i den faktiska texten. Löst genom att justera prompt-frasen till
+"Editorial character reference photo, fully clothed, ..." istället för "Full body
+portrait, ..." — medvetet INTE genom att stänga av modellens säkerhetsfiltrering
+(`disable_safety_checker`), som hade varit en trubbigare/mer riskabel lösning för samma
+symptom. OBS: kunde inte verifieras med ett nytt skarpt test i den här sessionen — dyker
+samma fel upp igen med den nya frasen behöver frasen justeras ytterligare.
+
 **Miljövariabler:** ingen ny — återanvänder `REPLICATE_API_TOKEN` och `CLAUDE_API_KEY` som
 redan krävs för B-roll respektive klippningsplanen.
 
