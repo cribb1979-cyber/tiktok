@@ -744,7 +744,12 @@ export default function Klippstudio() {
       setFilmShotlist(null)
       setFilmIdea('')
     } catch (err) {
-      setFilmError(err.message)
+      // filmProgress pekar ut EXAKT vilket steg som felade (karaktärsbild/scenbild/scenvideo,
+      // och vilken scen) — inkluderas i felet istället för att nollställas, annars går den
+      // informationen förlorad och det blir gissningslek att felsöka ett fel mitt i en kedja
+      // på upp till ~20 Replicate-anrop (rapporterat: samma feltext dök upp två gånger utan
+      // att det gick att se om det var samma steg som felade båda gångerna).
+      setFilmError(filmProgress ? `${filmProgress} ${err.message}` : err.message)
       setFilmProgress(null)
     }
     setFilmGenerating(false)
