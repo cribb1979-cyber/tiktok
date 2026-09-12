@@ -20,6 +20,10 @@ import {
   EFFECT_POSITION_HINTS,
   GLOW_COLOR_OPTIONS,
   GLOW_INTENSITY_OPTIONS,
+  GLOW_COLORS_RGB,
+  GLOW_INTENSITY_OPACITY_CLIENT,
+  EFFECT_DEFAULT_DURATIONS,
+  EFFECT_PREVIEW_LAYOUT,
 } from '../constants.js'
 
 // Whisper (OpenAI) har en hård 25 MB-gräns per fil — den kan inte höjas, det är deras
@@ -194,6 +198,348 @@ function ClipTrimmer({ videoUrl, startSeconds, endSeconds, onChange }) {
       <p className="clip-prompt" style={{ marginTop: 4 }}>
         {formatTimecode(startSeconds)} – {formatTimecode(endSeconds)}
         {duration > 0 ? ` (av ${formatTimecode(duration)} totalt)` : ''}
+      </p>
+    </div>
+  )
+}
+
+// Live förhandsgranskning av glow-effekten: spelar upp klippets EGEN källvideo och ritar en
+// CSS-cirkel ovanpå som följer glowens x/y/radie/färg/intensitet, synlig bara när
+// videospelarens currentTime ligger inom glowens tidsintervall — samma matte/opacity-
+// formel som render-clip.ts, men STATISK (ingen pulsering) som en medveten förenkling.
+// OBS: glowens start/sluttid är sekunder på det FÄRDIGA klippets tidslinje (efter ev.
+// bortklippta delar/flera klipp/hook), inte nödvändigtvis källvideons egna tidsstämplar —
+// för ett enda klipp utan trimning stämmer de överens, annars är detta en ungefärlig
+// fingervisning, inte en exakt förhandsgranskning (den får man från "Snabb
+// förhandsgranskning" nedan, som faktiskt renderar via Shotstack).
+function GlowTimelinePreview({
+  videoUrl,
+  xPercent,
+  yPercent,
+  radiusPercent,
+  color,
+  intensity,
+  startSeconds,
+  endSeconds,
+  onChangeTiming,
+}) {
+  const videoRef = useRef(null)
+  const trackRef = useRef(null)
+  const dragRef = useRef(null) // 'start' | 'end' | null
+  const [duration, setDuration] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
+
+  function timeFromPointer(clientX) {
+    if (!trackRef.current || duration <= 0) return 0
+    const rect = trackRef.current.getBoundingClientRect()
+    const fraction = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1)
+    return fraction * duration
+  }
+
+  function handlePointerMove(e) {
+    const mode = dragRef.current
+    if (!mode || duration <= 0) return
+    const t = timeFromPointer(e.clientX)
+    if (mode === 'start') {
+      const next = Math.min(Math.max(t, 0), Math.max(endSeconds - 0.2, 0))
+      onChangeTiming(next, endSeconds)
+      if (videoRef.current) videoRef.current.currentTime = next
+    } else {
+      const next = Math.max(Math.min(t, duration), startSeconds + 0.2)
+      onChangeTiming(startSeconds, next)
+      if (videoRef.current) videoRef.current.currentTime = next
+    }
+  }
+
+  function stopDrag() {
+    dragRef.current = null
+  }
+
+  function startDrag(mode) {
+    return (e) => {
+      e.preventDefault()
+      dragRef.current = mode
+      e.currentTarget.setPointerCapture(e.pointerId)
+      handlePointerMove(e)
+    }
+  }
+
+  const startPct = duration > 0 ? (Math.min(startSeconds, duration) / duration) * 100 : 0
+  const endPct = duration > 0 ? (Math.min(endSeconds, duration) / duration) * 100 : 100
+  const showGlow = currentTime >= startSeconds && currentTime <= endSeconds
+  const rgb = GLOW_COLORS_RGB[color] ?? GLOW_COLORS_RGB.gold
+  const maxOpacity = GLOW_INTENSITY_OPACITY_CLIENT[intensity] ?? GLOW_INTENSITY_OPACITY_CLIENT.medium
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ position: 'relative', maxWidth: 270, margin: '0 auto' }}>
+        <video
+          ref={videoRef}
+          src={videoUrl}
+          onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
+          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+          controls
+          playsInline
+          muted
+          style={{ width: '100%', borderRadius: 10, background: '#000', display: 'block' }}
+        />
+        {showGlow && (
+          <div
+            style={{
+              position: 'absolute',
+              left: `${xPercent}%`,
+              top: `${yPercent}%`,
+              width: `${radiusPercent * 2}%`,
+              transform: 'translate(-50%, -50%)',
+              aspectRatio: '1 / 1',
+              borderRadius: '50%',
+              pointerEvents: 'none',
+              background: `radial-gradient(circle, rgba(${rgb},0.95) 0%, rgba(${rgb},0.55) 40%, rgba(${rgb},0) 72%)`,
+              opacity: maxOpacity,
+            }}
+          />
+        )}
+      </div>
+      <div
+        ref={trackRef}
+        onPointerMove={handlePointerMove}
+        onPointerUp={stopDrag}
+        onPointerLeave={stopDrag}
+        onPointerCancel={stopDrag}
+        style={{
+          position: 'relative',
+          height: 32,
+          marginTop: 8,
+          background: 'var(--surface-2)',
+          borderRadius: 6,
+          touchAction: 'none',
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            left: `${startPct}%`,
+            width: `${Math.max(endPct - startPct, 0)}%`,
+            top: 0,
+            bottom: 0,
+            background: 'var(--accent)',
+            opacity: 0.35,
+            borderRadius: 6,
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          onPointerDown={startDrag('start')}
+          aria-label="Glow starttid (dra)"
+          style={{
+            position: 'absolute',
+            left: `${startPct}%`,
+            top: 0,
+            bottom: 0,
+            width: 16,
+            marginLeft: -8,
+            background: 'var(--accent)',
+            borderRadius: 4,
+            cursor: 'ew-resize',
+          }}
+        />
+        <div
+          onPointerDown={startDrag('end')}
+          aria-label="Glow sluttid (dra)"
+          style={{
+            position: 'absolute',
+            left: `${endPct}%`,
+            top: 0,
+            bottom: 0,
+            width: 16,
+            marginLeft: -8,
+            background: 'var(--accent)',
+            borderRadius: 4,
+            cursor: 'ew-resize',
+          }}
+        />
+      </div>
+      <p className="clip-prompt" style={{ marginTop: 4 }}>
+        Glow: {formatTimecode(startSeconds)} – {formatTimecode(endSeconds)}
+        {duration > 0 ? ` (video: ${formatTimecode(duration)} totalt)` : ''}
+      </p>
+      <p className="placeholder-note">
+        Ungefärlig förhandsgranskning på din originalvideo (statisk styrka, ingen pulsering).
+        Tiderna gäller det FÄRDIGA klippets tidslinje — stämmer exakt om du bara har ett klipp
+        utan bortklippta delar, annars är det en fingervisning. Kolla alltid "Snabb
+        förhandsgranskning" längre ner för hur det faktiskt blir.
+      </p>
+    </div>
+  )
+}
+
+// Live förhandsgranskning av VAR en AI-effekt (ljusklot/dimma/gnistor m.m.) börjar inom
+// segment 0 — en tidslinje för segmentets egen längd med ett dragbart handtag för
+// starttiden, plus en skuggad zon som visar effektens egen (server-satta) längd. Om
+// effekten redan generarats (effectVideoUrl) spelas den upp OVANPÅ källvideon, synkat, med
+// CSS mix-blend-mode: 'screen' som approximerar Shotstacks kromakey mot svart bakgrund —
+// close nog för att se ungefär var/när effekten hamnar utan att behöva vänta på en rendering.
+function EffectTimingPicker({
+  videoUrl,
+  segmentStartSeconds,
+  segmentDurationSeconds,
+  effectVideoUrl,
+  effectType,
+  startOffsetSeconds,
+  onChangeOffset,
+}) {
+  const videoRef = useRef(null)
+  const overlayRef = useRef(null)
+  const trackRef = useRef(null)
+  const dragRef = useRef(false)
+  const [relativeTime, setRelativeTime] = useState(0)
+
+  const effectDuration = EFFECT_DEFAULT_DURATIONS[effectType] ?? 4
+  const layout = EFFECT_PREVIEW_LAYOUT[effectType] ?? EFFECT_PREVIEW_LAYOUT.orb
+  const maxOffset = Math.max(segmentDurationSeconds - effectDuration, 0)
+
+  function timeFromPointer(clientX) {
+    if (!trackRef.current || segmentDurationSeconds <= 0) return 0
+    const rect = trackRef.current.getBoundingClientRect()
+    const fraction = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1)
+    return fraction * segmentDurationSeconds
+  }
+
+  function seekTo(offset) {
+    const clamped = Math.min(Math.max(offset, 0), maxOffset)
+    onChangeOffset(clamped)
+    if (videoRef.current) videoRef.current.currentTime = segmentStartSeconds + clamped
+    setRelativeTime(clamped)
+  }
+
+  function handlePointerMove(e) {
+    if (!dragRef.current) return
+    seekTo(timeFromPointer(e.clientX))
+  }
+
+  function stopDrag() {
+    dragRef.current = false
+  }
+
+  function startDrag(e) {
+    e.preventDefault()
+    dragRef.current = true
+    e.currentTarget.setPointerCapture(e.pointerId)
+    seekTo(timeFromPointer(e.clientX))
+  }
+
+  function handleTimeUpdate(e) {
+    setRelativeTime(e.currentTarget.currentTime - segmentStartSeconds)
+  }
+
+  const showOverlay =
+    Boolean(effectVideoUrl) &&
+    relativeTime >= startOffsetSeconds &&
+    relativeTime <= startOffsetSeconds + effectDuration
+
+  useEffect(() => {
+    if (!overlayRef.current) return
+    if (showOverlay) {
+      overlayRef.current.currentTime = Math.max(relativeTime - startOffsetSeconds, 0)
+      overlayRef.current.play().catch(() => {})
+    } else {
+      overlayRef.current.pause()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showOverlay])
+
+  const offsetPct = segmentDurationSeconds > 0 ? (startOffsetSeconds / segmentDurationSeconds) * 100 : 0
+  const durationPct = segmentDurationSeconds > 0 ? (effectDuration / segmentDurationSeconds) * 100 : 0
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ position: 'relative', maxWidth: 270, margin: '0 auto' }}>
+        <video
+          ref={videoRef}
+          src={videoUrl}
+          onTimeUpdate={handleTimeUpdate}
+          controls
+          playsInline
+          muted
+          style={{ width: '100%', borderRadius: 10, background: '#000', display: 'block' }}
+        />
+        {showOverlay && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              justifyContent: layout.justify,
+              alignItems: layout.align,
+              pointerEvents: 'none',
+              overflow: 'hidden',
+              borderRadius: 10,
+            }}
+          >
+            <video
+              ref={overlayRef}
+              src={effectVideoUrl}
+              muted
+              playsInline
+              loop
+              style={{ width: layout.width, mixBlendMode: layout.blend, opacity: layout.opacity ?? 1 }}
+            />
+          </div>
+        )}
+      </div>
+      <div
+        ref={trackRef}
+        onPointerMove={handlePointerMove}
+        onPointerUp={stopDrag}
+        onPointerLeave={stopDrag}
+        onPointerCancel={stopDrag}
+        style={{
+          position: 'relative',
+          height: 32,
+          marginTop: 8,
+          background: 'var(--surface-2)',
+          borderRadius: 6,
+          touchAction: 'none',
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            left: `${offsetPct}%`,
+            width: `${Math.max(Math.min(durationPct, 100 - offsetPct), 0)}%`,
+            top: 0,
+            bottom: 0,
+            background: 'var(--accent)',
+            opacity: 0.35,
+            borderRadius: 6,
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          onPointerDown={startDrag}
+          aria-label="Effektens starttid (dra)"
+          style={{
+            position: 'absolute',
+            left: `${offsetPct}%`,
+            top: 0,
+            bottom: 0,
+            width: 16,
+            marginLeft: -8,
+            background: 'var(--accent)',
+            borderRadius: 4,
+            cursor: 'ew-resize',
+          }}
+        />
+      </div>
+      <p className="clip-prompt" style={{ marginTop: 4 }}>
+        Effekten börjar {formatTimecode(startOffsetSeconds)} in i segmentet och varar ~
+        {formatTimecode(effectDuration)}
+        {segmentDurationSeconds > 0 ? ` (segmentet är ${formatTimecode(segmentDurationSeconds)} totalt)` : ''}.
+      </p>
+      <p className="placeholder-note">
+        Ungefärlig förhandsgranskning: effektvideon läggs ovanpå med "screen"-blandning som
+        efterliknar kromakey mot svart bakgrund. Kolla alltid "Snabb förhandsgranskning" längre
+        ner för hur det faktiskt renderas hos Shotstack.
       </p>
     </div>
   )
@@ -565,6 +911,9 @@ export default function Klippstudio() {
   const [effectCustomPrompt, setEffectCustomPrompt] = useState('')
   const [effectRefinedPrompt, setEffectRefinedPrompt] = useState('')
   const [effectRefining, setEffectRefining] = useState(false)
+  // Var i segment 0 effekten börjar (sekunder från segmentets EGEN start, inte hela
+  // tidslinjen) — se EffectTimingPicker och effectStartOffsetSeconds i render-clip.ts.
+  const [effectStartSeconds, setEffectStartSeconds] = useState(0)
 
   // Bakgrundsbyte (experimentellt) — byter ut bakgrunden bakom dig i första segmentet mot en
   // AI-genererad bild. Två separata steg: generera bakgrundsbild (snabbt), och ta bort
@@ -985,6 +1334,7 @@ export default function Klippstudio() {
     setEffectPrompt(null)
     setEffectCustomPrompt('')
     setEffectRefinedPrompt('')
+    setEffectStartSeconds(0)
     setBackgroundSwapEnabled(false)
     setBackgroundCustomPrompt('')
     setBackgroundImageUrl(null)
@@ -1144,6 +1494,7 @@ export default function Klippstudio() {
       segmentSpeeds,
       effectVideoUrl,
       effectType,
+      effectStartOffsetSeconds: effectStartSeconds,
       backgroundImageUrl: backgroundSwapEnabled ? backgroundImageUrl : null,
       backgroundMattedVideoUrl: backgroundSwapEnabled ? backgroundMattedVideoUrl : null,
       thoughtBubbles: plan.thought_bubbles ?? [],
@@ -2380,6 +2731,7 @@ export default function Klippstudio() {
                     if (!e.target.checked) {
                       setEffectVideoUrl(null)
                       setEffectPrompt(null)
+                      setEffectStartSeconds(0)
                       setEffectCustomPrompt('')
                       setEffectRefinedPrompt('')
                     }
@@ -2410,6 +2762,7 @@ export default function Klippstudio() {
                       setEffectVideoUrl(null)
                       setEffectPrompt(null)
                       setEffectRefinedPrompt('')
+                      setEffectStartSeconds(0)
                     }}
                   >
                     {EFFECT_TYPE_OPTIONS.map((opt) => (
@@ -2420,6 +2773,26 @@ export default function Klippstudio() {
                   </select>
                 </label>
               )}
+
+              {effectEnabled &&
+                (() => {
+                  const seg0 = plan?.segments_plan?.[0]
+                  const segClip = seg0 ? clips.find((c) => c.id === seg0.clip_id) ?? clips[0] : null
+                  if (!seg0 || !segClip?.publicUrl) return null
+                  const segStart = parseTimecodeClient(segmentStarts[0] || seg0.start)
+                  const segEnd = parseTimecodeClient(segmentEnds[0] || seg0.end)
+                  return (
+                    <EffectTimingPicker
+                      videoUrl={segClip.publicUrl}
+                      segmentStartSeconds={segStart}
+                      segmentDurationSeconds={Math.max(segEnd - segStart, 0)}
+                      effectVideoUrl={effectVideoUrl}
+                      effectType={effectType}
+                      startOffsetSeconds={effectStartSeconds}
+                      onChangeOffset={setEffectStartSeconds}
+                    />
+                  )
+                })()}
 
               {effectEnabled &&
                 (effectVideoUrl ? (
@@ -2658,6 +3031,23 @@ export default function Klippstudio() {
                       </select>
                     </label>
                   </div>
+
+                  {primaryClipUrl && (
+                    <GlowTimelinePreview
+                      videoUrl={primaryClipUrl}
+                      xPercent={glowXPercent}
+                      yPercent={glowYPercent}
+                      radiusPercent={glowRadiusPercent}
+                      color={glowColor}
+                      intensity={glowIntensity}
+                      startSeconds={glowStartSeconds}
+                      endSeconds={glowEndSeconds}
+                      onChangeTiming={(start, end) => {
+                        setGlowStartSeconds(Math.round(start * 10) / 10)
+                        setGlowEndSeconds(Math.round(end * 10) / 10)
+                      }}
+                    />
+                  )}
                 </>
               )}
             </div>

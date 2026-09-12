@@ -222,6 +222,14 @@ export default async (request: Request) => {
     typeof body.effectDurationSeconds === 'number' && body.effectDurationSeconds > 0
       ? body.effectDurationSeconds
       : effectComposite.defaultDuration
+  // Var i segment 0 effekten börjar (sekunder från segmentets egen start, INTE hela
+  // tidslinjen) — klämd i loopen nedan mot segment 0:s faktiska längd minus effektens egen
+  // längd, eftersom den behöver rymmas inom segmentet. Tomt/saknat värde = 0 (segmentets
+  // start), samma beteende som innan detta fanns.
+  const effectStartOffsetRequested =
+    typeof body.effectStartOffsetSeconds === 'number' && body.effectStartOffsetSeconds > 0
+      ? body.effectStartOffsetSeconds
+      : 0
   // Bakgrundsbyte: en AI-genererad bakgrundsbild (generate-background.ts) + användarens
   // egen video med bakgrunden borttagen mot grönt (matte-video.ts) — ersätter det första
   // segmentets normala klipp med en komposit av de två, istället för att lägga till ett
@@ -459,6 +467,7 @@ export default async (request: Request) => {
     // AI-effekt läggs ovanpå det första segmentet, från dess start — inte längre än
     // segmentet själv eller effektens egen längd, det som är kortast.
     if (index === 0 && effectVideoUrl) {
+      const effectStartOffset = Math.min(effectStartOffsetRequested, Math.max(length - effectDuration, 0))
       effectClips.push({
         asset: {
           type: 'video',
@@ -467,8 +476,8 @@ export default async (request: Request) => {
           volume: 0,
           ...(effectComposite.chromaKey ? { chromaKey: EFFECT_CHROMA_KEY } : {}),
         },
-        start: timelineCursor,
-        length: Math.min(effectDuration, length),
+        start: timelineCursor + effectStartOffset,
+        length: Math.min(effectDuration, length - effectStartOffset),
         position: effectComposite.position,
         ...(effectComposite.scale !== undefined ? { scale: effectComposite.scale } : {}),
         ...(effectComposite.fit !== undefined ? { fit: effectComposite.fit } : {}),

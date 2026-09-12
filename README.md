@@ -608,6 +608,23 @@ ovanpå videon. `effectType` måste skickas till `/api/render-clip` med samma v�
 `effectMode` hade när klippet genererades — annars kan fel kompositeringsinställningar (fel
 skalning/position) användas.
 
+**Valfri starttid inom segmentet (`EffectTimingPicker`):** effekten låg tidigare FAST vid
+segment 0:s allra första bildruta — inget sätt att t.ex. låta ett ljusklot dyka upp mitt i
+meningen istället för direkt. `effectStartSeconds` (klientstate) + `effectStartOffsetSeconds`
+(skickas till `/api/render-clip`) löser det: en tidslinje för HELA segment 0:s längd med ett
+dragbart handtag för starttiden och en skuggad zon som visar hur lång tid effektens
+`defaultDuration` (`EFFECT_DEFAULT_DURATIONS` i `constants.js`, speglar `EFFECT_COMPOSITE` i
+`render-clip.ts`) tar i anspråk. `render-clip.ts` klämmer offseten mot
+`Math.max(length - effectDuration, 0)` så effekten alltid ryms inom segmentets faktiska längd,
+och adderar den till `timelineCursor` istället för att alltid använda `timelineCursor` rakt av.
+
+Om effektvideon redan är genererad spelas den upp OVANPÅ segmentets källvideo, synkat med
+tidslinje-handtaget, med CSS `mix-blend-mode: 'screen'` (`EFFECT_PREVIEW_LAYOUT` i
+`constants.js`) som en billig client-side approximation av Shotstacks riktiga `chromaKey` mot
+svart bakgrund — svart blir i praktiken genomskinligt med "screen"-blandning, så resultatet ser
+förvånansvärt likt ut utan någon egen bildbehandling i webbläsaren. Uttryckligen bara en
+ungefärlig fingervisning i UI:t — "Snabb förhandsgranskning" är facit.
+
 **TikTok-taggning:** `ai_generated_content` sätts till `true` när B-roll, effekten eller
 bakgrundsbytet (se nästa avsnitt) används (`brollEnabled || effectEnabled ||
 backgroundSwapEnabled` i `persistClip`).
@@ -740,6 +757,25 @@ tankebubblor → undertexter → glow → AI-effekt → video → bakgrund, så 
 videon och den AI-genererade ljuseffekten men under text.
 
 Taggas INTE som AI-genererat innehåll — manuell positionering/CSS, ingen AI-generering.
+
+**Live tidslinje-förhandsgranskning (`GlowTimelinePreview`):** eftersom glowen renderas som
+ren CSS (ingen AI-videogenerering) går den, till skillnad från AI-effekten ovan, att
+återskapa nästan exakt client-side utan att vänta på en Shotstack-rendering. Komponenten
+spelar upp klippets EGEN källvideo och ritar en `radial-gradient`-cirkel ovanpå — synlig bara
+när `<video>`-elementets `currentTime` (via `onTimeUpdate`) ligger inom `[start_seconds,
+end_seconds]` — med samma `GLOW_COLORS_RGB`/`GLOW_INTENSITY_OPACITY_CLIENT`-konstanter i
+`constants.js` som speglar servern (`GLOW_COLORS`/`GLOW_INTENSITY_OPACITY` i `render-clip.ts`)
+manuellt. Medveten förenkling: STATISK styrka istället för den riktiga renderingens pulsering
+(sinusvågen byggd av många korta klipp, se ovan) — en CSS-animation i förhandsgranskningen hade
+inte tillfört något för att bedöma placering/färg/storlek. Ett andra dragbart tidslinje-
+handtagspar under videon (samma pointer-drag-mönster som `ClipTrimmer`) sätter
+`glowStartSeconds`/`glowEndSeconds` direkt — talfälten ovanför finns kvar för exakt inmatning.
+
+OBS samma begränsning som nämns i UI:t: `start_seconds`/`end_seconds` är sekunder på det
+FÄRDIGA klippets tidslinje (efter ev. bortklippning/flera källklipp/hook), inte nödvändigtvis
+källvideons egna tidsstämplar — stämmer exakt för ett enda oklippt källklipp, är annars en
+ungefärlig fingervisning för att snabbt hitta rätt läge innan man kollar "Snabb
+förhandsgranskning".
 
 ## Redigera start-/sluttid och hastighet per segment (valfritt)
 

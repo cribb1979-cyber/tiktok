@@ -93,3 +93,42 @@ export const GLOW_INTENSITY_OPTIONS = [
   { value: 'medium', label: 'Medel' },
   { value: 'high', label: 'Hög' },
 ]
+
+// Klientsidiga speglingar av render-clip.ts server-konstanter — ENDAST för att kunna visa
+// en ungefärlig live-förhandsgranskning direkt i Klippstudio (ingen rendering/API-anrop).
+// Måste hållas i synk manuellt om servervärdena någonsin ändras.
+export const GLOW_COLORS_RGB = {
+  gold: '255,200,60',
+  blue: '80,160,255',
+  white: '255,255,255',
+  red: '255,70,70',
+}
+export const GLOW_INTENSITY_OPACITY_CLIENT = {
+  low: 0.55,
+  medium: 0.75,
+  high: 0.95,
+}
+
+// Speglar EFFECT_COMPOSITE.defaultDuration i render-clip.ts — bara för att kunna räkna ut
+// var på segment-0-tidslinjen effekten hinner rymmas i EffectTimingPicker.
+export const EFFECT_DEFAULT_DURATIONS = {
+  orb: 4,
+  mist: 5,
+  sparks: 4,
+  edgeGlow: 4,
+  static: 0.6,
+  eyes: 3,
+}
+
+// Ungefärlig CSS-layout för varje AI-effekttyp i EffectTimingPicker — approximerar
+// EFFECT_COMPOSITE:s scale/fit/position. "screen"-blend gör svart (kromakey-färgen)
+// genomskinlig ungefär som Shotstacks riktiga chromaKey, utan att behöva någon egen
+// bildbehandling i webbläsaren.
+export const EFFECT_PREVIEW_LAYOUT = {
+  orb: { width: '45%', justify: 'center', align: 'center', blend: 'screen' },
+  mist: { width: '100%', justify: 'center', align: 'flex-end', blend: 'screen' },
+  sparks: { width: '100%', justify: 'center', align: 'center', blend: 'screen' },
+  edgeGlow: { width: '50%', justify: 'flex-end', align: 'center', blend: 'screen' },
+  static: { width: '100%', justify: 'center', align: 'center', blend: 'normal', opacity: 0.5 },
+  eyes: { width: '40%', justify: 'center', align: 'center', blend: 'screen' },
+}
