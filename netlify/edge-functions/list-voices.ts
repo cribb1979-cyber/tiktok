@@ -2,6 +2,9 @@
 // låst till en enda HEYGEN_VOICE_ID. Ren proxy — HEYGEN_API_KEY exponeras aldrig i klienten.
 // Inkluderar supportPause (röstens stöd för <break>-taggen, se generate-avatar-video.ts/
 // README "Manus-läge") så UI:t kan varna om en vald röst inte stödjer inbyggda pauser.
+// Inkluderar även previewAudioUrl så Klippstudio kan spela upp ett röstprov INNAN generering —
+// låter användaren höra/bekräfta att en klonad röst (som råkar heta likadant som en avatar,
+// se README) verkligen är rätt, utan att behöva ändra eller lita blint på listan.
 //
 // Filtrerat till bara SVENSKA röster + ett urval på ENGLISH_VOICE_LIMIT engelska röster —
 // @stoffe_medium är ett svenskt konto, och HeyGens fulla röstbibliotek har hundratals röster
@@ -50,6 +53,7 @@ export default async (request: Request) => {
       language: (voice.language as string) ?? null,
       gender: (voice.gender as string) ?? null,
       supportPause: voice.support_pause === true,
+      previewAudioUrl: (voice.preview_audio as string) ?? null,
     }
   })
 

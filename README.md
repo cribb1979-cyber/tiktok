@@ -262,6 +262,20 @@ oanvändbart lång. Visas grupperat (Svenska/Engelska) i UI:t. Röstlistan visar
 för röster där `support_pause` är sant (se pausfunktionen ovan) — välj en sådan om manuset
 använder `[paus]`/`[tystnad]`.
 
+**Bekräfta avatar/röst innan generering:** HeyGen kan döpa en klonad röst likadant som
+avataren den klonades ifrån (observerat: en användares egen röst hette samma sak som deras
+egen avatar, "The energy around us") — lätt att blanda ihop i en ren textlista, särskilt när
+samma namn dyker upp i BÅDA dropdownarna. Istället för att ändra eller gissa på listorna visar
+Klippstudio nu en förhandsgranskning av det just valda alternativet: avatarens förhandsbild
+(`previewImageUrl` från `list-avatars.ts`) och ett spelbart ljudprov av rösten
+(`previewAudioUrl` från `list-voices.ts`, HeyGens `preview_audio`-fält) — syns direkt under
+väljarna så man kan se/höra att det verkligen är rätt innan man betalar för en generering.
+
+**Känd HeyGen-begränsning:** en egen instant-/videoavatar kan vara låst till sin egen
+inbyggda röst — även med korrekt vald `voice_id` kan HeyGen då spela upp avatarens egen röst
+istället. Inget vi kan styra via API:et; lösningen är att testa en annan avatar om man vill
+använda en fristående röst.
+
 **Datamodell:** `scripts`-tabellen (`0008_scripts.sql`) sparar `raw_text`/`parsed_beats` som
 historik — `clip_id` sätts inte automatiskt idag (kopplas inte till det sparade klippet i
 Bibliotek ännu), bara till för framtida bruk enligt spec-dokumentets datamodell.

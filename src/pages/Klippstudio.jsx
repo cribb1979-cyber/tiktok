@@ -347,6 +347,11 @@ export default function Klippstudio() {
       .catch((err) => setAvatarOptionsError(err.message))
   }, [])
 
+  // Förhandsgranskning (bild/ljudprov) av det just nu valda avatar-/röstvalet — bekräftar att
+  // det verkligen är rätt innan man betalar för en generering, se README "Avatar-/röstväljare".
+  const selectedAvatarPreview = avatarOptions.find((a) => a.id === selectedAvatarId) ?? null
+  const selectedVoicePreview = voiceOptions.find((v) => v.id === selectedVoiceId) ?? null
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null)
@@ -1538,6 +1543,31 @@ export default function Klippstudio() {
                   </optgroup>
                 </select>
               </label>
+            )}
+          </div>
+        )}
+
+        {/* Bekräfta INNAN generering (kostar pengar per försök) att det verkligen är rätt
+            avatar/röst — särskilt viktigt eftersom HeyGen kan namnge en klonad röst likadant
+            som en avatar (se README "Avatar-/röstväljare"), vilket annars är lätt att blanda
+            ihop i en ren textlista. Ändrar inte listorna, bara ett facit bredvid valet. */}
+        {(selectedAvatarPreview || selectedVoicePreview) && (
+          <div className="form-grid">
+            {selectedAvatarPreview?.previewImageUrl && (
+              <div>
+                <p className="clip-category">Bekräfta avatar</p>
+                <img
+                  src={selectedAvatarPreview.previewImageUrl}
+                  alt={`Förhandsbild: ${selectedAvatarPreview.name}`}
+                  style={{ width: '100%', borderRadius: 10 }}
+                />
+              </div>
+            )}
+            {selectedVoicePreview?.previewAudioUrl && (
+              <div>
+                <p className="clip-category">Bekräfta röst</p>
+                <audio controls src={selectedVoicePreview.previewAudioUrl} style={{ width: '100%' }} />
+              </div>
             )}
           </div>
         )}
