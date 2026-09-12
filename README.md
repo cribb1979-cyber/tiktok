@@ -271,10 +271,21 @@ Klippstudio nu en förhandsgranskning av det just valda alternativet: avatarens 
 (`previewAudioUrl` från `list-voices.ts`, HeyGens `preview_audio`-fält) — syns direkt under
 väljarna så man kan se/höra att det verkligen är rätt innan man betalar för en generering.
 
-**Känd HeyGen-begränsning:** en egen instant-/videoavatar kan vara låst till sin egen
-inbyggda röst — även med korrekt vald `voice_id` kan HeyGen då spela upp avatarens egen röst
-istället. Inget vi kan styra via API:et; lösningen är att testa en annan avatar om man vill
-använda en fristående röst.
+**Korrigering (v3/Avatar IV istället för v2/video/generate):** ett skarpt test visade att en
+egen "video-avatar" (skapad från en inspelad video) via HeyGens v2-endpoint alltid spelade upp
+sin egen inbyggda röst oavsett vilket `voice_id` som skickades med — trots att ljudprovet i
+förhandsgranskningen ovan bevisligen var rätt röst. Avgörande test: exakt samma avatar+röst-
+kombination fungerade KORREKT i HeyGens eget webbgränssnitt, vilket bekräftade att det var
+v2-anropet (inte en begränsning hos HeyGen som plattform) som var problemet — HeyGens nyare
+"Avatar IV"-motor stödjer fritt röstval även för videoavatarer, men v2 gjorde uppenbarligen
+inte det. `generate-avatar-video.ts` submittar nu via `POST https://api.heygen.com/v3/videos`
+med `engine: { type: 'avatar_iv' }` istället, och `avatar-video-status.ts` pollar motsvarande
+`GET /v3/videos/{id}` istället för den äldre `v1/video_status.get`. Fältnamnen (`script` istället
+för `input_text`, `aspect_ratio` istället för `dimension`, den platta bodyn utan
+`video_inputs`-array) är sammanställda från HeyGens dokumentation men INTE verifierade direkt
+mot ett skarpt svar härifrån (nätverksbegränsningar) — justera enligt HeyGens eget
+felmeddelande om något fältnamn visar sig fel vid nästa test, samma mönster som tidigare
+Bria/Shotstack/Replicate-fältnamnsfixar i den här appen.
 
 **Datamodell:** `scripts`-tabellen (`0008_scripts.sql`) sparar `raw_text`/`parsed_beats` som
 historik — `clip_id` sätts inte automatiskt idag (kopplas inte till det sparade klippet i

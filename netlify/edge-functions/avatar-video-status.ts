@@ -1,6 +1,10 @@
 // Pollar status för en pågående HeyGen-avatarvideogenerering (se generate-avatar-video.ts).
-
-const HEYGEN_STATUS_URL = 'https://api.heygen.com/v1/video_status.get'
+// v3/videos-statusendpoint (GET /v3/videos/{id}) istället för den äldre v1/video_status.get —
+// generate-avatar-video.ts submittar numera via v3 (Avatar IV-motorn), och v1-statusendpointen
+// känner inte nödvändigtvis igen ID:n skapade via v3. Fältnamn sammanställda från HeyGens
+// dokumentation, inte verifierade mot ett skarpt svar härifrån — justera vid behov, se
+// kommentaren i generate-avatar-video.ts.
+const HEYGEN_STATUS_URL = 'https://api.heygen.com/v3/videos'
 
 // HeyGens statusvärden (pending/processing/completed/failed) skiljer sig från vårt
 // klient-kontrakt (PENDING/RUNNING/SUCCEEDED/FAILED, samma normalisering som
@@ -31,7 +35,7 @@ export default async (request: Request) => {
 
   let response: Response
   try {
-    response = await fetch(`${HEYGEN_STATUS_URL}?video_id=${encodeURIComponent(id)}`, {
+    response = await fetch(`${HEYGEN_STATUS_URL}/${encodeURIComponent(id)}`, {
       headers: { 'X-Api-Key': apiKey },
     })
   } catch (err) {
@@ -39,7 +43,9 @@ export default async (request: Request) => {
   }
 
   const rawText = await response.text()
-  let data: { data?: { status?: string; video_url?: string; error?: { message?: string } } }
+  let data: {
+    data?: { status?: string; video_url?: string; error?: { message?: string }; failure_message?: string }
+  }
   try {
     data = JSON.parse(rawText)
   } catch {
@@ -56,7 +62,7 @@ export default async (request: Request) => {
     {
       status: STATUS_MAP[statusData.status as string] ?? statusData.status,
       url: statusData.video_url ?? null,
-      error: statusData.error?.message ?? null,
+      error: statusData.error?.message ?? statusData.failure_message ?? null,
     },
     200
   )

@@ -15,11 +15,21 @@
 // avatar_id/voice_id är kontospecifika. Klienten kan skicka med ett eget val (se
 // list-avatars.ts/list-voices.ts + avatar-/röstväljaren i Klippstudio.jsx) — annars faller
 // vi tillbaka på HEYGEN_AVATAR_ID/HEYGEN_VOICE_ID-miljövariablerna som ett förvalt standardval.
+//
+// v3/Avatar IV istället för v2/video/generate (använt tidigare): ett skarpt test visade att en
+// egen "video-avatar" (skapad från en inspelad video, till skillnad från en färdig
+// studio-avatar) via v2 alltid spelade upp sin egen inbyggda röst oavsett vilket voice_id som
+// skickades med — trots att exakt samma avatar+röst-kombination fungerade korrekt i HeyGens
+// EGET webbgränssnitt, vilket bekräftade att v2-anropet (inte HeyGen som plattform) var
+// begränsningen. v3 med "engine": { "type": "avatar_iv" } är HeyGens nyare motor som stödjer
+// fritt röstval även för den här typen av avatar. OBS: fältnamnen (script/voice_id/
+// aspect_ratio, den platta bodyn utan video_inputs-array, samt statusendpointen
+// GET /v3/videos/{id}) är sammanställda från HeyGens dokumentation men INTE verifierade
+// direkt mot ett skarpt svar härifrån (nätverksbegränsningar) — justera enligt HeyGens egna
+// felmeddelande om ett fältnamn visar sig fel vid nästa skarpa test, samma mönster som
+// tidigare fältnamnsfixar i den här appen (Bria/Shotstack/Replicate).
 
-const HEYGEN_GENERATE_URL = 'https://api.heygen.com/v2/video/generate'
-
-// 9:16, TikTok-format — matchar OUTPUT_SIZE i render-clip.ts.
-const AVATAR_DIMENSION = { width: 720, height: 1280 }
+const HEYGEN_GENERATE_URL = 'https://api.heygen.com/v3/videos'
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -67,13 +77,12 @@ export default async (request: Request) => {
         'X-Api-Key': apiKey,
       },
       body: JSON.stringify({
-        video_inputs: [
-          {
-            character: { type: 'avatar', avatar_id: avatarId, avatar_style: 'normal' },
-            voice: { type: 'text', input_text: inputText, voice_id: voiceId },
-          },
-        ],
-        dimension: AVATAR_DIMENSION,
+        type: 'avatar',
+        avatar_id: avatarId,
+        script: inputText,
+        voice_id: voiceId,
+        aspect_ratio: '9:16', // matchar OUTPUT_SIZE i render-clip.ts
+        engine: { type: 'avatar_iv' },
       }),
     })
   } catch (err) {
@@ -83,18 +92,22 @@ export default async (request: Request) => {
   // .json() kan kasta om HeyGen svarar med något som inte är giltig JSON — läs som text
   // först och försök tolka, samma mönster som övriga edge functions i appen.
   const rawText = await heygenResponse.text()
-  let data: { data?: { video_id?: string }; error?: { message?: string; code?: string } }
+  let data: { data?: { video_id?: string }; video_id?: string; error?: { message?: string; code?: string } }
   try {
     data = JSON.parse(rawText)
   } catch {
     return jsonResponse({ error: 'Kunde inte tolka HeyGens svar som JSON.', raw: rawText }, 502)
   }
 
-  if (!heygenResponse.ok || !data?.data?.video_id) {
+  // video_id kan ligga nästlat under "data" (v2-mönstret) eller direkt på svarsroten — okänt
+  // exakt hur v3 svarar härifrån, så båda platserna kollas innan det ger ett fel.
+  const videoId = data?.data?.video_id ?? data?.video_id
+
+  if (!heygenResponse.ok || !videoId) {
     return jsonResponse({ error: 'HeyGen API-fel', detail: data?.error ?? data }, 502)
   }
 
-  return jsonResponse({ id: data.data.video_id }, 200)
+  return jsonResponse({ id: videoId }, 200)
 }
 
 function jsonResponse(data: unknown, status: number) {
