@@ -5,11 +5,12 @@
 // återanvänds oförändrat. Pollas via befintliga /api/broll-status.
 // REPLICATE_API_TOKEN exponeras aldrig i klienten.
 //
-// OBS: fältnamnen nedan (prompt_image/prompt/duration/ratio) är sammanställda från Runways
-// egen SDK-dokumentation (image_to_video.create) och tredjepartswrappers — Replicates EGNA
-// wrapper-schema för runwayml/gen4-turbo kunde inte verifieras direkt mot replicate.com
-// härifrån (nätverksbegränsningar). Justera enligt Replicates felmeddelande vid ett skarpt
-// anrop om fältnamnen inte stämmer exakt (samma mönster som tidigare Bria/Shotstack-fixar).
+// OBS: ett skarpt test visade samma typ av fel som generate-shot-image.ts hade
+// (`"input: image is required"`, 422) — Replicates wrapper för runwayml/gen4-turbo vill ha
+// startbilden i ett fält som heter `image`, INTE `prompt_image` (som är Runways egen SDK:s
+// fältnamn, image_to_video.create — det som tredjepartsdokumentationen utgick från). `prompt`/
+// `duration`/`ratio` är ännu inte bekräftade mot ett skarpt svar; justera enligt Replicates
+// felmeddelande om nästa test visar ett nytt fältnamnsfel (samma mönster som ovan).
 
 const REPLICATE_PREDICTIONS_URL = 'https://api.replicate.com/v1/models'
 const REPLICATE_MODEL = 'runwayml/gen4-turbo'
@@ -41,7 +42,7 @@ export default async (request: Request) => {
   const duration = body.durationSeconds === 10 ? 10 : 5
 
   const replicateInput = {
-    prompt_image: imageUrl,
+    image: imageUrl,
     prompt: motionPrompt,
     duration,
     ratio: '720:1280', // 9:16, matchar OUTPUT_SIZE i render-clip.ts

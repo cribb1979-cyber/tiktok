@@ -522,10 +522,13 @@ konsekvens: en scen med två karaktärer håller bara DEN FÖRSTA helt visuellt 
 andra beskrivs bara i text. `generate-shotlist.ts` instrueras att skriva scenerna med detta i
 åtanke (ingen @tag-syntax i bildprompten längre — stöddes aldrig av det enkla `image`-fältet).
 
-`generate-shot-video.ts`s fältnamn (`prompt_image`/`prompt`/`duration`/`ratio` för Gen-4 Turbo)
-är fortfarande INTE verifierade direkt mot `replicate.com` härifrån (nätverksbegränsningar i
-den här miljön) — bara sammanställda från Runways SDK-dokumentation. Om ett skarpt anrop ger
-ett fältnamnsfel där: justera enligt Replicates egna felmeddelande, samma sätt som ovan.
+**Korrigering #2 (samma dag):** ett skarpt test av `generate-shot-video.ts` (Gen-4 Turbo,
+bild-till-video) gav SAMMA typ av 422-fel ("input: image is required") som Gen-4 Image hade —
+Replicates wrapper vill ha startbilden i ett fält som heter `image`, inte `prompt_image` (som
+är Runways egen SDK:s fältnamn, `image_to_video.create`, vilket tredjepartsdokumentationen
+utgick från). Bytt till `image`. `prompt`/`duration`/`ratio` är fortfarande inte bekräftade
+mot ett skarpt svar — justera enligt Replicates felmeddelande om nästa test visar ett nytt
+fältnamnsfel, samma mönster som ovan.
 
 **Miljövariabler:** ingen ny — återanvänder `REPLICATE_API_TOKEN` och `CLAUDE_API_KEY` som
 redan krävs för B-roll respektive klippningsplanen.
