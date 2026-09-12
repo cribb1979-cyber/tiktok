@@ -706,7 +706,6 @@ export default function Klippstudio() {
       const imageByTag = new Map(characterImages)
 
       const shots = filmShotlist.shots
-      const shotVideoUrls = []
       for (let i = 0; i < shots.length; i++) {
         const shot = shots[i]
         setFilmProgress(`Scen ${i + 1}/${shots.length}: skapar bildruta…`)
@@ -721,25 +720,28 @@ export default function Klippstudio() {
           motionPrompt: shot.motion_prompt,
           durationSeconds: shot.duration_seconds,
         })
-        shotVideoUrls.push(videoUrl)
+
+        // Sparas DIREKT när scenen är klar, inte batchat i slutet — annars går redan
+        // genererade (och redan betalda hos Replicate) scener förlorade om en SENARE scen
+        // skulle krascha eller felas, istället för att synas i klipplistan.
+        setClips((prev) => [
+          ...prev,
+          {
+            id: `c${nextClipIdRef.current++}`,
+            name: `AI-kortfilm scen ${i + 1}`,
+            publicUrl: videoUrl,
+            transcript: null,
+            transcribing: false,
+            transcriptionSkipped: false,
+            error: null,
+            aiGenerated: true,
+          },
+        ])
+        setRenderedVideoUrl(null)
+        setPreviewVideoUrl(null)
+        setVideoFile(null)
       }
 
-      setClips((prev) => [
-        ...prev,
-        ...shotVideoUrls.map((videoUrl, i) => ({
-          id: `c${nextClipIdRef.current++}`,
-          name: `AI-kortfilm scen ${i + 1}`,
-          publicUrl: videoUrl,
-          transcript: null,
-          transcribing: false,
-          transcriptionSkipped: false,
-          error: null,
-          aiGenerated: true,
-        })),
-      ])
-      setRenderedVideoUrl(null)
-      setPreviewVideoUrl(null)
-      setVideoFile(null)
       setFilmProgress(null)
       setFilmShotlist(null)
       setFilmIdea('')
@@ -749,7 +751,10 @@ export default function Klippstudio() {
       // informationen förlorad och det blir gissningslek att felsöka ett fel mitt i en kedja
       // på upp till ~20 Replicate-anrop (rapporterat: samma feltext dök upp två gånger utan
       // att det gick att se om det var samma steg som felade båda gångerna).
-      setFilmError(filmProgress ? `${filmProgress} ${err.message}` : err.message)
+      const reassurance = filmProgress?.startsWith('Scen ')
+        ? ' — redan färdiga scener innan denna finns kvar i klipplistan nedan, inget betalt är förlorat.'
+        : ''
+      setFilmError((filmProgress ? `${filmProgress} ${err.message}` : err.message) + reassurance)
       setFilmProgress(null)
     }
     setFilmGenerating(false)
