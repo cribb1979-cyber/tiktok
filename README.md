@@ -536,6 +536,17 @@ redan krävs för B-roll respektive klippningsplanen.
 **Inte byggt:** dialog/tal för karaktärerna (Gen-4 Turbo genererar ingen röst) — filmen blir
 tyst bild+rörelse, eventuell musik/ljud får läggas på separat om det behövs.
 
+**Filma en scen själv istället för AI (valfritt, per scen):** varje scens `image_prompt`/
+`motion_prompt` fungerar redan som en filminstruktion (miljö/komposition + rörelse/kamera) —
+samma text som skickas till AI-modellerna. En dag du har tid att filma själv istället för att
+betala för AI-generering: ladda upp din egen video för just den scenen i granskningslistan
+(`filmShotOverrides`-state i Klippstudio.jsx) — den scenen hoppar då över hela
+AI-genereringskedjan (bildruta + video) och din uppladdade fil används rakt av, medan övriga
+scener i samma film fortsätter genereras med AI som vanligt. Karaktärer som bara förekommer i
+självfilmade scener får ingen AI-referensbild alls (sparar pengar på scener som ändå inte
+AI-genereras). `ai_generated_content`/`aiGenerated` sätts INTE för en självfilmad scen — det är
+din egen video, inget att TikTok-tagga som AI-genererat.
+
 ## AI-effekt: paranormala fenomen ovanpå videon (valfritt tillval, opt-in)
 
 Utöver B-roll (som klipps in som ett eget segment): ett andra kryssruta i Klippstudio

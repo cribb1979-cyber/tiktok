@@ -321,6 +321,12 @@ export default function Klippstudio() {
   const [filmGenerating, setFilmGenerating] = useState(false)
   const [filmProgress, setFilmProgress] = useState(null)
   const [filmError, setFilmError] = useState(null)
+  // "Filma själv"-alternativ per scen: scenens image_prompt/motion_prompt fungerar redan som
+  // en filminstruktion (miljö/komposition + rörelse/kamera) — samma text visas för AI:n och
+  // för dig. Vill du filma en scen själv (en dag du har tid) istället för att AI genererar
+  // den: ladda upp din egen video för just den scenen, resten fortsätter genereras med AI.
+  // { [shotIndex]: { uploading, publicUrl, error } }
+  const [filmShotOverrides, setFilmShotOverrides] = useState({})
 
   // Avatar-/röstväljare (se list-avatars.ts/list-voices.ts) — hämtas en gång när sidan
   // laddas (bara metadata, kostar inget). Tomt val ('') betyder "använd HEYGEN_AVATAR_ID/
@@ -672,6 +678,7 @@ export default function Klippstudio() {
     setFilmShotlisting(true)
     setFilmError(null)
     setFilmShotlist(null)
+    setFilmShotOverrides({})
     try {
       const result = await generateShotlist(filmIdea)
       setFilmShotlist(result)
@@ -679,6 +686,27 @@ export default function Klippstudio() {
       setFilmError(err.message)
     }
     setFilmShotlisting(false)
+  }
+
+  // Laddar upp en egen filmad video för EN scen — samma lagring (raw-clips) som uppladdat
+  // huvudmaterial. Ersätter AI-genereringen för just den scenen i handleGenerateFilm.
+  async function handleFilmShotUpload(index, file) {
+    if (!file) return
+    setFilmShotOverrides((prev) => ({ ...prev, [index]: { uploading: true, publicUrl: null, error: null } }))
+    try {
+      const publicUrl = await uploadRawClip(file)
+      setFilmShotOverrides((prev) => ({ ...prev, [index]: { uploading: false, publicUrl, error: null } }))
+    } catch (err) {
+      setFilmShotOverrides((prev) => ({ ...prev, [index]: { uploading: false, publicUrl: null, error: err.message } }))
+    }
+  }
+
+  function handleClearFilmShotOverride(index) {
+    setFilmShotOverrides((prev) => {
+      const next = { ...prev }
+      delete next[index]
+      return next
+    })
   }
 
   // Orkestrerar hela AI-kortfilm-genereringen: en referensbild per karaktär (parallellt, de
@@ -692,34 +720,56 @@ export default function Klippstudio() {
     setFilmGenerating(true)
     setFilmError(null)
     try {
+      const shots = filmShotlist.shots
       const characters = filmShotlist.characters ?? []
-      setFilmProgress(`Genererar karaktärsbilder (0/${characters.length})…`)
+
+      // Karaktärer som BARA syns i scener du filmar själv (filmShotOverrides) behöver ingen
+      // AI-referensbild — sparar tid/pengar på scener som ändå inte AI-genereras.
+      const neededTags = new Set()
+      shots.forEach((shot, i) => {
+        if (filmShotOverrides[i]?.publicUrl) return
+        ;(shot.character_tags ?? []).forEach((tag) => neededTags.add(tag))
+      })
+      const charactersToGenerate = characters.filter((c) => neededTags.has(c.tag))
+
+      setFilmProgress(`Genererar karaktärsbilder (0/${charactersToGenerate.length})…`)
       let doneCount = 0
       const characterImages = await Promise.all(
-        characters.map(async (c) => {
+        charactersToGenerate.map(async (c) => {
           const imageUrl = await generateCharacterImage(c.description)
           doneCount += 1
-          setFilmProgress(`Genererar karaktärsbilder (${doneCount}/${characters.length})…`)
+          setFilmProgress(`Genererar karaktärsbilder (${doneCount}/${charactersToGenerate.length})…`)
           return [c.tag, imageUrl]
         })
       )
       const imageByTag = new Map(characterImages)
 
-      const shots = filmShotlist.shots
       for (let i = 0; i < shots.length; i++) {
         const shot = shots[i]
-        setFilmProgress(`Scen ${i + 1}/${shots.length}: skapar bildruta…`)
-        const characterRefs = (shot.character_tags ?? [])
-          .filter((tag) => imageByTag.has(tag))
-          .map((tag) => ({ tag, imageUrl: imageByTag.get(tag) }))
-        const imageUrl = await generateShotImage({ imagePrompt: shot.image_prompt, characterRefs })
+        const override = filmShotOverrides[i]
 
-        setFilmProgress(`Scen ${i + 1}/${shots.length}: animerar till video…`)
-        const videoUrl = await generateShotVideo({
-          imageUrl,
-          motionPrompt: shot.motion_prompt,
-          durationSeconds: shot.duration_seconds,
-        })
+        let videoUrl
+        let clipName
+        if (override?.publicUrl) {
+          // Filmad själv — hoppar över AI-genereringen helt för den här scenen.
+          setFilmProgress(`Scen ${i + 1}/${shots.length}: använder din egen uppladdade video…`)
+          videoUrl = override.publicUrl
+          clipName = `Scen ${i + 1} (egen film)`
+        } else {
+          setFilmProgress(`Scen ${i + 1}/${shots.length}: skapar bildruta…`)
+          const characterRefs = (shot.character_tags ?? [])
+            .filter((tag) => imageByTag.has(tag))
+            .map((tag) => ({ tag, imageUrl: imageByTag.get(tag) }))
+          const imageUrl = await generateShotImage({ imagePrompt: shot.image_prompt, characterRefs })
+
+          setFilmProgress(`Scen ${i + 1}/${shots.length}: animerar till video…`)
+          videoUrl = await generateShotVideo({
+            imageUrl,
+            motionPrompt: shot.motion_prompt,
+            durationSeconds: shot.duration_seconds,
+          })
+          clipName = `AI-kortfilm scen ${i + 1}`
+        }
 
         // Sparas DIREKT när scenen är klar, inte batchat i slutet — annars går redan
         // genererade (och redan betalda hos Replicate) scener förlorade om en SENARE scen
@@ -728,13 +778,15 @@ export default function Klippstudio() {
           ...prev,
           {
             id: `c${nextClipIdRef.current++}`,
-            name: `AI-kortfilm scen ${i + 1}`,
+            name: clipName,
             publicUrl: videoUrl,
             transcript: null,
             transcribing: false,
             transcriptionSkipped: false,
             error: null,
-            aiGenerated: true,
+            // Bara AI-genererade scener räknas som ai_generated_content — en scen du filmat
+            // själv är din egen video, inget AI-genererat innehåll att TikTok-tagga.
+            aiGenerated: !override?.publicUrl,
           },
         ])
         setRenderedVideoUrl(null)
@@ -744,6 +796,7 @@ export default function Klippstudio() {
 
       setFilmProgress(null)
       setFilmShotlist(null)
+      setFilmShotOverrides({})
       setFilmIdea('')
     } catch (err) {
       // filmProgress pekar ut EXAKT vilket steg som felade (karaktärsbild/scenbild/scenvideo,
@@ -1570,21 +1623,45 @@ export default function Klippstudio() {
                 <p className="clip-prompt">{c.description}</p>
               </div>
             ))}
-            {filmShotlist.shots.map((shot, i) => (
-              <div key={i} className="clip-card" style={{ margin: 0 }}>
-                <p className="clip-category">
-                  Scen {i + 1} ({shot.duration_seconds}s)
-                </p>
-                <p className="clip-prompt">{shot.image_prompt}</p>
-                <p className="clip-prompt">🎬 {shot.motion_prompt}</p>
-              </div>
-            ))}
+            {filmShotlist.shots.map((shot, i) => {
+              const override = filmShotOverrides[i]
+              return (
+                <div key={i} className="clip-card" style={{ margin: 0 }}>
+                  <p className="clip-category">
+                    Scen {i + 1} ({shot.duration_seconds}s) — filminstruktion
+                  </p>
+                  <p className="clip-prompt">{shot.image_prompt}</p>
+                  <p className="clip-prompt">🎬 {shot.motion_prompt}</p>
+
+                  {override?.publicUrl ? (
+                    <>
+                      <p className="clip-prompt">✅ Egen uppladdad video används för den här scenen.</p>
+                      <button type="button" className="btn-danger" onClick={() => handleClearFilmShotOverride(i)}>
+                        Ångra — använd AI istället
+                      </button>
+                    </>
+                  ) : (
+                    <label>
+                      Filma själv istället (valfritt) — följ filminstruktionen ovan
+                      <input
+                        type="file"
+                        accept="video/*"
+                        onChange={(e) => handleFilmShotUpload(i, e.target.files?.[0])}
+                        disabled={override?.uploading || filmGenerating}
+                      />
+                    </label>
+                  )}
+                  {override?.uploading && <p className="clip-prompt">Laddar upp…</p>}
+                  {override?.error && <p className="error-banner">{override.error}</p>}
+                </div>
+              )
+            })}
             <button
               type="button"
               className="btn-primary"
               style={{ marginTop: 8 }}
               onClick={handleGenerateFilm}
-              disabled={filmGenerating}
+              disabled={filmGenerating || Object.values(filmShotOverrides).some((o) => o.uploading)}
             >
               {filmGenerating ? filmProgress ?? 'Genererar…' : 'Generera film'}
             </button>
