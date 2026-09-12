@@ -28,12 +28,16 @@ Dela upp berättelsen i:
   fyller i det, vi vill bara ha en konsekvent SILHUETT/STIL).
 - shots: 4-8 scener i ordning som tillsammans berättar historien med stigande spänning och ett
   tydligt slut. Varje scen:
-  - image_prompt: en filmisk beskrivning av EN bildruta (komposition, ljus, miljö) — referera
-    till karaktärer med @tag (matchar characters[].tag) om de syns i scenen, t.ex.
-    "@personA och @personB närmar sig ett förfallet hus i skymningen".
+  - image_prompt: en filmisk beskrivning av EN bildruta (komposition, ljus, miljö) — beskriv
+    karaktärer med VANLIG text (t.ex. "en kvinna närmar sig ett förfallet hus i skymningen"),
+    ALDRIG @tag eller andra specialtecken i själva prompten (bildmodellen tar bara EN
+    referensbild per scen, se character_tags nedan — ingen tag-syntax stöds i prompttexten).
   - motion_prompt: vad som händer när stillbilden animeras till video (rörelse/kamera/
     handling), kort och konkret, t.ex. "de går sakta mot dörren, kameran följer bakifrån".
-  - duration_seconds: 5 eller 10 (Gen-4 Turbo stödjer bara dessa två längder).`
+  - duration_seconds: 5 eller 10 (Gen-4 Turbo stödjer bara dessa två längder).
+  - character_tags: bara den FÖRSTA/viktigaste karaktären i scenen används faktiskt som
+    bildreferens (teknisk begränsning) — lista ändå alla som syns, men skriv image_prompt så
+    scenen fortfarande fungerar visuellt även om bara en av dem hålls helt konsekvent.`
 
 const RESPONSE_SCHEMA = {
   type: 'object',

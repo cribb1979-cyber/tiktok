@@ -1,19 +1,20 @@
-// AI-kortfilm, steg 2: genererar EN referensbild per karaktär (se generate-shotlist.ts) via
-// Runway Gen-4 Image (Replicate) — återanvänds sedan som reference_images i
-// generate-shot-image.ts för att hålla samma "person" konsekvent genom alla scener.
-// Bara submit, pollas via BEFINTLIGA /api/broll-status (Replicates predictions-endpoint är
-// modelloberoende — samma id fungerar oavsett vilken modell som skapade predictionen).
-// REPLICATE_API_TOKEN exponeras aldrig i klienten.
+// AI-kortfilm, steg 2: genererar EN referensbild per karaktär (se generate-shotlist.ts) —
+// återanvänds sedan som `image` i generate-shot-image.ts (Runway Gen-4 Image) för att hålla
+// samma "person" konsekvent genom alla scener. Bara submit, pollas via BEFINTLIGA
+// /api/broll-status (Replicates predictions-endpoint är modelloberoende — samma id fungerar
+// oavsett vilken modell som skapade predictionen). REPLICATE_API_TOKEN exponeras aldrig i
+// klienten.
 //
-// OBS: exakta fältnamn för runwayml/gen4-image på Replicate är sammanställda från
-// tredjepartsdokumentation (nätverksbegränsningar hindrade verifiering direkt mot
-// replicate.com härifrån) — främst bekräftat via ett riktigt exempel-payload
-// ({ prompt, resolution, aspect_ratio, reference_tags, reference_images }). Om ett skarpt
-// anrop ger ett fältnamnsfel, justera input nedan enligt Replicates egna felmeddelande
-// (samma mönster som tidigare Bria/Shotstack-fältnamnsfixar i den här appen).
+// Använder FLUX Schnell (samma modell/fält som generate-background.ts, verifierade direkt
+// mot Replicates öppna källkod för modellen) istället för Runway Gen-4 Image här — ett skarpt
+// test visade att Gen-4 Image på Replicate KRÄVER ett `image`-fält (ett befintligt foto att
+// utgå från), dvs. den kan inte generera en bild från ren text utan något att referera till.
+// FLUX Schnell är ett rent text-till-bild-verktyg, perfekt för just DEN HÄR första bilden
+// (ingen tidigare bild att referera till för en helt ny karaktär) — sedan används Gen-4 Image
+// för scenbilderna (generate-shot-image.ts), där FLUX-portättet skickas in som `image`.
 
 const REPLICATE_PREDICTIONS_URL = 'https://api.replicate.com/v1/models'
-const REPLICATE_MODEL = 'runwayml/gen4-image'
+const FLUX_MODEL = 'black-forest-labs/flux-schnell'
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -44,7 +45,7 @@ export default async (request: Request) => {
 
   let replicateResponse: Response
   try {
-    replicateResponse = await fetch(`${REPLICATE_PREDICTIONS_URL}/${REPLICATE_MODEL}/predictions`, {
+    replicateResponse = await fetch(`${REPLICATE_PREDICTIONS_URL}/${FLUX_MODEL}/predictions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -489,10 +489,12 @@ oavsett vilken modell som skapade predictionen, så inga nya statusendpoints beh
 1. `generate-shotlist.ts` (Claude): idén blir en karaktärslista (1-3 st, generiska/påhittade —
    se person-skyddet nedan) och en ordnad scenlista (4-8 scener, varje med en bildbeskrivning,
    en rörelsebeskrivning, längd 5 eller 10 sekunder, och vilka karaktärer som syns).
-2. `generate-character-image.ts`: EN referensbild per karaktär (Runway Gen-4 Image).
-3. `generate-shot-image.ts`: en konsekvent bildruta per scen — samma karaktärers
-   referensbilder skickas med (`reference_images`/`reference_tags`, @tag-syntax i prompten)
-   så de känns igen scen till scen.
+2. `generate-character-image.ts`: EN referensbild per karaktär, via **FLUX Schnell** (rent
+   text-till-bild — se korrigeringen nedan för varför INTE Gen-4 Image här).
+3. `generate-shot-image.ts`: en konsekvent bildruta per scen. Har scenen en karaktär: Runway
+   Gen-4 Image med den FÖRSTA karaktärens referensbild i `image`-fältet (en känd begränsning —
+   bara en karaktär hålls helt konsekvent per scen, se nedan). Har scenen ingen karaktär (ren
+   miljö-/stämningsbild): FLUX Schnell.
 4. `generate-shot-video.ts`: animerar scenens bildruta till en 5-10 sekunders videoklipp
    (Runway Gen-4 Turbo, bild-till-video).
 
@@ -508,12 +510,22 @@ MÅSTE vara påhittade/generiska (`generate-shotlist.ts`s systemprompt), aldrig 
 eller en namngiven verklig person. `ai_generated_content` sätts automatiskt (`aiGenerated` på
 klipp-objektet, samma flagga som Manus-lägets AI-avatar-klipp använder).
 
-**Osäkerhet i Replicate-fältnamn:** exakta input-fältnamn för `runwayml/gen4-image`/
-`gen4-turbo` (t.ex. `reference_images`/`reference_tags`, `prompt_image`) är sammanställda från
-tredjepartsdokumentation och ett bekräftat exempel-payload — **inte** verifierade direkt mot
-`replicate.com` härifrån (nätverksbegränsningar i den här miljön). Om ett skarpt anrop ger ett
-fältnamnsfel: justera enligt Replicates egna felmeddelande i respektive edge function (samma
-mönster som tidigare Bria/Shotstack-fältnamnsfixar i den här appen).
+**Korrigering efter ett skarpt test (2026-09):** Replicates version av `runwayml/gen4-image`
+kräver ett `image`-fält (en befintlig bild att utgå från) — den kan INTE generera en bild från
+ren text, till skillnad från vad tredjepartsdokumentation antydde (`reference_images`/
+`reference_tags` som array, ospecificerat antal). Detta gav ett tydligt 422-fel
+("input: image is required") vid den allra första karaktärsbilden, där det ännu inte fanns
+någon bild att referera till. Löst genom att byta karaktärsbild-generering till FLUX Schnell
+(rent text-till-bild, redan verifierat och använt av `generate-background.ts`), och begränsa
+Gen-4 Image till att bara ta EN referensbild (`image`, singular — inte flera samtidigt). Praktisk
+konsekvens: en scen med två karaktärer håller bara DEN FÖRSTA helt visuellt konsekvent, den
+andra beskrivs bara i text. `generate-shotlist.ts` instrueras att skriva scenerna med detta i
+åtanke (ingen @tag-syntax i bildprompten längre — stöddes aldrig av det enkla `image`-fältet).
+
+`generate-shot-video.ts`s fältnamn (`prompt_image`/`prompt`/`duration`/`ratio` för Gen-4 Turbo)
+är fortfarande INTE verifierade direkt mot `replicate.com` härifrån (nätverksbegränsningar i
+den här miljön) — bara sammanställda från Runways SDK-dokumentation. Om ett skarpt anrop ger
+ett fältnamnsfel där: justera enligt Replicates egna felmeddelande, samma sätt som ovan.
 
 **Miljövariabler:** ingen ny — återanvänder `REPLICATE_API_TOKEN` och `CLAUDE_API_KEY` som
 redan krävs för B-roll respektive klippningsplanen.
