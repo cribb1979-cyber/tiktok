@@ -373,6 +373,99 @@ function GlowTimelinePreview({
   )
 }
 
+// Bibliotek med tidigare genererade AI-effekter (effect_library-tabellen, se
+// 0009_effect_library.sql) — sparas automatiskt varje gång en ny effekt genereras (se
+// handleGenerateEffect), så en redan betald Replicate-generering går att återanvända i ett
+// nytt klipp istället för att generera (och betala för) om samma effekt igen. Filtrerad på
+// vald effekttyp eftersom kompositeringen (skala/position/kromakey) skiljer sig per typ
+// (EFFECT_COMPOSITE i render-clip.ts) — ett "orb"-klipp passar inte inkomponerat som "mist".
+function EffectLibraryPicker({ effectType, onPick }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [busyId, setBusyId] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    supabase
+      .from('effect_library')
+      .select('*')
+      .eq('effect_type', effectType)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (!error) setItems(data ?? [])
+        setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [effectType])
+
+  async function handleDelete(id) {
+    setBusyId(id)
+    const { error } = await supabase.from('effect_library').delete().eq('id', id)
+    if (!error) setItems((prev) => prev.filter((item) => item.id !== id))
+    setBusyId(null)
+  }
+
+  if (loading) return null
+
+  if (items.length === 0) {
+    return (
+      <p className="placeholder-note" style={{ marginTop: 12 }}>
+        Inga sparade effekter av den här typen än — generera en nedan, den sparas automatiskt
+        i biblioteket för återanvändning nästa gång.
+      </p>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <p className="clip-category">Från biblioteket (tidigare genererade, klicka för att förhandslyssna)</p>
+      <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+        {items.map((item) => (
+          <div key={item.id} style={{ flex: '0 0 auto', width: 120 }}>
+            <video
+              src={item.video_url}
+              muted
+              playsInline
+              loop
+              onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
+              onMouseLeave={(e) => e.currentTarget.pause()}
+              onClick={(e) => {
+                if (e.currentTarget.paused) {
+                  e.currentTarget.play().catch(() => {})
+                } else {
+                  e.currentTarget.pause()
+                }
+              }}
+              style={{ width: '100%', borderRadius: 8, background: '#000', display: 'block' }}
+            />
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ width: '100%', marginTop: 4, fontSize: 12, padding: '4px 6px' }}
+              onClick={() => onPick(item)}
+            >
+              Använd
+            </button>
+            <button
+              type="button"
+              className="btn-danger"
+              style={{ width: '100%', marginTop: 4, fontSize: 12, padding: '4px 6px' }}
+              onClick={() => handleDelete(item.id)}
+              disabled={busyId === item.id}
+            >
+              {busyId === item.id ? 'Tar bort…' : 'Ta bort'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // Live förhandsgranskning av VAR en AI-effekt (ljusklot/dimma/gnistor m.m.) börjar inom
 // segment 0 — en tidslinje för segmentets egen längd med ett dragbart handtag för
 // starttiden, plus en skuggad zon som visar effektens egen (server-satta) längd. Om
@@ -1679,6 +1772,15 @@ export default function Klippstudio() {
       })
       setEffectVideoUrl(result.url)
       setEffectPrompt(result.prompt)
+
+      // Sparas i effektbiblioteket automatiskt — icke-kritiskt (samma mönster som
+      // embedAndStoreClip), ska aldrig blockera eller fela det faktiska genereringsflödet.
+      supabase
+        .from('effect_library')
+        .insert({ effect_type: effectType, prompt: result.prompt, video_url: result.url })
+        .then(({ error: libraryError }) => {
+          if (libraryError) console.warn('Kunde inte spara effekten i biblioteket:', libraryError.message)
+        })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -2774,6 +2876,19 @@ export default function Klippstudio() {
                 </label>
               )}
 
+              {effectEnabled && (
+                <EffectLibraryPicker
+                  effectType={effectType}
+                  onPick={(item) => {
+                    setEffectVideoUrl(item.video_url)
+                    setEffectPrompt(item.prompt)
+                    setEffectStartSeconds(0)
+                    setEffectCustomPrompt('')
+                    setEffectRefinedPrompt('')
+                  }}
+                />
+              )}
+
               {effectEnabled &&
                 (() => {
                   const seg0 = plan?.segments_plan?.[0]
@@ -2799,6 +2914,17 @@ export default function Klippstudio() {
                   <div style={{ marginTop: 12 }}>
                     <video src={effectVideoUrl} controls style={{ width: '100%', borderRadius: 12 }} />
                     {effectPrompt && <p className="clip-prompt">Prompt: {effectPrompt}</p>}
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      style={{ marginTop: 8 }}
+                      onClick={() => {
+                        setEffectVideoUrl(null)
+                        setEffectPrompt(null)
+                      }}
+                    >
+                      Välj en annan effekt
+                    </button>
                   </div>
                 ) : (
                   <>

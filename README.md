@@ -608,6 +608,21 @@ ovanpå videon. `effectType` måste skickas till `/api/render-clip` med samma v�
 `effectMode` hade när klippet genererades — annars kan fel kompositeringsinställningar (fel
 skalning/position) användas.
 
+**Effektbibliotek (`effect_library`-tabellen, `EffectLibraryPicker`):** varje genererad
+effekt sparas AUTOMATISKT (icke-kritiskt, samma "fire and forget"-mönster som
+`embedAndStoreClip`) i en egen tabell (`0009_effect_library.sql`: `id`, `created_at`,
+`effect_type`, `prompt`, `video_url`) — till skillnad från t.ex. `segmentStarts`/
+`segmentEnds`, som medvetet INTE sparas, är detta genererat innehåll som kostat ett
+Replicate-anrop, så det ska aldrig behöva genereras om bara för att sessionen stängdes.
+`EffectLibraryPicker` visas direkt under typväljaren, filtrerad på vald `effectType` (en
+`orb`-video passar inte inkomponerad som `mist`, olika skala/position/kromakey per typ i
+`EFFECT_COMPOSITE`), med en horisontellt skrollbar rad tysta loop-videor (hover eller klick
+för att förhandslyssna) och knapparna "Använd" (sätter `effectVideoUrl`/`effectPrompt` direkt,
+ingen ny generering/kostnad) och "Ta bort" (permanent, `delete` mot tabellen). Är en effekt
+redan vald visas en "Välj en annan effekt"-knapp för att gå tillbaka till biblioteket/
+generera-ny-flödet. Samma öppna RLS-policy som `clips`/`trend_snapshots` (appen har ingen
+egen inloggning).
+
 **Valfri starttid inom segmentet (`EffectTimingPicker`):** effekten låg tidigare FAST vid
 segment 0:s allra första bildruta — inget sätt att t.ex. låta ett ljusklot dyka upp mitt i
 meningen istället för direkt. `effectStartSeconds` (klientstate) + `effectStartOffsetSeconds`
