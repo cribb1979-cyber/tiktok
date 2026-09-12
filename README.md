@@ -604,6 +604,18 @@ Utöver B-roll (som klipps in som ett eget segment): ett andra kryssruta i Klipp
 B-roll genom att den kompositeras in i din egen video istället för att vara ett fristående,
 inklippt segment.
 
+**Korrigering (skarpt test):** "Egen idé"-fältet i UI:t är uttryckligen valfritt ("lämna
+tomt för ett generiskt förslag som passar vald typ"), men `generate-broll.ts` krävde tidigare
+ALLTID att `customPrompt`/`category`/`subtopic`/`hookText` gav ihop minst ett icke-tomt
+"tema" — bekräftat skarpt: ett tomt "Egen idé"-fält gav 400 "customPrompt, category,
+subtopic eller hookText krävs", eftersom AI-effekt-flödet (till skillnad från B-roll-flödet)
+aldrig skickar med category/subtopic/hookText. Effekttypens egen `EFFECT_TYPES[type]
+.promptSystem` beskriver redan fullständigt vad som ska genereras och behöver inget tema
+utöver det — kravet gäller nu bara när `effectMode` INTE är satt (dvs. bara för vanlig
+B-roll). Ett tomt tema i effect-läge skickas till Claude som "Inget specifikt tema
+angivet — hitta på ett generiskt, filmiskt exempel som passar effekttypen." istället för en
+tom sträng.
+
 **Sex typer** (dropdown i Klippstudio, `EFFECT_TYPE_OPTIONS` i `constants.js`), varje med egen
 systemprompt (`EFFECT_TYPES` i `generate-broll.ts`) och egen kompositering (`EFFECT_COMPOSITE`
 i `render-clip.ts`):

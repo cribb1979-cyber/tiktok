@@ -188,7 +188,13 @@ export default async (request: Request) => {
     .filter((v) => typeof v === 'string' && v.trim())
     .join(' — ')
 
-  if (!refinedPrompt && !theme) {
+  // I effectMode har Klippstudio-UI:t ("Egen idé (valfritt)") uttryckligen lovat att ett
+  // tomt fält ger "ett generiskt förslag som passar vald typ" — effekttypens egen
+  // promptSystem (EFFECT_TYPES ovan) beskriver redan fullständigt vad som ska genereras, den
+  // behöver inget tema utöver det. Bekräftat skarpt: tomt customPrompt + inget category/
+  // subtopic/hookText (skickas aldrig med från AI-effekt-flödet, bara från B-roll-flödet)
+  // gav annars felaktigt 400 "tema krävs" trots att effektmode ensamt räcker.
+  if (!refinedPrompt && !theme && !effectMode) {
     return jsonResponse(
       { error: 'customPrompt, category, subtopic eller hookText krävs för att generera ett B-roll-tema.' },
       400
@@ -224,7 +230,12 @@ export default async (request: Request) => {
           model: CLAUDE_MODEL,
           max_tokens: 300,
           system: promptSystem,
-          messages: [{ role: 'user', content: `Tema: ${theme}` }],
+          messages: [
+            {
+              role: 'user',
+              content: `Tema: ${theme || 'Inget specifikt tema angivet — hitta på ett generiskt, filmiskt exempel som passar effekttypen.'}`,
+            },
+          ],
         }),
       })
 
