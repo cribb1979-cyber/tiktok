@@ -288,6 +288,17 @@ mot ett skarpt svar härifrån (nätverksbegränsningar) — justera enligt HeyG
 felmeddelande om något fältnamn visar sig fel vid nästa test, samma mönster som tidigare
 Bria/Shotstack/Replicate-fältnamnsfixar i den här appen.
 
+**Korrigering #2 (statuspollning fastnade):** bytet ovan flyttade OCKSÅ statuspollningen till
+en gissad `GET /v3/videos/{id}`, med antagandet att v1-statusendpointen inte skulle känna igen
+video-id:n skapade via v3. Fel antagande, bekräftat skarpt: videon blev klar och gick att se
+direkt på HeyGens egen sajt, men appen fastnade ändå på "Genererar film…" (till slut ett
+timeout-fel) — v3/videos/{id} svarade sannolikt inte i det format koden förväntade sig, aldrig
+verifierat mot ett skarpt svar. `avatar-video-status.ts` pollar nu åter `GET
+v1/video_status.get?video_id=...` (samma endpoint som innan v3-migreringen) — precis som
+Replicates predictions-endpoint (se `broll-status.ts`) är den modelloberoende: samma video_id
+fungerar oavsett om videon submittades via v1/v2/v3. Bara SUBMIT-anropet (`generate-avatar-
+video.ts`) behövde bytas till v3 för röstfixen ovan, inte statuskollen.
+
 **Datamodell:** `scripts`-tabellen (`0008_scripts.sql`) sparar `raw_text`/`parsed_beats` som
 historik — `clip_id` sätts inte automatiskt idag (kopplas inte till det sparade klippet i
 Bibliotek ännu), bara till för framtida bruk enligt spec-dokumentets datamodell.

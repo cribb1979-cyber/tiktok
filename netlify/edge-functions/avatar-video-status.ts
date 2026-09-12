@@ -1,10 +1,16 @@
 // Pollar status för en pågående HeyGen-avatarvideogenerering (se generate-avatar-video.ts).
-// v3/videos-statusendpoint (GET /v3/videos/{id}) istället för den äldre v1/video_status.get —
-// generate-avatar-video.ts submittar numera via v3 (Avatar IV-motorn), och v1-statusendpointen
-// känner inte nödvändigtvis igen ID:n skapade via v3. Fältnamn sammanställda från HeyGens
-// dokumentation, inte verifierade mot ett skarpt svar härifrån — justera vid behov, se
-// kommentaren i generate-avatar-video.ts.
-const HEYGEN_STATUS_URL = 'https://api.heygen.com/v3/videos'
+//
+// KORRIGERING (skarpt test): bytte tidigare till en gissad v3/videos-statusendpoint
+// (GET /v3/videos/{id}) med antagandet att v3-genererade video-id:n inte skulle kännas igen
+// av v1-statusendpointen. Fel antagande, bekräftat skarpt: videon blev klar och gick att se
+// direkt på HeyGens egen sajt, men appens pollning fastnade ändå ("Genererar film…" för
+// evigt, till slut ett timeout-fel) — v3/videos/{id} svarade sannolikt inte i det format
+// koden förväntade sig (aldrig verifierat mot ett skarpt svar här, se historiken i
+// generate-avatar-video.ts). HeyGens v1/video_status.get är samma sorts modelloberoende
+// statusendpoint som Replicates predictions-endpoint (se t.ex. broll-status.ts) — samma
+// video_id fungerar oavsett vilken generate-endpoint (v1/v2/v3) som skapade videon. Bytt
+// tillbaka till den, redan verifierad och använd innan v3-migreringen.
+const HEYGEN_STATUS_URL = 'https://api.heygen.com/v1/video_status.get'
 
 // HeyGens statusvärden (pending/processing/completed/failed) skiljer sig från vårt
 // klient-kontrakt (PENDING/RUNNING/SUCCEEDED/FAILED, samma normalisering som
@@ -35,7 +41,7 @@ export default async (request: Request) => {
 
   let response: Response
   try {
-    response = await fetch(`${HEYGEN_STATUS_URL}/${encodeURIComponent(id)}`, {
+    response = await fetch(`${HEYGEN_STATUS_URL}?video_id=${encodeURIComponent(id)}`, {
       headers: { 'X-Api-Key': apiKey },
     })
   } catch (err) {
