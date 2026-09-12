@@ -1551,8 +1551,10 @@ export default function Klippstudio() {
             avatar/röst — särskilt viktigt eftersom HeyGen kan namnge en klonad röst likadant
             som en avatar (se README "Avatar-/röstväljare"), vilket annars är lätt att blanda
             ihop i en ren textlista. Ändrar inte listorna, bara ett facit bredvid valet. */}
-        {(selectedAvatarPreview || selectedVoicePreview) && (
-          <div className="form-grid">
+        {/* Staplat under varandra, INTE .form-grids sida-vid-sida-kolumner — en smal
+            högerkolumn klippte tidigare av ljudspelaren utanför skärmen på mobil. */}
+        {(selectedAvatarPreview?.previewImageUrl || selectedVoicePreview?.previewAudioUrl) && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {selectedAvatarPreview?.previewImageUrl && (
               <div>
                 <p className="clip-category">Bekräfta avatar</p>
