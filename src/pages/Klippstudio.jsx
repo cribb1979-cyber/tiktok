@@ -56,7 +56,148 @@ function parseTimecodeClient(tc) {
   return Number(tc) || 0
 }
 
+// Motsatsen till parseTimecodeClient — sekunder tillbaka till "mm:ss" (eller "h:mm:ss" för
+// klipp över en timme, osannolikt men ofarligt att stödja).
+function formatTimecode(totalSeconds) {
+  const s = Math.max(0, Math.round(totalSeconds))
+  const hh = Math.floor(s / 3600)
+  const mm = Math.floor((s % 3600) / 60)
+  const ss = s % 60
+  const pad = (n) => String(n).padStart(2, '0')
+  return hh > 0 ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`
+}
+
 const GLOW_DOT_COLORS = { gold: '#ffcc33', blue: '#4da8ff', white: '#ffffff', red: '#ff5050' }
+
+// Visuell trimning: en videospelare + en tidslinje med två dragbara handtag (start/slut) för
+// EXAKT samma start-/sluttid-fält som redan skickas till renderingen (segmentStarts/
+// segmentEnds) — bara ett smidigare sätt att sätta dem på än att skriva "0:05" som text
+// (textfälten finns kvar bredvid för exakt inmatning). Samma pointer-drag-mönster som
+// ClipCanvas glow/tankebubbla ovan. Kräver ingen ny backend — bara en trevligare frontend
+// för samma data.
+function ClipTrimmer({ videoUrl, startSeconds, endSeconds, onChange }) {
+  const videoRef = useRef(null)
+  const trackRef = useRef(null)
+  const dragRef = useRef(null) // 'start' | 'end' | null
+  const [duration, setDuration] = useState(0)
+
+  function timeFromPointer(clientX) {
+    if (!trackRef.current || duration <= 0) return 0
+    const rect = trackRef.current.getBoundingClientRect()
+    const fraction = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1)
+    return fraction * duration
+  }
+
+  function handlePointerMove(e) {
+    const mode = dragRef.current
+    if (!mode || duration <= 0) return
+    const t = timeFromPointer(e.clientX)
+    if (mode === 'start') {
+      const next = Math.min(Math.max(t, 0), Math.max(endSeconds - 0.2, 0))
+      onChange(next, endSeconds)
+      if (videoRef.current) videoRef.current.currentTime = next
+    } else {
+      const next = Math.max(Math.min(t, duration), startSeconds + 0.2)
+      onChange(startSeconds, next)
+      if (videoRef.current) videoRef.current.currentTime = next
+    }
+  }
+
+  function stopDrag() {
+    dragRef.current = null
+  }
+
+  function startDrag(mode) {
+    return (e) => {
+      e.preventDefault()
+      dragRef.current = mode
+      e.currentTarget.setPointerCapture(e.pointerId)
+      // Hoppa direkt till tryckt position, inte bara vid efterföljande drag — känns annars
+      // som att handtaget "släpar efter" första touchen.
+      handlePointerMove(e)
+    }
+  }
+
+  const startPct = duration > 0 ? (Math.min(startSeconds, duration) / duration) * 100 : 0
+  const endPct = duration > 0 ? (Math.min(endSeconds, duration) / duration) * 100 : 100
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <video
+        ref={videoRef}
+        src={videoUrl}
+        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
+        controls
+        playsInline
+        muted
+        style={{ width: '100%', maxHeight: 320, borderRadius: 10, background: '#000', display: 'block' }}
+      />
+      <div
+        ref={trackRef}
+        onPointerMove={handlePointerMove}
+        onPointerUp={stopDrag}
+        onPointerLeave={stopDrag}
+        onPointerCancel={stopDrag}
+        style={{
+          position: 'relative',
+          height: 32,
+          marginTop: 8,
+          background: 'var(--surface-2)',
+          borderRadius: 6,
+          touchAction: 'none',
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            left: `${startPct}%`,
+            width: `${Math.max(endPct - startPct, 0)}%`,
+            top: 0,
+            bottom: 0,
+            background: 'var(--accent)',
+            opacity: 0.35,
+            borderRadius: 6,
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          onPointerDown={startDrag('start')}
+          aria-label="Starttid (dra)"
+          style={{
+            position: 'absolute',
+            left: `${startPct}%`,
+            top: 0,
+            bottom: 0,
+            width: 16,
+            marginLeft: -8,
+            background: 'var(--accent)',
+            borderRadius: 4,
+            cursor: 'ew-resize',
+          }}
+        />
+        <div
+          onPointerDown={startDrag('end')}
+          aria-label="Sluttid (dra)"
+          style={{
+            position: 'absolute',
+            left: `${endPct}%`,
+            top: 0,
+            bottom: 0,
+            width: 16,
+            marginLeft: -8,
+            background: 'var(--accent)',
+            borderRadius: 4,
+            cursor: 'ew-resize',
+          }}
+        />
+      </div>
+      <p className="clip-prompt" style={{ marginTop: 4 }}>
+        {formatTimecode(startSeconds)} – {formatTimecode(endSeconds)}
+        {duration > 0 ? ` (av ${formatTimecode(duration)} totalt)` : ''}
+      </p>
+    </div>
+  )
+}
 
 // "Klippets sammansättning" — en 9:16-ruta (samma proportion som slutvideon) som visar ALLA
 // aktiva tillval TILLSAMMANS ovanpå klippets första bildruta, istället för att varje
@@ -364,10 +505,14 @@ export default function Klippstudio() {
   // Manuellt redigerbara start-/sluttider (förifyllda med AI-förslaget, mm:ss) och
   // uppspelningshastighet ('' = normal) per segment — override av segments_plan[i].start/end
   // i render-clip.ts. Låter användaren klippa bort för mycket material eller skapa
-  // slow-motion/time-lapse utan att bygga en full tidslinje-editor.
+  // slow-motion/time-lapse. Kan sättas antingen som text (fälten nedan) eller visuellt genom
+  // att dra i en tidslinje (ClipTrimmer ovan) — samma state, bara två sätt att skriva till den.
   const [segmentStarts, setSegmentStarts] = useState([])
   const [segmentEnds, setSegmentEnds] = useState([])
   const [segmentSpeeds, setSegmentSpeeds] = useState([])
+  // Vilket segments visuella trimmer som är öppen (bara en åt gången — undviker att ladda in
+  // flera <video>-element samtidigt, tungt på mobil). null = ingen öppen.
+  const [trimmerOpenIndex, setTrimmerOpenIndex] = useState(null)
 
   // "Redigera med vägledning" — fri textinstruktion som Claude tolkar och applicerar på HELA
   // segmentplanen (start/slut/hastighet), istället för att man ställer in siffror manuellt
@@ -1868,8 +2013,9 @@ export default function Klippstudio() {
             {hasUploadedClip && (
               <p className="placeholder-note">
                 Start-/sluttid (mm:ss) är AI:ns förslag men går att redigera direkt — t.ex. för
-                att klippa bort för mycket material. Hastighet skapar slow-motion (under 1x)
-                eller time-lapse-känsla (över 1x).
+                att klippa bort för mycket material — antingen som text, eller visuellt med
+                "🎬 Trimma visuellt" (spela upp klippet och dra i tidslinjen). Hastighet skapar
+                slow-motion (under 1x) eller time-lapse-känsla (över 1x).
               </p>
             )}
             <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1952,8 +2098,36 @@ export default function Klippstudio() {
                           </option>
                         ))}
                       </select>
+                      <button
+                        type="button"
+                        onClick={() => setTrimmerOpenIndex(trimmerOpenIndex === i ? null : i)}
+                      >
+                        {trimmerOpenIndex === i ? 'Dölj tidslinje' : '🎬 Trimma visuellt'}
+                      </button>
                     </div>
                   )}
+                  {trimmerOpenIndex === i &&
+                    (() => {
+                      const segClip = clips.find((c) => c.id === seg.clip_id) ?? clips[0]
+                      if (!segClip?.publicUrl) {
+                        return <p className="error-banner">Klippet saknar en uppladdad video att förhandsgranska.</p>
+                      }
+                      return (
+                        <ClipTrimmer
+                          videoUrl={segClip.publicUrl}
+                          startSeconds={parseTimecodeClient(segmentStarts[i] || seg.start)}
+                          endSeconds={parseTimecodeClient(segmentEnds[i] || seg.end)}
+                          onChange={(startSec, endSec) => {
+                            const nextStarts = [...segmentStarts]
+                            const nextEnds = [...segmentEnds]
+                            nextStarts[i] = formatTimecode(startSec)
+                            nextEnds[i] = formatTimecode(endSec)
+                            setSegmentStarts(nextStarts)
+                            setSegmentEnds(nextEnds)
+                          }}
+                        />
+                      )
+                    })()}
                 </li>
               ))}
             </ol>

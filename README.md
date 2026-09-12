@@ -743,16 +743,23 @@ Taggas INTE som AI-genererat innehåll — manuell positionering/CSS, ingen AI-g
 
 ## Redigera start-/sluttid och hastighet per segment (valfritt)
 
-Ett enklare alternativ till en full tidslinje-editor (drag-i-tidslinjen-scrubbing avvägdes
-bort — se motiveringen i sessionshistoriken: förhandsvisningen skulle avvika från Shotstacks
-faktiska rendering, och dragbara handtag är klumpiga på mobil där videor oftast
-sparas/delas). Återanvänder samma numeriska mönster som effekt-/filterdropdownsen som redan
-fanns i segmentlistan.
-
 I segmentlistan i Klippstudio kan varje segments start-/sluttid (mm:ss, förifyllt med AI:ns
-förslag) redigeras direkt i två textfält — t.ex. för att klippa bort för mycket material om
-ett AI-föreslaget segment blev för långt. En hastighets-dropdown (`SEGMENT_SPEED_OPTIONS` i
-`constants.js`, 0.5x–2x) skapar slow-motion eller time-lapse-känsla per segment.
+förslag) redigeras direkt — antingen i två textfält, eller visuellt (se "Trimma visuellt"
+nedan) — t.ex. för att klippa bort för mycket material om ett AI-föreslaget segment blev för
+långt. En hastighets-dropdown (`SEGMENT_SPEED_OPTIONS` i `constants.js`, 0.5x–2x) skapar
+slow-motion eller time-lapse-känsla per segment.
+
+**Trimma visuellt (`ClipTrimmer`-komponenten):** en tidigare version av den här README:n
+avfärdade drag-i-tidslinjen-scrubbing som ett ordentligt vägval bort, med motiveringen att en
+förhandsvisning skulle avvika från Shotstacks faktiska rendering. Det gällde egentligen bara
+om man vill förhandsvisa EFFEKTER/RENDERINGEN i tidslinjen — men det här är enklare: en ren
+`<video>`-spelare av DIN EGEN uppladdade källfil (samma fil som redan skickas till Shotstack,
+inget nytt att hålla synkat), med två dragbara handtag på en tidslinje under spelaren för
+start-/sluttid. Ingen ny backend — handtagen skriver bara till exakt samma
+`segmentStarts`/`segmentEnds`-state som textfälten, bara ett smidigare INMATNINGSSÄTT (peka
+och dra istället för att räkna ut "0:05" i huvudet). Textfälten finns kvar bredvid för exakt
+inmatning. Bara ett segments trimmer är öppen åt gången (`trimmerOpenIndex`) — flera
+`<video>`-element samtidigt är tungt på mobil.
 
 **Kompositering** (`render-clip.ts`): `segmentStarts`/`segmentEnds` (strängar, samma mm:ss-
 format som `segments_plan[i].start/end`) skickas som parallella arrayer och används istället
