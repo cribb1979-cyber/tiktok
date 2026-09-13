@@ -8,6 +8,7 @@ import { useFileInputFallback } from '../lib/useFileInputFallback.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
+import { generateMusic, refineMusicStyle } from '../lib/musicClient.js'
 import { generateBackgroundImage, matteVideo } from '../lib/backgroundClient.js'
 import { generateAvatarVideo, listAvatars, listVoices } from '../lib/heygenClient.js'
 import { generateDidVideo } from '../lib/didClient.js'
@@ -1063,6 +1064,18 @@ export default function Klippstudio() {
   const [glowEndSeconds, setGlowEndSeconds] = useState(3)
   const [glowColor, setGlowColor] = useState('gold')
   const [glowIntensity, setGlowIntensity] = useState('medium')
+
+  // AI-genererad bakgrundsmusik (valfritt) — se generate-music.ts (ACE-Step via Replicate).
+  // Mixas in på låg volym under HELA klippet i render-clip.ts, stänger inte av något annat
+  // ljud (till skillnad från berättarläget, som stänger av videons eget ljud helt).
+  const [musicEnabled, setMusicEnabled] = useState(false)
+  const [musicStyleIdea, setMusicStyleIdea] = useState('')
+  const [musicRefinedTags, setMusicRefinedTags] = useState('')
+  const [musicRefining, setMusicRefining] = useState(false)
+  const [musicLyrics, setMusicLyrics] = useState('')
+  const [musicAudioUrl, setMusicAudioUrl] = useState(null)
+  const [musicGenerating, setMusicGenerating] = useState(false)
+  const [musicStatus, setMusicStatus] = useState(null)
   // Stillbild (dataURL) från klippets första bildruta, bara för att underlätta placering —
   // används aldrig i själva renderingen. Kan misslyckas (t.ex. CORS) utan att blockera
   // funktionen, se handleCaptureGlowPreview.
@@ -1660,6 +1673,7 @@ export default function Klippstudio() {
             intensity: glowIntensity,
           }
         : null,
+      musicAudioUrl: musicEnabled ? musicAudioUrl : null,
     }
   }
 
@@ -1766,6 +1780,42 @@ export default function Klippstudio() {
       setError(err.message)
     } finally {
       setBrollRefining(false)
+    }
+  }
+
+  async function handleRefineMusicStyle() {
+    if (!musicStyleIdea.trim()) return
+    setMusicRefining(true)
+    setError(null)
+    try {
+      const tags = await refineMusicStyle(musicStyleIdea)
+      setMusicRefinedTags(tags)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setMusicRefining(false)
+    }
+  }
+
+  async function handleGenerateMusic() {
+    if (!musicRefinedTags && !musicStyleIdea.trim()) return
+    setMusicGenerating(true)
+    setMusicStatus('PENDING')
+    setError(null)
+    try {
+      const result = await generateMusic({
+        styleIdea: musicStyleIdea,
+        refinedTags: musicRefinedTags,
+        lyrics: musicLyrics,
+        durationSeconds: Math.round(planTotalSeconds) || undefined,
+        onStatus: setMusicStatus,
+      })
+      setMusicAudioUrl(result.url)
+      setMusicRefinedTags(result.tags)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setMusicGenerating(false)
     }
   }
 
@@ -3294,6 +3344,103 @@ export default function Klippstudio() {
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {advancedOpen && hasUploadedClip && (
+            <div className="clip-card" style={{ margin: 0 }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={musicEnabled}
+                  onChange={(e) => {
+                    setMusicEnabled(e.target.checked)
+                    if (!e.target.checked) {
+                      setMusicAudioUrl(null)
+                      setMusicStyleIdea('')
+                      setMusicRefinedTags('')
+                      setMusicLyrics('')
+                    }
+                  }}
+                  style={{ marginTop: 4 }}
+                />
+                <span>
+                  <span className="clip-hook" style={{ display: 'block' }}>
+                    AI-genererad bakgrundsmusik (valfritt)
+                  </span>
+                  <span className="clip-prompt" style={{ display: 'block' }}>
+                    En AI-genererad låt (egen sångtext eller rent instrumentalt) mixas in som
+                    en tyst bakgrund under hela klippet — stör inte tal/berättarröst. Generera
+                    innan du renderar om du vill ha den med.
+                  </span>
+                </span>
+              </label>
+
+              {musicEnabled &&
+                (musicAudioUrl ? (
+                  <div style={{ marginTop: 12 }}>
+                    <audio controls src={musicAudioUrl} style={{ width: '100%' }} />
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      style={{ marginTop: 8 }}
+                      onClick={() => {
+                        setMusicAudioUrl(null)
+                        setMusicRefinedTags('')
+                      }}
+                    >
+                      Välj en annan musikstil
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <label style={{ display: 'block', marginTop: 12 }}>
+                      Musikstil (t.ex. "mörk, spöklik stämning" eller "lugn pianomusik")
+                      <textarea
+                        value={musicStyleIdea}
+                        onChange={(e) => setMusicStyleIdea(e.target.value)}
+                        rows={2}
+                        placeholder="Beskriv stämningen/genren — Claude skriver om den till ett format musikmodellen förstår"
+                      />
+                    </label>
+                    {musicRefinedTags ? (
+                      <label style={{ display: 'block', marginTop: 8 }}>
+                        Färdiga taggar (redigerbara, engelska)
+                        <textarea
+                          value={musicRefinedTags}
+                          onChange={(e) => setMusicRefinedTags(e.target.value)}
+                          rows={2}
+                        />
+                      </label>
+                    ) : (
+                      <button
+                        className="btn-primary"
+                        style={{ marginTop: 4 }}
+                        onClick={handleRefineMusicStyle}
+                        disabled={musicRefining || !musicStyleIdea.trim()}
+                      >
+                        {musicRefining ? 'Förfinar…' : 'Förfina musikstil (valfritt, förhandsgranska)'}
+                      </button>
+                    )}
+                    <label style={{ display: 'block', marginTop: 8 }}>
+                      Egen sångtext (valfritt — lämna tomt för rent instrumental musik)
+                      <textarea
+                        value={musicLyrics}
+                        onChange={(e) => setMusicLyrics(e.target.value)}
+                        rows={3}
+                        placeholder={'[Verse]\nDin egen text här…\n[Chorus]\n...'}
+                      />
+                    </label>
+                    <button
+                      className="btn-primary"
+                      style={{ marginTop: 8 }}
+                      onClick={handleGenerateMusic}
+                      disabled={musicGenerating || !(musicRefinedTags || musicStyleIdea.trim())}
+                    >
+                      {musicGenerating ? BROLL_STATUS_LABELS[musicStatus] ?? 'Genererar…' : 'Generera musik'}
+                    </button>
+                  </>
+                ))}
             </div>
           )}
 

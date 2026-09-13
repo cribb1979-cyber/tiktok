@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { uploadRawClip } from '../lib/storage.js'
 import { generateNarrationAudio } from '../lib/narrationClient.js'
+import { generateMusic, refineMusicStyle } from '../lib/musicClient.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import { useFileInputFallback } from '../lib/useFileInputFallback.js'
@@ -33,6 +34,13 @@ const RENDER_STATUS_LABELS = {
   saving: 'Sparar…',
 }
 
+// Replicates normaliserade status (se musicClient.js/broll-status.ts) — annat kontrakt än
+// Shotstacks RENDER_STATUS_LABELS ovan.
+const MUSIC_STATUS_LABELS = {
+  PENDING: 'I kö…',
+  RUNNING: 'Genererar musik…',
+}
+
 function formatTimecode(totalSeconds) {
   const s = Math.max(0, Math.round(totalSeconds))
   const hh = Math.floor(s / 3600)
@@ -62,6 +70,12 @@ export default function Berattare() {
   const [renderStatus, setRenderStatus] = useState(null)
   const [preparingSave, setPreparingSave] = useState(false)
   const [readyVideoFile, setReadyVideoFile] = useState(null)
+  const [musicStyleIdea, setMusicStyleIdea] = useState('')
+  const [musicRefinedTags, setMusicRefinedTags] = useState('')
+  const [musicRefining, setMusicRefining] = useState(false)
+  const [musicAudioUrl, setMusicAudioUrl] = useState(null)
+  const [musicGenerating, setMusicGenerating] = useState(false)
+  const [musicStatus, setMusicStatus] = useState(null)
   const videoInputRef = useRef(null)
   // Skyddsnät mot en bekräftad iOS Safari-bugg (input[type=file]'s "change" avfyras ibland
   // aldrig när man väljer från Fotobiblioteket/videobiblioteket) — se useFileInputFallback.js.
@@ -100,6 +114,41 @@ export default function Berattare() {
     }
   }
 
+  async function handleRefineMusicStyle() {
+    if (!musicStyleIdea.trim()) return
+    setMusicRefining(true)
+    setError(null)
+    try {
+      const tags = await refineMusicStyle(musicStyleIdea)
+      setMusicRefinedTags(tags)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setMusicRefining(false)
+    }
+  }
+
+  async function handleGenerateMusic() {
+    if (!musicRefinedTags && !musicStyleIdea.trim()) return
+    setMusicGenerating(true)
+    setMusicStatus('PENDING')
+    setError(null)
+    try {
+      const result = await generateMusic({
+        styleIdea: musicStyleIdea,
+        refinedTags: musicRefinedTags,
+        durationSeconds: Math.round(videoDuration) || undefined,
+        onStatus: setMusicStatus,
+      })
+      setMusicAudioUrl(result.url)
+      setMusicRefinedTags(result.tags)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setMusicGenerating(false)
+    }
+  }
+
   function buildRenderParams() {
     return {
       clips: [{ id: 'c1', url: videoUrl, transcript: [], words: [], rotation: videoRotation }],
@@ -107,6 +156,7 @@ export default function Berattare() {
       hookText: '',
       suggestedSubtitles: [],
       narrationAudioUrl,
+      musicAudioUrl,
     }
   }
 
@@ -255,7 +305,64 @@ export default function Berattare() {
 
       {videoUrl && narrationAudioUrl && (
         <div className="clip-card">
-          <p className="clip-category">3. Rendera</p>
+          <p className="clip-category">3. Bakgrundsmusik (valfritt)</p>
+          {musicAudioUrl ? (
+            <>
+              <audio controls src={musicAudioUrl} style={{ width: '100%' }} />
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ marginTop: 8 }}
+                onClick={() => {
+                  setMusicAudioUrl(null)
+                  setMusicRefinedTags('')
+                }}
+              >
+                Välj en annan musikstil
+              </button>
+            </>
+          ) : (
+            <>
+              <label style={{ display: 'block' }}>
+                Musikstil (t.ex. "mörk, spöklik stämning" eller "lugn pianomusik")
+                <textarea
+                  value={musicStyleIdea}
+                  onChange={(e) => setMusicStyleIdea(e.target.value)}
+                  rows={2}
+                  placeholder="Beskriv stämningen/genren — Claude skriver om den till ett format musikmodellen förstår"
+                />
+              </label>
+              {musicRefinedTags ? (
+                <label style={{ display: 'block', marginTop: 8 }}>
+                  Färdiga taggar (redigerbara, engelska)
+                  <textarea value={musicRefinedTags} onChange={(e) => setMusicRefinedTags(e.target.value)} rows={2} />
+                </label>
+              ) : (
+                <button
+                  className="btn-primary"
+                  style={{ marginTop: 4 }}
+                  onClick={handleRefineMusicStyle}
+                  disabled={musicRefining || !musicStyleIdea.trim()}
+                >
+                  {musicRefining ? 'Förfinar…' : 'Förfina musikstil (valfritt, förhandsgranska)'}
+                </button>
+              )}
+              <button
+                className="btn-primary"
+                style={{ marginTop: 8 }}
+                onClick={handleGenerateMusic}
+                disabled={musicGenerating || !(musicRefinedTags || musicStyleIdea.trim())}
+              >
+                {musicGenerating ? MUSIC_STATUS_LABELS[musicStatus] ?? 'Genererar musik…' : 'Generera musik'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {videoUrl && narrationAudioUrl && (
+        <div className="clip-card">
+          <p className="clip-category">4. Rendera</p>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn-primary" onClick={handlePreviewRender} disabled={previewRendering}>
               {previewRendering

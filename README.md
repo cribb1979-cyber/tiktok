@@ -56,7 +56,7 @@ gamla versioner tills cachen går ut, vilket hade varit förvirrande under aktiv
 ## Sidor
 
 - **Idébank** – fungerande: trenddata (hashtags/ljud/kategori) läggs in manuellt på två sätt — antingen ett fält i taget, eller genom att klistra in en hashtag-lista (t.ex. kopierad direkt från TikTok Creative Centers webbgränssnitt) som tolkas till klickbara kandidater du väljer bland innan de sparas i bulk. Visas sedan ett kort i taget — "Hoppa över" eller "Bygg vidare" (skickar dig till Klippstudio med prompt/kategori förifyllda utifrån trenden). Automatisk skrapning/API-hämtning av trenddata byggs inte — TikTok har ingen öppen API för det (Research API är akademisk/icke-kommersiell, Creative Center har ingen offentlig API), så tredjepartsskrapning skulle innebära löpande kostnad och osäker ToS-status. Klistra-in-flödet är den medvetna kompromissen: du hittar trenden själv på riktiga TikTok/Creative Center, appen sköter bara tolkning och urval.
-- **Klippstudio** – fungerande: ladda upp ett eller flera korta råklipp (video/ljud, valfritt — "Lägg till klipp" för fler, se "Flera klipp" nedan), ELLER skriv ett manus som blir en AI-avatar-video (se "Manus-läge" nedan) — båda vägarna landar i samma `clips`-lista. Skriv prompt + kategori/underämne → Claude föreslår en klippningsplan (som kan klippa ihop segment från flera olika klipp, oavsett om de är uppladdade eller AI-avatar-genererade) och 2-3 hook-alternativ. Om råmaterial finns kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek. De valfria AI-tilläggen (B-roll, AI-effekt, bakgrundsbyte, tankebubblor, glow — se respektive avsnitt nedan) döljs bakom en hopfälld "Avancerat"-knapp under klippningsplanen (`advancedOpen`-state, default stängd) — infört efter att standardflödet blivit rörigt med fem separata korta synliga samtidigt. Allt finns kvar, bara ur vägen tills man aktivt öppnar sektionen.
+- **Klippstudio** – fungerande: ladda upp ett eller flera korta råklipp (video/ljud, valfritt — "Lägg till klipp" för fler, se "Flera klipp" nedan), ELLER skriv ett manus som blir en AI-avatar-video (se "Manus-läge" nedan) — båda vägarna landar i samma `clips`-lista. Skriv prompt + kategori/underämne → Claude föreslår en klippningsplan (som kan klippa ihop segment från flera olika klipp, oavsett om de är uppladdade eller AI-avatar-genererade) och 2-3 hook-alternativ. Om råmaterial finns kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek. De valfria AI-tilläggen (B-roll, AI-effekt, bakgrundsbyte, tankebubblor, glow, bakgrundsmusik — se respektive avsnitt nedan) döljs bakom en hopfälld "Avancerat"-knapp under klippningsplanen (`advancedOpen`-state, default stängd) — infört efter att standardflödet blivit rörigt med fem separata korta synliga samtidigt. Allt finns kvar, bara ur vägen tills man aktivt öppnar sektionen.
 - **Bibliotek** – fungerande: lista, lägg till och ta bort klipp manuellt, sortera på bäst presterande, filtrera på kategori. "Visa genererad text" expanderar kortet med sparade hook-alternativ och segmentplan i sin helhet, "Generera om" kör Claude-genereringen igen för klippets sparade prompt/kategori/underämne och skriver över hook-alternativ/segmentplan/hashtags med ett nytt förslag. Utkast kan "Publiceras (mock)" och publicerade klipp kan få simulerade resultat via "Uppdatera resultat (mock)".
 - **Kalender** – platshållare
 - **Tips & trix** – fungerande, statisk guide (`src/pages/Tips.jsx`, ingen AI/databas inblandad): för dig som filmar själv istället för Manus/AI-kortfilm — filmtips, vilka effekter som finns och vad de gör, hur du lägger till dem (under "Avancerat" i Klippstudio), i vilken ordning lagren läggs ovanpå varandra (praktiskt viktigt — en tankebubbla kan täcka undertexter om de hamnar på samma plats, se render-clip.ts's spårordning), och hur klippning/redigering (segment-trim, hastighet, "Redigera med vägledning") fungerar.
@@ -431,6 +431,47 @@ tom (`suggestedSubtitles`/`transcript` skickas som tomma listor, vilket redan ä
 `NARRATION_VOICE` för att byta default-röst server-side (`alloy`/`echo`/`fable`/`onyx`/
 `nova`/`shimmer`, OpenAIs egna TTS-röster — flerspråkiga, följer automatiskt textens eget
 språk, ingen separat svensk/engelsk inställning behövs).
+
+## Bakgrundsmusik: AI-genererad musik med egen text eller instrumentalt (valfritt)
+
+Efterfrågat av användaren efter Berättarläget ovan. Tre leverantörer research:ades (WebSearch,
+2026-09) innan valet föll på **ACE-Step 1.5** (öppen källkod, `fishaudio/ace-step-1.5` på
+Replicate — samma konto/nyckel som redan används för B-roll/AI-effekter, ingen ny
+tjänst/nyckel):
+
+| Leverantör | Egen sångtext? | Officiell API? | Kostnad |
+|---|---|---|---|
+| **ACE-Step 1.5** (vald) | Ja | Ja (Replicate) | ~0,04 USD/generering |
+| Meta MusicGen | Nej, bara instrumental | Ja (Replicate) | ~0,06 USD/generering |
+| ElevenLabs Music | Ja | Ja | ~0,30–0,65 USD/MINUT — betydligt dyrare, ny tjänst/nyckel |
+| Suno | Ja (bäst kända) | **Nej** — ingen offentlig API 2026, bara opålitliga tredjepartswrappers | Undvikt av samma ToS-/tillförlitlighetsskäl som andra "unofficial API"-tjänster i den här appen |
+
+**Flöde:**
+1. Skriv en fri idé för musikstilen (t.ex. "mörk, spöklik stämning") i Klippstudios
+   "Avancerat"-panel eller i `Berattare.jsx`. `netlify/edge-functions/generate-music.ts`
+   skickar den via Claude (`PROMPT_SYSTEM_MUSIC_TAGS`) för att skrivas om till ACE-Steps
+   förväntade taggformat — en kommaseparerad lista engelska nyckelord (genre, stämning,
+   instrument, sångstil, BPM), samma "förfina innan generering"-mönster som B-roll
+   (`refineOnly`).
+2. Skriv EGEN sångtext (helt valfritt, skickas OFÖRÄNDRAD — ingen Claude-omskrivning,
+   användarens egna ord) med ACE-Steps `[Verse]`/`[Chorus]`-struktur, eller lämna tomt för
+   rent instrumental musik (`[instrumental]`, ACE-Steps egen konvention).
+3. Submittas till `POST https://api.replicate.com/v1/models/fishaudio/ace-step-1.5/predictions`
+   med `{ tags, lyrics, duration }`. Pollas via BEFINTLIGA `/api/broll-status` — Replicates
+   predictions-endpoint är modelloberoende (samma mönster som redan dokumenterat för andra
+   Replicate-modeller i den här appen), ingen ny statusendpoint behövdes.
+4. `musicAudioUrl` (nytt fält i `render-clip.ts`) läggs som ett EGET ljudspår
+   (`musicClips`) på LÅG volym (`musicVolume`, default `0.25`) under HELA klippet — till
+   skillnad från `narrationAudioUrl` stängs INGET annat ljud av, musiken mixas bara in som
+   en bakgrund. Fungerar både i vanliga Klippstudio-flödet (Avancerat-tillval, kombinerbart
+   med B-roll/AI-effekt/glow/etc.) och i `Berattare.jsx` (kombinerbart med berättarrösten).
+
+**OSÄKERT (kunde inte verifieras mot ett skarpt svar härifrån — replicate.com är blockerad
+från den här sandboxen):** `tags`/`lyrics`/`duration`-fältnamnen är sammanställda från
+Replicates modellsida och ACE-Steps officiella dokumentation, inte testade mot ett skarpt
+anrop. Justera enligt Replicates eget felmeddelande vid nästa test, samma mönster som
+tidigare fältnamnsfixar i den här appen. **Miljövariabler:** ingen ny — återanvänder
+`REPLICATE_API_TOKEN`/`CLAUDE_API_KEY`.
 
 ## Shotstack-integration (steg 6)
 

@@ -286,6 +286,15 @@ export default async (request: Request) => {
   // det här är aktivt, så berättarrösten inte krockar med vad som händer att höras i bild.
   const narrationAudioUrl = typeof body.narrationAudioUrl === 'string' ? body.narrationAudioUrl : null
 
+  // Bakgrundsmusik (valfritt) — en AI-genererad låt (generate-music.ts, ACE-Step via
+  // Replicate) läggs som ett eget ljudspår ovanpå HELA klippet, från start till slut. Till
+  // skillnad från berättarrösten stängs INTE källklippens/berättarröstens eget ljud av —
+  // musiken mixas bara in UNDER på låg volym (musicVolume, default 0.25) som en stämnings-
+  // höjande bakgrund, inte huvudljudet.
+  const musicAudioUrl = typeof body.musicAudioUrl === 'string' ? body.musicAudioUrl : null
+  const musicVolume =
+    typeof body.musicVolume === 'number' && body.musicVolume >= 0 && body.musicVolume <= 1 ? body.musicVolume : 0.25
+
   if (clips.length === 0 || !clips.every((c) => typeof c.url === 'string' && c.url)) {
     return jsonResponse({ error: 'clips (icke-tom lista, varje med giltig url) krävs.' }, 400)
   }
@@ -591,6 +600,18 @@ export default async (request: Request) => {
       ]
     : []
 
+  // Samma resonemang som narrationClips ovan (hela tidslinjen, från start) — men på låg
+  // volym (musicVolume) eftersom den ska ligga UNDER allt annat ljud, inte ersätta det.
+  const musicClips = musicAudioUrl
+    ? [
+        {
+          asset: { type: 'audio', src: musicAudioUrl, volume: musicVolume },
+          start: 0,
+          length: timelineCursor,
+        },
+      ]
+    : []
+
   const hookClip = hookText
     ? [
         {
@@ -618,6 +639,7 @@ export default async (request: Request) => {
     { clips: videoClips },
     { clips: backgroundClips },
     { clips: narrationClips },
+    { clips: musicClips },
   ].filter((track) => track.clips.length > 0)
 
   const editPayload = {
