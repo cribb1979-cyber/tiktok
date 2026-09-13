@@ -494,6 +494,22 @@ med sina egna genvägar). Samma UI-mönster som `Broll.jsx`: ingen video/klipp/k
 alls, bara stil + sångtext → spara/dela direkt. Sparas också i "Genererat innehåll"-
 biblioteket (se nedan) precis som de andra vägarna in till samma generator.
 
+**AI-förslag (stil + sångtext):** efterfrågat efter MiniMax-bytet, som gjorde sångtext
+obligatorisk — en "AI-förslag"-knapp låter Claude föreslå BÅDE musikstil och sångtext på en
+gång, istället för att användaren måste skriva båda själv. Ett nytt `suggestOnly`-läge i
+`generate-music.ts` (`PROMPT_SYSTEM_MUSIC_SUGGESTION`) tar en fri textkontext och svarar i ett
+strikt `STIL:`/`TEXT:`-format (medvetet INTE JSON — sångtextens egna radbrytningar/citattecken
+hade riskerat att trassla till JSON-parsning), som sedan parsas med ett enkelt regex-match.
+Kontexten skiljer sig åt beroende på var knappen trycks:
+- **Klippstudio** ("AI-förslag utifrån klippet", bredvid Musikstil-fältet i
+  Avancerat-panelen): bygger kontexten från det redan genererade klippets `plan.category`/
+  `plan.subtopic`/vald hook-text — EXAKT samma etablerade mönster som
+  `handleRefineBrollPrompt`/`handleGenerateBroll` redan använder för B-rollens tema.
+- **`/musik`** (fristående, inget klipp att utgå från): ett eget fritt "Tema"-textfält
+  (valfritt — tomt ger Claude fria händer att hitta på ett tema själv).
+Förslaget fyller i både Musikstil- och Sångtext-fälten, som användaren sedan kan redigera
+innan de förfinar/genererar som vanligt — ersätter inget, bara ett startförslag.
+
 **Historik — varför ACE-Step byttes ut:** modellen hette ursprungligen `fishaudio/ace-step-1.5`
 (404 vid första testet), rättat till `lucataco/ace-step` (SAMMA 404 igen — två felaktiga
 ägare/namn i rad avslöjade att namn-baserade sökträffar inte gick att lita på här), sedan bytt

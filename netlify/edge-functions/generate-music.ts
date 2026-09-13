@@ -49,6 +49,23 @@ pads, 70 bpm" eller "upbeat pop, energetic, male vocals, synths, 120 bpm".
 KRITISKT: svara med BARA taggarna, kommaseparerat, inget annat — ingen förklaring, inga
 citattecken, ingen rubrik. Håll svaret under 250 tecken totalt.`
 
+// AI-förslag (valfritt): föreslår BÅDE musikstil och sångtext utifrån en given kontext (ett
+// klipps kategori/ämne/hook i Klippstudio, eller ett fritt tema i den fristående /musik-sidan)
+// — efterfrågat av användaren efter att MiniMax-bytet gav bra kvalitet men innebar att
+// sångtext alltid krävs nu. Ett strikt format (STIL:/TEXT:-markörer) istället för JSON, för att
+// undvika citattecken/radbrytningar i sångtexten som kan trassla till JSON-parsning.
+const PROMPT_SYSTEM_MUSIC_SUGGESTION = `Du är en kreativ låtskrivare. Utifrån given kontext
+(ett klipps tema/kategori, eller en fri idé) föreslår du en musikstil och en sångtext på
+SVENSKA som matchar känslan/temat.
+
+Svara EXAKT i detta format, inget annat före eller efter:
+STIL: <kort stilbeskrivning, 1-2 meningar, gärna på svenska — genre/stämning/instrument>
+TEXT:
+<sångtext med riktiga radbrytningar, strukturerad med [Verse]/[Chorus]/[Bridge], maximalt
+ca 500 tecken totalt>`
+
+const SUGGESTION_LYRICS_MAX_LENGTH = LYRICS_MAX_LENGTH - 50 // marginal innan 600-teckensgränsen
+
 export default async (request: Request) => {
   if (request.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405)
@@ -65,14 +82,63 @@ export default async (request: Request) => {
   const refinedTags = typeof body.refinedTags === 'string' ? body.refinedTags.trim() : ''
   const refineOnly = body.refineOnly === true
   const lyrics = typeof body.lyrics === 'string' ? body.lyrics.trim() : ''
-
-  if (!refinedTags && !styleIdea) {
-    return jsonResponse({ error: 'styleIdea (musikstil) krävs.' }, 400)
-  }
+  const suggestOnly = body.suggestOnly === true
+  const context = typeof body.context === 'string' ? body.context.trim() : ''
 
   const claudeApiKey = Deno.env.get('CLAUDE_API_KEY')
   if (!claudeApiKey) {
     return jsonResponse({ error: 'CLAUDE_API_KEY saknas i Netlify-miljövariabler.' }, 500)
+  }
+
+  if (suggestOnly) {
+    if (!context) {
+      return jsonResponse({ error: 'context krävs för ett AI-förslag.' }, 400)
+    }
+    try {
+      const claudeResponse = await fetch(CLAUDE_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': claudeApiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: 500,
+          system: PROMPT_SYSTEM_MUSIC_SUGGESTION,
+          messages: [{ role: 'user', content: `Kontext: ${context}` }],
+        }),
+      })
+
+      if (!claudeResponse.ok) {
+        const errText = await claudeResponse.text()
+        return jsonResponse({ error: 'Claude API-fel (musikförslag)', detail: errText }, 502)
+      }
+
+      const claudeData = await claudeResponse.json()
+      const textBlock = (claudeData?.content ?? []).find((b: { type: string }) => b.type === 'text')
+      const raw = (textBlock?.text ?? '').trim()
+
+      const styleMatch = raw.match(/STIL:\s*(.+)/)
+      const lyricsMatch = raw.match(/TEXT:\s*([\s\S]*)/)
+      const suggestedStyle = (styleMatch?.[1] ?? '').trim()
+      let suggestedLyrics = (lyricsMatch?.[1] ?? '').trim()
+      if (suggestedLyrics.length > SUGGESTION_LYRICS_MAX_LENGTH) {
+        suggestedLyrics = suggestedLyrics.slice(0, SUGGESTION_LYRICS_MAX_LENGTH)
+      }
+
+      if (!suggestedStyle || !suggestedLyrics) {
+        return jsonResponse({ error: 'Kunde inte tolka AI-förslaget.', detail: raw }, 502)
+      }
+
+      return jsonResponse({ styleIdea: suggestedStyle, lyrics: suggestedLyrics }, 200)
+    } catch (err) {
+      return jsonResponse({ error: 'Kunde inte generera musikförslag.', detail: String(err) }, 502)
+    }
+  }
+
+  if (!refinedTags && !styleIdea) {
+    return jsonResponse({ error: 'styleIdea (musikstil) krävs.' }, 400)
   }
 
   let tags: string

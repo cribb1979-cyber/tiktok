@@ -48,6 +48,23 @@ export async function refineMusicStyle(styleIdea) {
   return data.tags
 }
 
+// AI-förslag: föreslår BÅDE musikstil och sångtext utifrån en fri textkontext — antingen ett
+// klipps kategori/ämne/hook (Klippstudio) eller ett fritt tema (fristående /musik-sidan).
+// Efterfrågat av användaren efter MiniMax-bytet, som gjorde sångtext obligatorisk.
+export async function suggestMusicIdea(context) {
+  const response = await fetch('/api/generate-music', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ suggestOnly: true, context }),
+  })
+
+  const data = await parseJsonResponse(response)
+  if (!response.ok) {
+    throw new Error(errorMessage(data, 'Kunde inte skapa ett musikförslag.'))
+  }
+  return data // { styleIdea, lyrics }
+}
+
 const POLL_INTERVAL_MS = 5000
 const MAX_POLL_ATTEMPTS = 60 // ~5 minuter — samma tålamodsgräns som B-roll
 

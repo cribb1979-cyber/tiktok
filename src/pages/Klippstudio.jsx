@@ -9,7 +9,7 @@ import { useWakeLock } from '../lib/useWakeLock.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
-import { generateMusic, refineMusicStyle } from '../lib/musicClient.js'
+import { generateMusic, refineMusicStyle, suggestMusicIdea } from '../lib/musicClient.js'
 import { saveGeneratedContent } from '../lib/generatedContent.js'
 import { generateBackgroundImage, matteVideo } from '../lib/backgroundClient.js'
 import { generateAvatarVideo, listAvatars, listVoices } from '../lib/heygenClient.js'
@@ -1081,6 +1081,7 @@ export default function Klippstudio() {
   const [musicRefinedTags, setMusicRefinedTags] = useState('')
   const [musicRefining, setMusicRefining] = useState(false)
   const [musicLyrics, setMusicLyrics] = useState('')
+  const [musicSuggesting, setMusicSuggesting] = useState(false)
   const [musicAudioUrl, setMusicAudioUrl] = useState(null)
   const [musicGenerating, setMusicGenerating] = useState(false)
   const [musicStatus, setMusicStatus] = useState(null)
@@ -1791,6 +1792,26 @@ export default function Klippstudio() {
     }
   }
 
+  // AI-förslag för musik: bygger en kontext av klippets kategori/ämne/hook (samma etablerade
+  // mönster som handleRefineBrollPrompt/handleGenerateBroll använder för B-roll-tema) och
+  // låter Claude föreslå BÅDE musikstil och sångtext som matchar klippets tema/känsla.
+  async function handleSuggestMusicIdea() {
+    setMusicSuggesting(true)
+    setError(null)
+    try {
+      const selectedHook = plan?.hook_variants?.[selectedHookIndex]
+      const context = `Kategori: ${plan?.category || category}. Ämne: ${plan?.subtopic || subtopic || 'okänt'}. Hook/tema: "${selectedHook?.text || ''}".`
+      const suggestion = await suggestMusicIdea(context)
+      setMusicStyleIdea(suggestion.styleIdea)
+      setMusicRefinedTags('')
+      setMusicLyrics(suggestion.lyrics)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setMusicSuggesting(false)
+    }
+  }
+
   async function handleRefineMusicStyle() {
     if (!musicStyleIdea.trim()) return
     setMusicRefining(true)
@@ -2207,7 +2228,8 @@ export default function Klippstudio() {
     backgroundGenerating ||
     backgroundMatting ||
     musicRefining ||
-    musicGenerating
+    musicGenerating ||
+    musicSuggesting
   useWakeLock(isGeneratingSomething)
 
   return (
@@ -3442,6 +3464,15 @@ export default function Klippstudio() {
                   </div>
                 ) : (
                   <>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      style={{ marginTop: 12 }}
+                      onClick={handleSuggestMusicIdea}
+                      disabled={musicSuggesting || !plan}
+                    >
+                      {musicSuggesting ? 'Tar fram förslag…' : 'AI-förslag utifrån klippet'}
+                    </button>
                     <label style={{ display: 'block', marginTop: 12 }}>
                       Musikstil (t.ex. "mörk, spöklik stämning" eller "lugn pianomusik")
                       <textarea

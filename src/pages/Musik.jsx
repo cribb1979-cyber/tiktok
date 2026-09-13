@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { generateMusic, refineMusicStyle } from '../lib/musicClient.js'
+import { generateMusic, refineMusicStyle, suggestMusicIdea } from '../lib/musicClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import { saveGeneratedContent } from '../lib/generatedContent.js'
 import { useWakeLock } from '../lib/useWakeLock.js'
@@ -21,6 +21,8 @@ const LYRICS_MIN_LENGTH = 10
 const LYRICS_MAX_LENGTH = 600
 
 export default function Musik() {
+  const [theme, setTheme] = useState('')
+  const [suggesting, setSuggesting] = useState(false)
   const [styleIdea, setStyleIdea] = useState('')
   const [refinedTags, setRefinedTags] = useState('')
   const [refining, setRefining] = useState(false)
@@ -35,7 +37,27 @@ export default function Musik() {
 
   // Håller skärmen tänd under generering (se useWakeLock.js) — annars kan skärmen
   // självslockna av inaktivitet och avbryta pollningsloopen mitt i.
-  useWakeLock(refining || generating)
+  useWakeLock(refining || generating || suggesting)
+
+  // AI-förslag: föreslår BÅDE musikstil och sångtext utifrån ett fritt tema (t.ex. "sommarkärlek"
+  // eller "uppbrott och nya början") — samma underliggande förslag som Klippstudios
+  // "AI-förslag utifrån klippet", men med ett fritt tema istället för klippets kategori/hook
+  // som kontext, eftersom den här sidan inte har något klipp att utgå från.
+  async function handleSuggest() {
+    setSuggesting(true)
+    setError(null)
+    try {
+      const context = theme.trim() || 'Valfritt, överraska med ett kreativt tema.'
+      const suggestion = await suggestMusicIdea(context)
+      setStyleIdea(suggestion.styleIdea)
+      setRefinedTags('')
+      setLyrics(suggestion.lyrics)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSuggesting(false)
+    }
+  }
 
   function reset() {
     setAudioUrl(null)
@@ -148,6 +170,24 @@ export default function Musik() {
         ) : (
           <>
             <label style={{ display: 'block' }}>
+              Tema (valfritt — t.ex. "sommarkärlek" eller "uppbrott och nya början")
+              <input
+                type="text"
+                value={theme}
+                onChange={(e) => setTheme(e.target.value)}
+                placeholder="Lämna tomt för ett överraskningsförslag"
+              />
+            </label>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ marginTop: 4 }}
+              onClick={handleSuggest}
+              disabled={suggesting}
+            >
+              {suggesting ? 'Tar fram förslag…' : 'AI-förslag (stil + sångtext)'}
+            </button>
+            <label style={{ display: 'block', marginTop: 12 }}>
               Musikstil (t.ex. "mörk, spöklik stämning" eller "lugn pianomusik")
               <textarea
                 value={styleIdea}
