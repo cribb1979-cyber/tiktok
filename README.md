@@ -889,16 +889,34 @@ redan dokumenterad konsekvens av arkitekturen ovan: Gen-4 Image genererar varje 
 HELT OBEROENDE bild (bara karaktärens ansikte hålls fast via referensbilden, ingenting håller
 fast miljön). `generate-shotlist.ts` skrev dessutom miljön som fri text separat för varje scen
 utan någon koppling till föregående scener, så samma plats kunde beskrivas olika varje gång.
-Delvis åtgärdat: `generate-shotlist.ts` returnerar nu även `locations` (1-4 återkommande
-platser, varje med en DETALJERAD beskrivning — arkitektur/färger/ljus/detaljer) och varje scen
-har ett `location_tag`. Klippstudio (`handleGenerateFilm`) slår upp platsens beskrivning och
-klistrar in den ORDAGRANT främst i varje scens bildprompt (istället för att lita på att Claude
-råkar återanvända samma formulering) — håller miljön betydligt mer konsekvent mellan scener på
-samma plats, eftersom textbeskrivningen nu är bokstavligen identisk. **Kvarstående
-begränsning:** det är fortfarande en NY, oberoende bildgenerering varje gång (ingen delad
-bild/seed), så miljön blir visuellt LIK men inte pixelidentisk — och karaktärens ansikte kan
-fortfarande drifta något mellan scener eftersom Gen-4 Images referensbild-konditionering är en
-stilmässig fingervisning, inte ett hårt identitetslås. En scen med FLERA karaktärer har
+Delvis åtgärdat: `generate-shotlist.ts` returnerar nu även `locations` (återkommande platser,
+varje med en kort beskrivning) och varje scen har ett `location_tag`. Klippstudio
+(`handleGenerateFilm`) slår upp platsens beskrivning och klistrar in den ORDAGRANT främst i
+varje scens bildprompt (istället för att lita på att Claude råkar återanvända samma
+formulering) — håller miljön betydligt mer konsekvent mellan scener på samma plats, eftersom
+textbeskrivningen nu är bokstavligen identisk.
+
+**Korrigering (samma dag, skarpt test):** den FÖRSTA versionen av den här ändringen bad Claude
+om 1-4 platser med en "DETALJERAD" beskrivning per plats — det extra genererade innehållet
+gjorde svaret tillräckligt mycket längre att Netlify Edge Functions 40-sekundersgräns för
+körtid överskreds (samma gräns som redan är dokumenterad på andra ställen i den här README:n),
+vilket gav ett `HTTP 500`/"servern svarade med ett oväntat format"-fel — reproducerat av
+användaren tre gånger i rad med samma längre idé. Åtgärdat genom att banta kravet till 1-2
+platser med EN kort mening per beskrivning (max ca 150 tecken) — medvetet INTE genom att lägga
+till `maxItems`/`maxLength` i JSON-schemat, eftersom det inte gick att verifiera härifrån om
+Claudes structured-output-validering (`output_config.format`) faktiskt stödjer de
+JSON-Schema-nyckelorden eller skulle avvisa ett okänt/ostött sådant med ett helt annat fel —
+samma försiktighetsprincip som ACE-Step-gissningarna ovan, hellre en beprövad prompt-instruktion
+(redan bevisat fungerande för `characters: 1-3`/`shots: 4-8` i samma systemprompt) än en
+ogissad schema-detalj. **OSÄKERT:** kunde inte verifieras med ett nytt skarpt test i den här
+sessionen om detta räcker för att undvika timeouten på alla idéer — om samma fel dyker upp igen
+är nästa steg sannolikt att banta `shots`-intervallet (just nu 4-8) också.
+
+**Kvarstående begränsning:** det är fortfarande en NY, oberoende bildgenerering varje gång
+(ingen delad bild/seed), så miljön blir visuellt LIK men inte pixelidentisk — och karaktärens
+ansikte kan fortfarande drifta något mellan scener eftersom Gen-4 Images
+referensbild-konditionering är en stilmässig fingervisning, inte ett hårt identitetslås. En
+scen med FLERA karaktärer har
 fortfarande bara den första som hålls konsekvent (se korrigeringen ovan) — ingen ändring där.
 
 **Miljövariabler:** ingen ny — återanvänder `REPLICATE_API_TOKEN` och `CLAUDE_API_KEY` som
