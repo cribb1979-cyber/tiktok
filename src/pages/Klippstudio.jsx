@@ -2113,7 +2113,9 @@ export default function Klippstudio() {
 
       <p className="placeholder-note">
         Vill du bara skapa en fristående B-roll-video (ingen uppladdning, ingen
-        klippningsplan)? <Link to="/broll">Öppna B-roll-verktyget</Link>.
+        klippningsplan)? <Link to="/broll">Öppna B-roll-verktyget</Link>. Vill du istället
+        lägga en berättarröst ovanpå en färdig video, helt utan klippningsplan/transkribering?{' '}
+        <Link to="/berattare">Öppna Berättare</Link>.
       </p>
 
       {error && <p className="error-banner">{error}</p>}

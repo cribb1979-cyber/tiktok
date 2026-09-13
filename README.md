@@ -61,6 +61,7 @@ gamla versioner tills cachen går ut, vilket hade varit förvirrande under aktiv
 - **Kalender** – platshållare
 - **Tips & trix** – fungerande, statisk guide (`src/pages/Tips.jsx`, ingen AI/databas inblandad): för dig som filmar själv istället för Manus/AI-kortfilm — filmtips, vilka effekter som finns och vad de gör, hur du lägger till dem (under "Avancerat" i Klippstudio), i vilken ordning lagren läggs ovanpå varandra (praktiskt viktigt — en tankebubbla kan täcka undertexter om de hamnar på samma plats, se render-clip.ts's spårordning), och hur klippning/redigering (segment-trim, hastighet, "Redigera med vägledning") fungerar.
 - **B-roll** (`/broll`, `src/pages/Broll.jsx`) – fungerande, fristående genväg till samma B-roll-generator som Klippstudios "Avancerat"-flöde (`generate-broll.ts`/`replicateClient.js`, oförändrade), men UTAN kravet att först ladda upp ett klipp och skapa en klippningsplan — de behövs annars bara för att låsa upp `advancedOpen`-sektionen och ge B-roll ett category/subtopic/hookText-tema, inget B-roll:en faktiskt SKA innehålla (den visar aldrig personer). Skriv en egen idé (eller lämna helt tomt för ett generiskt förslag — se korrigeringen i "AI-effekt"-avsnittet, samma tema-krav togs bort helt), tryck "Generera B-roll", och spara/dela videon direkt (`fetchVideoAsFile`/`shareVideoFile` från `saveVideo.js`, samma "Spara video till telefonen"-mönster som Bibliotek). Länkad från både Klippstudio (ovanför formuläret) och Tips-sidans B-roll-beskrivning, men har ingen egen flik i bottennavigeringen — en Studio-undergenväg, inte ett eget huvudläge.
+- **Berättare** (`/berattare`, `src/pages/Berattare.jsx`) – fungerande, fristående genväg som hoppar över HELA klippningsplan-/transkriberingsflödet: ladda upp en färdig video, skriv en berättartext, generera en AI-uppläst röst (`generate-narration.ts`, OpenAIs text-till-tal) och rendera videon med rösten som ett eget ljudspår ovanpå (videons eget ljud stängs av automatiskt). Bygger en syntetisk ETT-segment-klippningsplan (hela videons längd, ingen AI-uppdelning) internt bara för att återanvända `/api/render-clip` oförändrat. Inga undertexter i det här läget (inget transkript att synka mot). Länkad från Klippstudio och Tips, ingen egen flik i bottennavigeringen — se "Berättarläge" nedan för detaljer.
 - **Inställningar** – fungerande: TikTok-koppling (mock, se nedan). API-nycklar hanteras i Netlify, inte här.
 
 ## Claude API-integration (steg 4)
@@ -353,6 +354,51 @@ paustagg (se ovan) faktiskt respekteras av D-IDs "text"-script-typ. Justera enli
 felmeddelande vid nästa skarpa test, samma mönster som HeyGen v3/Bria/Replicate-
 fältnamnsfixarna i den här appen. **Miljövariabler:** `DID_API_KEY` (från D-IDs dashboard),
 valfri `DID_VOICE_ID`.
+
+## Berättarläge (`/berattare`): berättarröst istället för klippningsplan/transkribering
+
+Efterfrågat direkt av användaren: en väg som helt hoppar över Claude-klippningsplanen OCH
+Whisper-transkriberingen — bara ladda upp en färdig video, skriv en berättartext, och få den
+uppläst som en berättarröst ovanpå videon. Byggd som en egen, fristående sida
+(`src/pages/Berattare.jsx`), samma filosofi som `/broll`: en lättviktig genväg vid sidan av
+Klippstudios fullständiga flöde, inte en ersättning för det.
+
+**Flöde:**
+1. Ladda upp en video (`uploadRawClip`, samma `raw-clips`-bucket som allt annat råmaterial).
+   Längden läses av klientsidan via `<video>`-elementets `onLoadedMetadata` — ingen
+   Whisper-transkribering görs, appen bryr sig aldrig om vad som SÄGS i videon.
+2. Skriv berättartexten direkt i ett textfält (ingen Claude-inblandning i själva texten —
+   användaren skriver den färdigt, ingen anledning att lägga till ett LLM-steg för ren
+   textinmatning).
+3. **`netlify/edge-functions/generate-narration.ts`** skickar texten till OpenAIs
+   text-till-tal-endpoint (`POST https://api.openai.com/v1/audio/speech`, modell `tts-1`,
+   röst valbar — `fable`, beskriven i OpenAIs dokumentation som en varm/berättande röst,
+   är default) och returnerar den råa mp3-filen DIREKT i svaret (`Content-Type: audio/mpeg`)
+   — inget submit+poll-flöde behövs, OpenAIs TTS svarar på någon sekund. Återanvänder
+   `WHISPER_API_KEY` (i praktiken bara "OpenAI-nyckeln", samma återanvändning som redan
+   finns i `embed-text.ts`) — ingen ny tjänst/nyckel/kostnad, det medvetna valet efter att
+   ha vägt det mot ElevenLabs (bättre röstkvalitet, men en helt ny integration/kostnad).
+4. Klienten laddar upp den mottagna mp3-filen till `raw-clips` (samma `uploadRawClip`) för
+   att få en URL, precis som allt annat råmaterial.
+5. Rendering återanvänder `/api/render-clip` OFÖRÄNDRAT genom att bygga en syntetisk
+   ETT-SEGMENT-klippningsplan client-side (`{ clip_id: 'c1', start: '0:00', end: <videons
+   fulla längd> }`) — ingen AI-uppdelning i flera segment, hela videon är ett enda segment.
+   `narrationAudioUrl` (nytt fält i `render-clip.ts`) läggs som ett HELT EGET ljudspår
+   (`narrationClips`, en `audio`-asset som spänner `0` till `timelineCursor`, dvs. hela
+   klippets längd) — och källvideons EGNA ljud stängs av (`volume: 0` istället för `1` på
+   video-asseten) när `narrationAudioUrl` finns, så det inte krockar med berättarrösten.
+
+**Medvetet uteslutet:** inga undertexter i det här läget. Ord-för-ord-undertexterna i
+`render-clip.ts` bygger på Whisper-ordtidsstämplar, och OpenAIs TTS-svar innehåller inga
+tidsstämplar alls (bara rena ljudbytes) — att bränna in HELA berättartexten som EN enda
+statisk bildtext för hela klippets längd hade sett risigt ut, så capion-logiken lämnas
+tom (`suggestedSubtitles`/`transcript` skickas som tomma listor, vilket redan är
+`render-clip.ts`s befintliga "inget att visa"-fallback, ingen ny kod behövdes där).
+
+**Miljövariabler:** ingen ny nyckel krävs (`WHISPER_API_KEY` återanvänds). Valfri
+`NARRATION_VOICE` för att byta default-röst server-side (`alloy`/`echo`/`fable`/`onyx`/
+`nova`/`shimmer`, OpenAIs egna TTS-röster — flerspråkiga, följer automatiskt textens eget
+språk, ingen separat svensk/engelsk inställning behövs).
 
 ## Shotstack-integration (steg 6)
 

@@ -274,6 +274,12 @@ export default async (request: Request) => {
   const segmentEnds = Array.isArray(body.segmentEnds) ? (body.segmentEnds as unknown[]) : []
   const segmentSpeeds = Array.isArray(body.segmentSpeeds) ? (body.segmentSpeeds as unknown[]) : []
 
+  // Berättarläge (valfritt) — en AI-uppläst berättarröst (genererad via generate-narration.ts,
+  // OpenAIs text-till-tal) läggs som ett eget, fristående ljudspår ovanpå HELA klippet, från
+  // start till slut. Källklippens EGNA ljud stängs av (volume: 0 på video-asseten nedan) när
+  // det här är aktivt, så berättarrösten inte krockar med vad som händer att höras i bild.
+  const narrationAudioUrl = typeof body.narrationAudioUrl === 'string' ? body.narrationAudioUrl : null
+
   if (clips.length === 0 || !clips.every((c) => typeof c.url === 'string' && c.url)) {
     return jsonResponse({ error: 'clips (icke-tom lista, varje med giltig url) krävs.' }, 400)
   }
@@ -346,7 +352,7 @@ export default async (request: Request) => {
           type: 'video',
           src: backgroundMattedVideoUrl,
           trim: trimStart,
-          volume: 1,
+          volume: narrationAudioUrl ? 0 : 1,
           chromaKey: { color: '#00FF00', threshold: 150, halo: 100 },
           ...(speed ? { speed } : {}),
         },
@@ -362,7 +368,7 @@ export default async (request: Request) => {
           type: 'video',
           src: clip?.url,
           trim: trimStart,
-          volume: 1,
+          volume: narrationAudioUrl ? 0 : 1,
           ...(speed ? { speed } : {}),
         },
         start: timelineCursor,
@@ -559,6 +565,20 @@ export default async (request: Request) => {
     }
   }
 
+  // Berättarrösten spänner över HELA den färdiga tidslinjen (timelineCursor är nu den totala
+  // längden, precis som glow-overlayen ovan) — ett enda ljudklipp från start till slut, inget
+  // eget spårs-per-segment-behov eftersom ljudspår (till skillnad från html/video-lager) inte
+  // kräver att man tänker på skärmposition eller överlapp med andra VISUELLA lager.
+  const narrationClips = narrationAudioUrl
+    ? [
+        {
+          asset: { type: 'audio', src: narrationAudioUrl },
+          start: 0,
+          length: timelineCursor,
+        },
+      ]
+    : []
+
   const hookClip = hookText
     ? [
         {
@@ -585,6 +605,7 @@ export default async (request: Request) => {
     { clips: effectClips },
     { clips: videoClips },
     { clips: backgroundClips },
+    { clips: narrationClips },
   ].filter((track) => track.clips.length > 0)
 
   const editPayload = {

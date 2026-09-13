@@ -32,6 +32,11 @@ export default function Tips() {
           25 MB laddas upp men hoppar över transkribering (klippningsplanen baseras då bara på
           din prompt istället för vad som faktiskt sägs).
         </p>
+        <p className="clip-prompt">
+          Vill du hoppa över klippningsplan och transkribering helt, och istället lägga en
+          AI-uppläst berättarröst ovanpå en färdig video: <Link to="/berattare">öppna
+          Berättare</Link>.
+        </p>
       </div>
 
       <div className="clip-card">

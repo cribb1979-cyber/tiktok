@@ -1,0 +1,273 @@
+import { useState } from 'react'
+import { uploadRawClip } from '../lib/storage.js'
+import { generateNarrationAudio } from '../lib/narrationClient.js'
+import { renderClip } from '../lib/shotstackClient.js'
+import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
+
+// Berättarläge: en fristående genväg som hoppar över HELA klippningsplan-/transkriberings-
+// flödet i Klippstudio (ingen Claude-genererad plan, ingen Whisper-transkribering) — istället
+// laddas en färdig video upp rakt av, en skriven berättartext omvandlas till tal
+// (generate-narration.ts, OpenAIs text-till-tal) och läggs som ett eget ljudspår ovanpå HELA
+// videon (narrationAudioUrl i render-clip.ts, som stänger av videons eget ljud när det här är
+// aktivt). Byggs ihop till en syntetisk ETT-segment-klippningsplan (hela videons längd, ingen
+// AI-uppdelning) bara för att återanvända samma /api/render-clip oförändrat.
+//
+// Inga undertexter i det här läget — utan ett Whisper-transkript/tidsstämplar finns inget att
+// synka undertexter mot (att bränna in HELA berättartexten som en enda bildtext hade sett risigt
+// ut, avsiktligt uteslutet).
+
+const VOICE_OPTIONS = [
+  { value: 'fable', label: 'Fable — berättande, varm (standard)' },
+  { value: 'onyx', label: 'Onyx — djup' },
+  { value: 'nova', label: 'Nova — energisk' },
+  { value: 'alloy', label: 'Alloy — neutral' },
+  { value: 'echo', label: 'Echo — lugn' },
+  { value: 'shimmer', label: 'Shimmer — ljus' },
+]
+
+const RENDER_STATUS_LABELS = {
+  queued: 'I kö…',
+  fetching: 'Hämtar källvideo…',
+  rendering: 'Renderar…',
+  saving: 'Sparar…',
+}
+
+function formatTimecode(totalSeconds) {
+  const s = Math.max(0, Math.round(totalSeconds))
+  const hh = Math.floor(s / 3600)
+  const mm = Math.floor((s % 3600) / 60)
+  const ss = s % 60
+  const pad = (n) => String(n).padStart(2, '0')
+  return hh > 0 ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`
+}
+
+export default function Berattare() {
+  const [videoUrl, setVideoUrl] = useState(null)
+  const [videoUploading, setVideoUploading] = useState(false)
+  const [videoDuration, setVideoDuration] = useState(0)
+  const [narrationText, setNarrationText] = useState('')
+  const [voice, setVoice] = useState('fable')
+  const [narrationAudioUrl, setNarrationAudioUrl] = useState(null)
+  const [narrationGenerating, setNarrationGenerating] = useState(false)
+  const [previewVideoUrl, setPreviewVideoUrl] = useState(null)
+  const [previewRendering, setPreviewRendering] = useState(false)
+  const [previewStatus, setPreviewStatus] = useState(null)
+  const [renderedVideoUrl, setRenderedVideoUrl] = useState(null)
+  const [rendering, setRendering] = useState(false)
+  const [renderStatus, setRenderStatus] = useState(null)
+  const [preparingSave, setPreparingSave] = useState(false)
+  const [readyVideoFile, setReadyVideoFile] = useState(null)
+  const [error, setError] = useState(null)
+
+  async function handleVideoUpload(file) {
+    if (!file) return
+    setVideoUploading(true)
+    setError(null)
+    setPreviewVideoUrl(null)
+    setRenderedVideoUrl(null)
+    try {
+      const publicUrl = await uploadRawClip(file)
+      setVideoUrl(publicUrl)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setVideoUploading(false)
+    }
+  }
+
+  async function handleGenerateNarration() {
+    if (!narrationText.trim()) return
+    setNarrationGenerating(true)
+    setError(null)
+    try {
+      const blob = await generateNarrationAudio(narrationText, voice)
+      const file = new File([blob], 'narration.mp3', { type: 'audio/mpeg' })
+      const publicUrl = await uploadRawClip(file)
+      setNarrationAudioUrl(publicUrl)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setNarrationGenerating(false)
+    }
+  }
+
+  function buildRenderParams() {
+    return {
+      clips: [{ id: 'c1', url: videoUrl, transcript: [], words: [] }],
+      segmentsPlan: [{ clip_id: 'c1', start: '0:00', end: formatTimecode(videoDuration || 1) }],
+      hookText: '',
+      suggestedSubtitles: [],
+      narrationAudioUrl,
+    }
+  }
+
+  async function handlePreviewRender() {
+    if (!videoUrl || !narrationAudioUrl) return
+    if (videoDuration <= 0) {
+      setError('Videons längd kunde inte läsas — vänta tills videospelaren laddat klart och försök igen.')
+      return
+    }
+    setPreviewRendering(true)
+    setPreviewStatus('queued')
+    setError(null)
+    try {
+      const url = await renderClip({ ...buildRenderParams(), preview: true, onStatus: setPreviewStatus })
+      setPreviewVideoUrl(url)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setPreviewRendering(false)
+    }
+  }
+
+  async function handleRender() {
+    if (!videoUrl || !narrationAudioUrl) return
+    if (videoDuration <= 0) {
+      setError('Videons längd kunde inte läsas — vänta tills videospelaren laddat klart och försök igen.')
+      return
+    }
+    setRendering(true)
+    setRenderStatus('queued')
+    setError(null)
+    try {
+      const url = await renderClip({ ...buildRenderParams(), preview: false, onStatus: setRenderStatus })
+      setRenderedVideoUrl(url)
+      setReadyVideoFile(null)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setRendering(false)
+    }
+  }
+
+  async function handlePrepareSave() {
+    setPreparingSave(true)
+    setError(null)
+    try {
+      const file = await fetchVideoAsFile(renderedVideoUrl, 'berattare.mp4')
+      setReadyVideoFile(file)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setPreparingSave(false)
+    }
+  }
+
+  // Synkront (inget await innan share-anropet) — se kommentaren på shareVideoFile.
+  function handleShareVideo() {
+    shareVideoFile(readyVideoFile).catch((err) => {
+      if (err.name !== 'AbortError') {
+        setError(err.message)
+      }
+    })
+  }
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <h1>Berättare</h1>
+      </header>
+
+      <p className="placeholder-note">
+        Ladda upp en färdig video, skriv en berättartext som läses upp ovanpå den — helt utan
+        klippningsplan, transkribering eller hook-förslag. Videons eget ljud stängs av
+        automatiskt så det inte krockar med berättarrösten. Inga undertexter i det här läget
+        (inget transkript att synka mot).
+      </p>
+
+      {error && <p className="error-banner">{error}</p>}
+
+      <div className="clip-card">
+        <p className="clip-category">1. Video</p>
+        <input
+          type="file"
+          accept="video/*"
+          onChange={(e) => handleVideoUpload(e.target.files?.[0])}
+          disabled={videoUploading}
+        />
+        {videoUploading && <p className="clip-prompt">Laddar upp video…</p>}
+        {videoUrl && (
+          <video
+            src={videoUrl}
+            controls
+            onLoadedMetadata={(e) => setVideoDuration(e.currentTarget.duration || 0)}
+            style={{ width: '100%', borderRadius: 12, marginTop: 8 }}
+          />
+        )}
+        {videoDuration > 0 && (
+          <p className="clip-prompt">Längd: ca {formatTimecode(videoDuration)}</p>
+        )}
+      </div>
+
+      {videoUrl && (
+        <div className="clip-card">
+          <p className="clip-category">2. Berättartext</p>
+          <textarea
+            value={narrationText}
+            onChange={(e) => setNarrationText(e.target.value)}
+            rows={4}
+            placeholder="Skriv texten som ska läsas upp ovanpå videon…"
+          />
+          <label style={{ display: 'block', marginTop: 8 }}>
+            Röst
+            <select value={voice} onChange={(e) => setVoice(e.target.value)}>
+              {VOICE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="btn-primary"
+            style={{ marginTop: 8 }}
+            onClick={handleGenerateNarration}
+            disabled={!narrationText.trim() || narrationGenerating}
+          >
+            {narrationGenerating ? 'Genererar röst…' : 'Generera berättarröst'}
+          </button>
+          {narrationAudioUrl && (
+            <audio controls src={narrationAudioUrl} style={{ width: '100%', marginTop: 8 }} />
+          )}
+        </div>
+      )}
+
+      {videoUrl && narrationAudioUrl && (
+        <div className="clip-card">
+          <p className="clip-category">3. Rendera</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn-primary" onClick={handlePreviewRender} disabled={previewRendering}>
+              {previewRendering
+                ? RENDER_STATUS_LABELS[previewStatus] ?? 'Renderar…'
+                : 'Snabb förhandsgranskning (gratis)'}
+            </button>
+            <button className="btn-primary" onClick={handleRender} disabled={rendering}>
+              {rendering ? RENDER_STATUS_LABELS[renderStatus] ?? 'Renderar…' : 'Rendera skarpt'}
+            </button>
+          </div>
+
+          {previewVideoUrl && (
+            <video src={previewVideoUrl} controls style={{ width: '100%', borderRadius: 12, marginTop: 10 }} />
+          )}
+
+          {renderedVideoUrl && (
+            <div style={{ marginTop: 10 }}>
+              <video src={renderedVideoUrl} controls style={{ width: '100%', borderRadius: 12 }} />
+              <div style={{ marginTop: 8 }}>
+                {readyVideoFile ? (
+                  <button className="btn-primary" onClick={handleShareVideo}>
+                    Spara video till telefonen
+                  </button>
+                ) : (
+                  <button className="btn-primary" onClick={handlePrepareSave} disabled={preparingSave}>
+                    {preparingSave ? 'Förbereder…' : 'Förbered video för sparning'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
