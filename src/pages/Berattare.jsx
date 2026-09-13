@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { uploadRawClip } from '../lib/storage.js'
 import { generateNarrationAudio } from '../lib/narrationClient.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
+import { useFileInputFallback } from '../lib/useFileInputFallback.js'
 
 // Berättarläge: en fristående genväg som hoppar över HELA klippningsplan-/transkriberings-
 // flödet i Klippstudio (ingen Claude-genererad plan, ingen Whisper-transkribering) — istället
@@ -61,6 +62,10 @@ export default function Berattare() {
   const [renderStatus, setRenderStatus] = useState(null)
   const [preparingSave, setPreparingSave] = useState(false)
   const [readyVideoFile, setReadyVideoFile] = useState(null)
+  const videoInputRef = useRef(null)
+  // Skyddsnät mot en bekräftad iOS Safari-bugg (input[type=file]'s "change" avfyras ibland
+  // aldrig när man väljer från Fotobiblioteket/videobiblioteket) — se useFileInputFallback.js.
+  const handleVideoUploadChange = useFileInputFallback(videoInputRef, handleVideoUpload)
   const [error, setError] = useState(null)
 
   async function handleVideoUpload(file) {
@@ -184,9 +189,10 @@ export default function Berattare() {
       <div className="clip-card">
         <p className="clip-category">1. Video</p>
         <input
+          ref={videoInputRef}
           type="file"
           accept="video/*"
-          onChange={(e) => handleVideoUpload(e.target.files?.[0])}
+          onChange={handleVideoUploadChange}
           disabled={videoUploading}
         />
         {videoUploading && <p className="clip-prompt">Laddar upp video…</p>}

@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient.js'
 import { generateClipPlan, revisePlan, parseScript } from '../lib/claudeClient.js'
 import { transcribeMedia, transcribeFromUrl, transcribeMp4Url } from '../lib/whisperClient.js'
 import { uploadRawClip } from '../lib/storage.js'
+import { useFileInputFallback } from '../lib/useFileInputFallback.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
@@ -864,6 +865,11 @@ export default function Klippstudio() {
   const [targetDuration, setTargetDuration] = useState('')
 
   const fileInputRef = useRef(null)
+  // Skyddsnät mot en bekräftad iOS Safari-bugg: input[type=file]'s "change"-event avfyras
+  // ibland aldrig när man väljer från Fotobiblioteket (bara "Ta foto/Filma" fungerar
+  // pålitligt) — se useFileInputFallback.js. handleAddClip omdefinierades från att ta emot
+  // hela `event` till att ta emot `file` direkt för att passa kroken.
+  const handleAddClipChange = useFileInputFallback(fileInputRef, handleAddClip)
   // Ett eller flera råklipp, tillagda ett i taget ("Lägg till klipp"). Varje element:
   // { id, name, publicUrl, transcript, transcribing, statusLabel, transcriptionSkipped, error }.
   // Den råa File-blobben sparas INTE här (se kommentaren i handleAddClip för varför).
@@ -899,6 +905,9 @@ export default function Klippstudio() {
   const [didImageFileName, setDidImageFileName] = useState(null)
   const [didImageUploading, setDidImageUploading] = useState(false)
   const [didImageError, setDidImageError] = useState(null)
+  const didImageInputRef = useRef(null)
+  // Se kommentaren vid handleAddClipChange ovan — samma iOS-skyddsnät.
+  const handleDidImageUploadChange = useFileInputFallback(didImageInputRef, handleDidImageUpload)
 
   // AI-kortfilm (valfritt fjärde inmatningssätt): en fri idé bryts ner av Claude till
   // återkommande karaktärer + en ordnad scenlista (generate-shotlist.ts), varje karaktär får
@@ -1079,10 +1088,8 @@ export default function Klippstudio() {
   // Lägger till ETT nytt klipp i listan (upprepa för flera — "Lägg till klipp" i UI:t).
   // Samma uppladdnings-/transkriberingslogik som tidigare (Whisper-storleksgräns, .mov-
   // serverkonvertering), bara riktad mot en post i clips-arrayen istället för global state.
-  async function handleAddClip(event) {
-    const file = event.target.files?.[0]
+  async function handleAddClip(file) {
     if (!file) return
-    event.target.value = '' // så samma fil kan väljas igen om man vill lägga till den två gånger
 
     if (file.size > UPLOAD_MAX_FILE_BYTES) {
       setError(
@@ -2153,9 +2160,10 @@ export default function Klippstudio() {
             <label style={{ display: 'block' }}>
               Foto att animera
               <input
+                ref={didImageInputRef}
                 type="file"
                 accept="image/*"
-                onChange={(e) => handleDidImageUpload(e.target.files?.[0])}
+                onChange={handleDidImageUploadChange}
                 disabled={didImageUploading || manusGenerating}
               />
             </label>
@@ -2402,7 +2410,7 @@ export default function Klippstudio() {
             ref={fileInputRef}
             type="file"
             accept="video/*,audio/*"
-            onChange={handleAddClip}
+            onChange={handleAddClipChange}
             disabled={clips.some((c) => c.transcribing)}
           />
         </label>

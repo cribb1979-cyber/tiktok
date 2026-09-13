@@ -64,6 +64,38 @@ gamla versioner tills cachen går ut, vilket hade varit förvirrande under aktiv
 - **Berättare** (`/berattare`, `src/pages/Berattare.jsx`) – fungerande, fristående genväg som hoppar över HELA klippningsplan-/transkriberingsflödet: ladda upp en färdig video, skriv en berättartext, generera en AI-uppläst röst (`generate-narration.ts`, OpenAIs text-till-tal) och rendera videon med rösten som ett eget ljudspår ovanpå (videons eget ljud stängs av automatiskt). Bygger en syntetisk ETT-segment-klippningsplan (hela videons längd, ingen AI-uppdelning) internt bara för att återanvända `/api/render-clip` oförändrat. Inga undertexter i det här läget (inget transkript att synka mot). Länkad från Klippstudio och Tips, ingen egen flik i bottennavigeringen — se "Berättarläge" nedan för detaljer.
 - **Inställningar** – fungerande: TikTok-koppling (mock, se nedan). API-nycklar hanteras i Netlify, inte här.
 
+## iOS Safari-bugg: filuppladdning från Fotobiblioteket avfyrar inte "change" (skarpt rapporterat)
+
+Bekräftat skarpt: att välja en bild/video från telefonens FOTOBIBLIOTEK via en
+`<input type="file">` fungerade inte — appen "gjorde ingenting" när man kom tillbaka efter
+att ha markerat en bild. Att i stället TA ett nytt foto/spela in video direkt fungerade
+felfritt. Uteslutet genom felsökning: inte specifikt för "Lägg till på hemskärmen"-läget
+(samma fel även i vanliga Safari), inte en `capture`-attributrest, och input-elementets
+`.files`-lista verkar korrekt satt av iOS ändå — bara webbsidans "change"-EVENT som aldrig
+avfyras. Troligen tappar WKWebView JS-exekvering medan det inbyggda, systemägda
+bildväljargränssnittet är öppet (kan ta en stund om iCloud-foton behöver laddas ner), och
+händelsen som skulle meddela sidan om valet hinner aldrig avfyras innan sidan fryser/pausas
+— ett känt, återkommande WebKit-mönster, inte unikt för den här appen.
+
+**Lösning:** `src/lib/useFileInputFallback.js` — en liten hook som lyssnar på
+`visibilitychange`/`focus` på `document`/`window` och manuellt kollar
+`input.files` när fliken blir synlig igen (dvs. man är tillbaka i appen efter att
+bildväljaren stängts), oavsett om det vanliga "change"-eventet avfyrades eller ej. En enkel
+nyckel (filnamn + storlek + ändringsdatum) håller reda på senast hanterad fil så samma fil
+aldrig behandlas två gånger av misstag — annars hade både ett fungerande "change"-event
+(kameraflödet) OCH skyddsnätet kunnat trigga samma uppladdning dubbelt. Nollställer också
+input-elementets `.value` efter varje hanterad fil (samma beteende som redan fanns manuellt
+i huvuduppladdningen), så samma fil kan väljas igen om man vill lägga till den en gång till.
+
+Tillämpad på de tre vanligaste filuppladdningarna: huvudklippsuppladdningen i Klippstudio
+(`handleAddClip`, som samtidigt omdefinierades från att ta emot hela `event` till att ta
+emot `file` direkt för att passa kroken), D-ID-fotouppladdningen (`handleDidImageUpload`),
+och Berättares videouppladdning (`handleVideoUpload`). **Inte** tillämpad ännu på
+per-scen-uppladdningen i AI-kortfilms "Filma själv istället" (`handleFilmShotUpload`) —
+den ligger i en `.map()`-loop där varje scen behöver sin egen input-ref, vilket kräver en
+något annorlunda lösning (en ref-karta istället för en enda ref) — lägg till om samma
+problem rapporteras där.
+
 ## Claude API-integration (steg 4)
 
 `netlify/edge-functions/generate-plan.ts` anropar Claude API server-side (nyckeln
