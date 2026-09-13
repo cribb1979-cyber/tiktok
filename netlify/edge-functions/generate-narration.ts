@@ -12,11 +12,24 @@
 // råmaterial) för att få en publik URL att skicka vidare till /api/render-clip.
 const OPENAI_TTS_URL = 'https://api.openai.com/v1/audio/speech'
 
+// KORRIGERING (2026-09, efter klagomål om dåligt uttal): bytt från `tts-1` till `gpt-4o-mini-tts`
+// — samma pris (~15 USD/1M tecken) men klart bättre, mer naturligt uttal/prosodi (bekräftat via
+// WebSearch mot OpenAIs egen API-dokumentation, developers.openai.com/api/docs/guides/text-to-speech
+// och developers.openai.com/api/reference/.../speech/methods/create). Samma endpoint/request-form,
+// bara modellnamnet ändrat plus ett nytt `instructions`-fält (bara giltigt för gpt-4o-mini-tts,
+// INTE tts-1/tts-1-hd) som styr leveransen i naturligt språk — används här för att uttryckligen be
+// om tydligt, naturligt uttal.
+const TTS_MODEL = 'gpt-4o-mini-tts'
+
+const NARRATION_INSTRUCTIONS =
+  'Tala varmt och engagerande, som en berättarröst i en kort video. Uttala orden tydligt och ' +
+  'naturligt (texten kan vara på svenska) — undvik robotaktig eller forcerad betoning.'
+
 // "fable" beskrivs i OpenAIs egen dokumentation som en varm, berättande röst — bäst passform
 // för en berättarröst jämfört med de mer neutrala alternativen (alloy/echo/nova/shimmer/onyx).
 // Rösten är flerspråkig och följer automatiskt textens eget språk (svenska in ger svenskt
 // uttal), ingen separat språkinställning behövs. Styrbar per anrop (voice i body) eller via
-// NARRATION_VOICE i Netlify-miljövariabler.
+// NARRATION_VOICE i Netlify-miljövariabler. Finns kvar som röst även i gpt-4o-mini-tts.
 const DEFAULT_VOICE = 'fable'
 
 export default async (request: Request) => {
@@ -52,9 +65,10 @@ export default async (request: Request) => {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'tts-1',
+        model: TTS_MODEL,
         input: text,
         voice,
+        instructions: NARRATION_INSTRUCTIONS,
         response_format: 'mp3',
       }),
     })

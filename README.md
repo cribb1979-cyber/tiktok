@@ -404,13 +404,21 @@ Klippstudios fullständiga flöde, inte en ersättning för det.
    användaren skriver den färdigt, ingen anledning att lägga till ett LLM-steg för ren
    textinmatning).
 3. **`netlify/edge-functions/generate-narration.ts`** skickar texten till OpenAIs
-   text-till-tal-endpoint (`POST https://api.openai.com/v1/audio/speech`, modell `tts-1`,
-   röst valbar — `fable`, beskriven i OpenAIs dokumentation som en varm/berättande röst,
-   är default) och returnerar den råa mp3-filen DIREKT i svaret (`Content-Type: audio/mpeg`)
-   — inget submit+poll-flöde behövs, OpenAIs TTS svarar på någon sekund. Återanvänder
+   text-till-tal-endpoint (`POST https://api.openai.com/v1/audio/speech`, röst valbar —
+   `fable`, beskriven i OpenAIs dokumentation som en varm/berättande röst, är default) och
+   returnerar den råa mp3-filen DIREKT i svaret (`Content-Type: audio/mpeg`) — inget
+   submit+poll-flöde behövs, OpenAIs TTS svarar på någon sekund. Återanvänder
    `WHISPER_API_KEY` (i praktiken bara "OpenAI-nyckeln", samma återanvändning som redan
    finns i `embed-text.ts`) — ingen ny tjänst/nyckel/kostnad, det medvetna valet efter att
    ha vägt det mot ElevenLabs (bättre röstkvalitet, men en helt ny integration/kostnad).
+
+   **KORRIGERING (2026-09, klagomål om dåligt uttal):** bytt modell från `tts-1` till
+   `gpt-4o-mini-tts` — samma pris (~15 USD/1M tecken, bekräftat via WebSearch mot OpenAIs
+   egen prisdokumentation), men klart bättre/mer naturligt uttal och prosodi. Möjliggör
+   också ett nytt `instructions`-fält (bara giltigt för just denna modell, INTE
+   `tts-1`/`tts-1-hd`) som styr leveransen i naturligt språk — satt till en instruktion om
+   att tala varmt/tydligt och undvika robotaktig betoning. Samma endpoint, samma röster
+   (`fable` m.fl. finns kvar), ingen klientändring behövdes.
 4. Klienten laddar upp den mottagna mp3-filen till `raw-clips` (samma `uploadRawClip`) för
    att få en URL, precis som allt annat råmaterial.
 5. Rendering återanvänder `/api/render-clip` OFÖRÄNDRAT genom att bygga en syntetisk
@@ -494,6 +502,27 @@ används nu ett EXPLICIT version-ID (en konkret hash, hittad i en sökträff fö
 `andreasjansson/ace-step:9fa9677d...`, inte bara ett namn) via Replicates generella
 `POST /v1/predictions`-endpoint med `{ version, input }` — mindre känsligt för att ägare/namn-
 kombinationen är fel, eftersom hashen i sig identifierar en specifik, exakt modellversion.
+
+**OSÄKERT/känt problem (rapporterat av användaren 2026-09, ej löst):** `duration` skickas
+korrekt från klienten (verifierat i `Musik.jsx`/`musicClient.js`/`generate-music.ts` — samma
+värde som valts i längd-väljaren skickas oförändrat i `input.duration`), men resultatet blir
+konsekvent ~30 sekunder oavsett vald längd (30 sek–4 min), och den upplevda ljudkvaliteten
+rapporteras som klart sämre än väntat. Research (WebSearch, replicate.com/api.replicate.com
+är blockerade från den här sandboxen så inget skarpt testanrop kunde göras) pekar mot att
+`andreasjansson/ace-step` är byggt på en snabb/billig "turbo"-variant av ACE-Step-modellen
+(nämnd i källor som genererar en 30-sekunders låt på ~10 sekunders GPU-tid) — `duration`-
+fältnamnet i sig är bekräftat korrekt (samma namn används konsekvent av WaveSpeedAI/fal.ai/
+officiella ACE-Step-dokumentationen), så det mest sannolika är antingen (a) den här specifika
+community-porten inte trådar igenom `duration` fullt ut till själva genereringsloopen, eller
+(b) någon annan begränsning specifik för just den här versionen/porten. Detta skulle även
+förklara den upplevt sämre kvaliteten (en snabb turbo-modell prioriterar hastighet/kostnad
+över kvalitet). **Säkraste nästa steg** (samma mönster som löste 404-felen): kolla
+Predictions-fliken i ditt eget Replicate-konto för en nyligen körd musikgenerering — där syns
+både exakt `input` som skickades OCH eventuella loggar/varningar från modellen, vilket är mer
+tillförlitligt än ytterligare sökmotorgissningar härifrån. Om `duration` verkligen ignoreras av
+den här specifika modellversionen är nästa steg att leta upp en annan Replicate-värd för
+ACE-Step (t.ex. via Replicates egen samlingssida "AI music generation") som fullt ut respekterar
+längdvalet — inte gjort än, väntar på bekräftelse av grundorsaken ovan.
 
 **Om felet kvarstår ändå:** säkraste nästa steg är att slå upp modellen direkt i ditt eget
 Replicate-konto (replicate.com/explore, sök "ace-step") och skicka den exakta sökvägen du ser
