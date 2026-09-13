@@ -5,10 +5,12 @@ import { generateClipPlan, revisePlan, parseScript } from '../lib/claudeClient.j
 import { transcribeMedia, transcribeFromUrl, transcribeMp4Url } from '../lib/whisperClient.js'
 import { uploadRawClip } from '../lib/storage.js'
 import { useFileInputFallback } from '../lib/useFileInputFallback.js'
+import { useWakeLock } from '../lib/useWakeLock.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
 import { generateMusic, refineMusicStyle } from '../lib/musicClient.js'
+import { saveGeneratedContent } from '../lib/generatedContent.js'
 import { generateBackgroundImage, matteVideo } from '../lib/backgroundClient.js'
 import { generateAvatarVideo, listAvatars, listVoices } from '../lib/heygenClient.js'
 import { generateDidVideo } from '../lib/didClient.js'
@@ -1812,6 +1814,12 @@ export default function Klippstudio() {
       })
       setMusicAudioUrl(result.url)
       setMusicRefinedTags(result.tags)
+      saveGeneratedContent({
+        kind: 'music',
+        prompt: musicStyleIdea,
+        metadata: { tags: result.tags, lyrics: musicLyrics },
+        mediaUrl: result.url,
+      })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -1839,6 +1847,12 @@ export default function Klippstudio() {
       })
       setBrollVideoUrl(result.url)
       setBrollPrompt(result.prompt)
+      saveGeneratedContent({
+        kind: 'broll',
+        prompt: result.prompt,
+        metadata: { customPrompt: brollCustomPrompt, allowIllustrativeFigures: brollAllowFigures },
+        mediaUrl: result.url,
+      })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -2162,6 +2176,27 @@ export default function Klippstudio() {
   function handleCanvasResize(id, radius) {
     if (id === 'glow') setGlowRadiusPercent(radius)
   }
+
+  // Håller skärmen tänd under alla längre AI-anrop/renderingar i den här sidan (se
+  // useWakeLock.js) — annars kan skärmen självslockna av inaktivitet och avbryta den
+  // klientstyrda pollningsloopen mitt i en pågående generering.
+  const isGeneratingSomething =
+    manusParsing ||
+    manusGenerating ||
+    filmShotlisting ||
+    filmGenerating ||
+    revisingPlan ||
+    rendering ||
+    previewRendering ||
+    brollGenerating ||
+    brollRefining ||
+    effectGenerating ||
+    effectRefining ||
+    backgroundGenerating ||
+    backgroundMatting ||
+    musicRefining ||
+    musicGenerating
+  useWakeLock(isGeneratingSomething)
 
   return (
     <div className="page">

@@ -2,9 +2,11 @@ import { useRef, useState } from 'react'
 import { uploadRawClip } from '../lib/storage.js'
 import { generateNarrationAudio } from '../lib/narrationClient.js'
 import { generateMusic, refineMusicStyle } from '../lib/musicClient.js'
+import { saveGeneratedContent } from '../lib/generatedContent.js'
 import { renderClip } from '../lib/shotstackClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import { useFileInputFallback } from '../lib/useFileInputFallback.js'
+import { useWakeLock } from '../lib/useWakeLock.js'
 
 // Berättarläge: en fristående genväg som hoppar över HELA klippningsplan-/transkriberings-
 // flödet i Klippstudio (ingen Claude-genererad plan, ingen Whisper-transkribering) — istället
@@ -82,6 +84,10 @@ export default function Berattare() {
   const handleVideoUploadChange = useFileInputFallback(videoInputRef, handleVideoUpload)
   const [error, setError] = useState(null)
 
+  // Håller skärmen tänd under generering/rendering (se useWakeLock.js) — annars kan
+  // skärmen självslockna av inaktivitet och avbryta pollningsloopen mitt i.
+  useWakeLock(narrationGenerating || musicRefining || musicGenerating || previewRendering || rendering)
+
   async function handleVideoUpload(file) {
     if (!file) return
     setVideoUploading(true)
@@ -107,6 +113,12 @@ export default function Berattare() {
       const file = new File([blob], 'narration.mp3', { type: 'audio/mpeg' })
       const publicUrl = await uploadRawClip(file)
       setNarrationAudioUrl(publicUrl)
+      saveGeneratedContent({
+        kind: 'narration',
+        prompt: narrationText,
+        metadata: { voice },
+        mediaUrl: publicUrl,
+      })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -142,6 +154,12 @@ export default function Berattare() {
       })
       setMusicAudioUrl(result.url)
       setMusicRefinedTags(result.tags)
+      saveGeneratedContent({
+        kind: 'music',
+        prompt: musicStyleIdea,
+        metadata: { tags: result.tags },
+        mediaUrl: result.url,
+      })
     } catch (err) {
       setError(err.message)
     } finally {

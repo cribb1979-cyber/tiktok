@@ -473,6 +473,58 @@ anrop. Justera enligt Replicates eget felmeddelande vid nästa test, samma möns
 tidigare fältnamnsfixar i den här appen. **Miljövariabler:** ingen ny — återanvänder
 `REPLICATE_API_TOKEN`/`CLAUDE_API_KEY`.
 
+## Wake Lock: håller skärmen tänd under generering/rendering
+
+Rapporterat direkt av användaren: en pågående generering (B-roll/musik/HeyGen/D-ID/rendering)
+kunde avbrytas om skärmen självslocknade av inaktivitet — alla dessa flöden är klientstyrda
+submit+poll-loopar (`setTimeout` i en `for`-loop i JS), och när iOS pausar/dödar en bakgrundsflik
+(samma WebKit-beteende som orsakade filuppladdningsbuggen, se `useFileInputFallback.js`) stannar
+pollningen mitt i, även om själva jobbet fortsätter köra hos Replicate/HeyGen/Shotstack.
+
+**`src/lib/useWakeLock.js`** — en liten hook kring webbstandarden
+[Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API)
+(`navigator.wakeLock.request('screen')`, stöds av Safari/iOS 16.4+ och moderna Chrome/Android
+— ett tyst no-op på äldre webbläsare där `'wakeLock' in navigator` är false). Håller skärmen
+tänd så länge en aggregerad `isGeneratingSomething`-boolean (alla `*Generating`/`*Refining`/
+`rendering`/`previewRendering`-states OR:ade ihop) är true, i `Klippstudio.jsx`, `Broll.jsx`
+och `Berattare.jsx`. Begär låset på nytt vid `visibilitychange` om webbläsaren släppt det
+(händer automatiskt vid varje kort flik-/appväxling).
+
+**Löser INTE:** att byta till en helt annan app, eller låsa telefonen manuellt med
+strömknappen — ingen webbstandard kan hindra det, bara automatisk skärmsläckning av
+inaktivitet. Den mer robusta (men betydligt större) lösningen — flytta submit+poll till
+server-drivna webhooks istället för klientstyrd pollning, så generering fortsätter oavsett
+om fliken är öppen — är inte byggd, se "Genererat innehåll"-biblioteket nedan för en
+delvis kompensation (resultatet går i alla fall inte förlorat om det HANN bli klart).
+
+## Genererat innehåll: bibliotek för B-roll/musik/berättarröst (auto-sparat)
+
+Efterfrågat direkt av användaren ("autospara alla genererade klipp oavsett B-roll") — innan
+detta fanns bara `effect_library` (AI-effekterna orb/mist/etc., se det avsnittet ovan) som ett
+permanent bibliotek. B-roll, musik och berättarröst levde bara i React-state och gick förlorade
+om sidan stängdes/laddades om innan resultatet hunnit användas i en rendering — särskilt
+relevant efter Wake Lock-avsnittet ovan: om en generering ÄNDÅ avbryts (byte till en annan app,
+manuell skärmlåsning) finns det nu i alla fall kvar permanent om den hann bli klar innan dess.
+
+**`0010_generated_content.sql`** — en gemensam tabell (`kind`: `'broll'`/`'music'`/
+`'narration'`, `prompt`, `metadata` jsonb för typspecifika fält som `tags`/`lyrics`/`voice`,
+`media_url`) istället för tre separata tabeller, eftersom de tre typerna delar samma
+grundform (en idé/text → en genererad fil) men har olika extra fält. Samma öppna RLS-policy
+som `clips`/`effect_library`. **Kör migreringen i Supabase SQL Editor precis som
+`0009_effect_library.sql` tidigare** — annars felar sparningen tyst (syns bara som en
+`console.warn`, blockerar aldrig själva genereringsflödet, se nedan).
+
+**`src/lib/generatedContent.js`** — `saveGeneratedContent()` anropas icke-kritiskt (samma
+"fire and forget"-mönster som `embedAndStoreClip`/`effect_library`-sparningen) direkt efter
+varje lyckad generering i `Klippstudio.jsx` (B-roll, musik), `Broll.jsx` (B-roll) och
+`Berattare.jsx` (berättarröst, musik) — ett misslyckat sparförsök blockerar aldrig eller
+felar det faktiska genereringsresultatet som redan visas för användaren.
+
+**Bläddring:** en ny "Genererat innehåll"-knapp i Bibliotek (`GeneratedContentLibrary`-
+komponenten) — tre flikar (B-roll/Musik/Berättarröst), spelbar video/ljud per post, "Ta
+bort". Ingen "Använd i klipp X"-knapp byggd än (skulle kräva att veta vilket klipp/session
+man vill återanvända det i) — bara bläddring/uppspelning/borttagning för nu.
+
 ## Shotstack-integration (steg 6)
 
 Vid uppladdning sparas råmaterialet även i Supabase Storage-bucketen `raw-clips` (publik URL,

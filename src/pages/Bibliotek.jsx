@@ -4,7 +4,107 @@ import { tiktokAdapter } from '../lib/tiktokAdapter.js'
 import { embedAndStoreClip } from '../lib/clipHistory.js'
 import { generateClipPlan } from '../lib/claudeClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
+import { listGeneratedContent, deleteGeneratedContent } from '../lib/generatedContent.js'
 import { CATEGORIES, STATUSES, STATUS_LABELS } from '../constants.js'
+
+const GENERATED_CONTENT_KIND_LABELS = {
+  broll: 'B-roll',
+  music: 'Musik',
+  narration: 'Berättarröst',
+}
+
+// Bibliotek för AI-genererat innehåll som inte hör till ett specifikt klipp (se
+// 0010_generated_content.sql) — B-roll/musik/berättarröst sparas hit automatiskt vid varje
+// lyckad generering (Klippstudio/Broll.jsx/Berattare.jsx), så inget går förlorat om en
+// generering avbryts innan man hann använda resultatet direkt. AI-effekter (orb/mist/etc.)
+// har redan sitt eget bibliotek (effect_library, EffectLibraryPicker i Klippstudio.jsx) —
+// inte dubblerat här.
+function GeneratedContentLibrary() {
+  const [kind, setKind] = useState('broll')
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [busyId, setBusyId] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    listGeneratedContent(kind)
+      .then((data) => {
+        if (!cancelled) setItems(data)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [kind])
+
+  async function handleDelete(id) {
+    setBusyId(id)
+    try {
+      await deleteGeneratedContent(id)
+      setItems((prev) => prev.filter((item) => item.id !== id))
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="clip-card">
+      <div className="filter-row">
+        {Object.entries(GENERATED_CONTENT_KIND_LABELS).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className="btn-primary"
+            style={{ opacity: kind === value ? 1 : 0.5 }}
+            onClick={() => setKind(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {error && <p className="error-banner">{error}</p>}
+      {loading ? (
+        <p>Laddar…</p>
+      ) : items.length === 0 ? (
+        <p className="empty-state">Inget sparat än av den här typen.</p>
+      ) : (
+        <ul style={{ margin: '10px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {items.map((item) => (
+            <li key={item.id} className="clip-card" style={{ margin: 0 }}>
+              {item.prompt && <p className="clip-prompt">{item.prompt}</p>}
+              {kind === 'broll' ? (
+                <video src={item.media_url} controls style={{ width: '100%', borderRadius: 10 }} />
+              ) : (
+                <audio controls src={item.media_url} style={{ width: '100%' }} />
+              )}
+              {item.metadata?.tags && <p className="clip-prompt">Taggar: {item.metadata.tags}</p>}
+              {item.metadata?.voice && <p className="clip-prompt">Röst: {item.metadata.voice}</p>}
+              <button
+                type="button"
+                className="btn-danger"
+                style={{ marginTop: 6 }}
+                onClick={() => handleDelete(item.id)}
+                disabled={busyId === item.id}
+              >
+                {busyId === item.id ? 'Tar bort…' : 'Ta bort'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 const EMPTY_FORM = {
   prompt: '',
@@ -29,6 +129,7 @@ export default function Bibliotek() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showForm, setShowForm] = useState(false)
+  const [showGeneratedContent, setShowGeneratedContent] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [sortKey, setSortKey] = useState('newest')
@@ -216,12 +317,19 @@ export default function Bibliotek() {
     <div className="page">
       <header className="page-header">
         <h1>Bibliotek</h1>
-        <button className="btn-primary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? 'Stäng' : '+ Nytt klipp'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn-primary" onClick={() => setShowGeneratedContent((v) => !v)}>
+            {showGeneratedContent ? 'Stäng' : 'Genererat innehåll'}
+          </button>
+          <button className="btn-primary" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? 'Stäng' : '+ Nytt klipp'}
+          </button>
+        </div>
       </header>
 
       {error && <p className="error-banner">{error}</p>}
+
+      {showGeneratedContent && <GeneratedContentLibrary />}
 
       {showForm && (
         <form className="clip-form" onSubmit={handleSubmit}>

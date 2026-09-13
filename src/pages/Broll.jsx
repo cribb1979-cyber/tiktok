@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
+import { useWakeLock } from '../lib/useWakeLock.js'
+import { saveGeneratedContent } from '../lib/generatedContent.js'
 
 // Fristående genväg till B-roll-generatorn i Klippstudio (generate-broll.ts) — för den som
 // bara vill ha en atmosfärisk stämningsvideo att spara/dela, utan att behöva ladda upp ett
@@ -26,6 +28,10 @@ export default function Broll() {
   const [error, setError] = useState(null)
   const [preparingSave, setPreparingSave] = useState(false)
   const [readyVideoFile, setReadyVideoFile] = useState(null)
+
+  // Håller skärmen tänd under generering (se useWakeLock.js) — annars kan skärmen
+  // självslockna av inaktivitet och avbryta pollningsloopen mitt i.
+  useWakeLock(refining || generating)
 
   function reset() {
     setVideoUrl(null)
@@ -65,6 +71,12 @@ export default function Broll() {
       })
       setVideoUrl(result.url)
       setPrompt(result.prompt)
+      saveGeneratedContent({
+        kind: 'broll',
+        prompt: result.prompt,
+        metadata: { customPrompt, allowIllustrativeFigures: allowFigures },
+        mediaUrl: result.url,
+      })
     } catch (err) {
       setError(err.message)
     } finally {
