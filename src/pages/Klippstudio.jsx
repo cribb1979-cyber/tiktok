@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient.js'
 import { generateClipPlan, revisePlan, parseScript } from '../lib/claudeClient.js'
 import { transcribeMedia, transcribeFromUrl, transcribeMp4Url } from '../lib/whisperClient.js'
@@ -2064,6 +2064,11 @@ export default function Klippstudio() {
       <header className="page-header">
         <h1>Klippstudio</h1>
       </header>
+
+      <p className="placeholder-note">
+        Vill du bara skapa en fristående B-roll-video (ingen uppladdning, ingen
+        klippningsplan)? <Link to="/broll">Öppna B-roll-verktyget</Link>.
+      </p>
 
       {error && <p className="error-banner">{error}</p>}
 

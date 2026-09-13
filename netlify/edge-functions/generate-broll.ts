@@ -188,18 +188,17 @@ export default async (request: Request) => {
     .filter((v) => typeof v === 'string' && v.trim())
     .join(' — ')
 
-  // I effectMode har Klippstudio-UI:t ("Egen idé (valfritt)") uttryckligen lovat att ett
-  // tomt fält ger "ett generiskt förslag som passar vald typ" — effekttypens egen
-  // promptSystem (EFFECT_TYPES ovan) beskriver redan fullständigt vad som ska genereras, den
-  // behöver inget tema utöver det. Bekräftat skarpt: tomt customPrompt + inget category/
-  // subtopic/hookText (skickas aldrig med från AI-effekt-flödet, bara från B-roll-flödet)
-  // gav annars felaktigt 400 "tema krävs" trots att effektmode ensamt räcker.
-  if (!refinedPrompt && !theme && !effectMode) {
-    return jsonResponse(
-      { error: 'customPrompt, category, subtopic eller hookText krävs för att generera ett B-roll-tema.' },
-      400
-    )
-  }
+  // Tema är HELT valfritt i båda lägena — promptSystem (EFFECT_TYPES ovan, eller
+  // PROMPT_SYSTEM_PERSON_FREE/ILLUSTRATIVE för vanlig B-roll) beskriver redan fullständigt
+  // vad som ska genereras och ger ett rimligt generiskt resultat utan tema. Krävde tidigare
+  // ALLTID ett tema (customPrompt/category/subtopic/hookText) och gav 400 annars — bekräftat
+  // skarpt att det bröt både det fristående B-roll-verktyget (`Broll.jsx`, har inget
+  // category/hookText att skicka) och AI-effekt-flödet (skickar aldrig
+  // category/subtopic/hookText) när "Egen idé" lämnades tom, trots att UI:t i båda lovade
+  // att det var okej.
+  const genericThemeFallback = effectMode
+    ? 'Inget specifikt tema angivet — hitta på ett generiskt, filmiskt exempel som passar effekttypen.'
+    : 'Inget specifikt tema angivet — hitta på en atmosfärisk, filmisk stämningsbild som passar andlighet/medium-temat.'
 
   const replicateModel = Deno.env.get('REPLICATE_MODEL') || 'wan-video/wan-2.1-1.3b'
   // Uttryckligt opt-in per klipp (default false) — se kommentaren högst upp i filen för
@@ -233,7 +232,7 @@ export default async (request: Request) => {
           messages: [
             {
               role: 'user',
-              content: `Tema: ${theme || 'Inget specifikt tema angivet — hitta på ett generiskt, filmiskt exempel som passar effekttypen.'}`,
+              content: `Tema: ${theme || genericThemeFallback}`,
             },
           ],
         }),

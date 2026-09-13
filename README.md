@@ -60,6 +60,7 @@ gamla versioner tills cachen går ut, vilket hade varit förvirrande under aktiv
 - **Bibliotek** – fungerande: lista, lägg till och ta bort klipp manuellt, sortera på bäst presterande, filtrera på kategori. "Visa genererad text" expanderar kortet med sparade hook-alternativ och segmentplan i sin helhet, "Generera om" kör Claude-genereringen igen för klippets sparade prompt/kategori/underämne och skriver över hook-alternativ/segmentplan/hashtags med ett nytt förslag. Utkast kan "Publiceras (mock)" och publicerade klipp kan få simulerade resultat via "Uppdatera resultat (mock)".
 - **Kalender** – platshållare
 - **Tips & trix** – fungerande, statisk guide (`src/pages/Tips.jsx`, ingen AI/databas inblandad): för dig som filmar själv istället för Manus/AI-kortfilm — filmtips, vilka effekter som finns och vad de gör, hur du lägger till dem (under "Avancerat" i Klippstudio), i vilken ordning lagren läggs ovanpå varandra (praktiskt viktigt — en tankebubbla kan täcka undertexter om de hamnar på samma plats, se render-clip.ts's spårordning), och hur klippning/redigering (segment-trim, hastighet, "Redigera med vägledning") fungerar.
+- **B-roll** (`/broll`, `src/pages/Broll.jsx`) – fungerande, fristående genväg till samma B-roll-generator som Klippstudios "Avancerat"-flöde (`generate-broll.ts`/`replicateClient.js`, oförändrade), men UTAN kravet att först ladda upp ett klipp och skapa en klippningsplan — de behövs annars bara för att låsa upp `advancedOpen`-sektionen och ge B-roll ett category/subtopic/hookText-tema, inget B-roll:en faktiskt SKA innehålla (den visar aldrig personer). Skriv en egen idé (eller lämna helt tomt för ett generiskt förslag — se korrigeringen i "AI-effekt"-avsnittet, samma tema-krav togs bort helt), tryck "Generera B-roll", och spara/dela videon direkt (`fetchVideoAsFile`/`shareVideoFile` från `saveVideo.js`, samma "Spara video till telefonen"-mönster som Bibliotek). Länkad från både Klippstudio (ovanför formuläret) och Tips-sidans B-roll-beskrivning, men har ingen egen flik i bottennavigeringen — en Studio-undergenväg, inte ett eget huvudläge.
 - **Inställningar** – fungerande: TikTok-koppling (mock, se nedan). API-nycklar hanteras i Netlify, inte här.
 
 ## Claude API-integration (steg 4)
@@ -467,6 +468,15 @@ gäller även då. Prompten skickas sedan till Replicates `models/{model}/predic
 normaliseras internt till samma PENDING/RUNNING/SUCCEEDED/FAILED-kontrakt som tidigare, så
 klientkoden är oförändrad) tills videon är klar.
 
+**Korrigering (temat är nu helt valfritt):** ett tomt `customPrompt` UTAN category/subtopic/
+hookText gav tidigare 400 "tema krävs" — bröt både AI-effekt-flödet (skickar aldrig
+category/subtopic/hookText, se "AI-effekt"-avsnittet) och det fristående B-roll-verktyget
+(`/broll`, `Broll.jsx`, har inget category/hookText att skicka över huvud taget). Kravet är
+borttaget helt: ett helt tomt anrop får nu en generisk fallback-text i Claude-anropet
+("Inget specifikt tema angivet — hitta på en atmosfärisk, filmisk stämningsbild...") istället
+för ett fel, eftersom `PROMPT_SYSTEM_PERSON_FREE`/`ILLUSTRATIVE` redan fullständigt beskriver
+vad som ska genereras utan att behöva ett tema.
+
 **Förhandsgranska/redigera prompten (valfritt mellansteg):** "Förfina prompt"-knappen i
 Klippstudio anropar `/api/generate-broll` med `refineOnly: true` — kör bara Claude-steget och
 returnerar den engelska, filmiska prompten utan att starta någon (betald) Replicate-
@@ -608,13 +618,12 @@ inklippt segment.
 tomt för ett generiskt förslag som passar vald typ"), men `generate-broll.ts` krävde tidigare
 ALLTID att `customPrompt`/`category`/`subtopic`/`hookText` gav ihop minst ett icke-tomt
 "tema" — bekräftat skarpt: ett tomt "Egen idé"-fält gav 400 "customPrompt, category,
-subtopic eller hookText krävs", eftersom AI-effekt-flödet (till skillnad från B-roll-flödet)
-aldrig skickar med category/subtopic/hookText. Effekttypens egen `EFFECT_TYPES[type]
-.promptSystem` beskriver redan fullständigt vad som ska genereras och behöver inget tema
-utöver det — kravet gäller nu bara när `effectMode` INTE är satt (dvs. bara för vanlig
-B-roll). Ett tomt tema i effect-läge skickas till Claude som "Inget specifikt tema
-angivet — hitta på ett generiskt, filmiskt exempel som passar effekttypen." istället för en
-tom sträng.
+subtopic eller hookText krävs", eftersom AI-effekt-flödet (till skillnad från det ursprungliga
+B-roll-flödet i Klippstudio) aldrig skickar med category/subtopic/hookText. Effekttypens egen
+`EFFECT_TYPES[type].promptSystem` beskriver redan fullständigt vad som ska genereras och
+behöver inget tema utöver det. Kravet är sedan helt borttaget (se "AI-genererad B-roll"-
+avsnittet) — samma sak visade sig gälla vanlig B-roll också, för det fristående
+B-roll-verktyget (`/broll`).
 
 **Sex typer** (dropdown i Klippstudio, `EFFECT_TYPE_OPTIONS` i `constants.js`), varje med egen
 systemprompt (`EFFECT_TYPES` i `generate-broll.ts`) och egen kompositering (`EFFECT_COMPOSITE`

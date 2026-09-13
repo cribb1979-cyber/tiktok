@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 export default function Tips() {
   return (
     <div className="page">
@@ -37,7 +39,8 @@ export default function Tips() {
         <p className="clip-prompt">
           <strong>B-roll</strong> — ett kort, atmosfäriskt AI-genererat inklipp (natur, rök,
           ljus — aldrig personer som standard) som klipps in direkt efter ditt första segment,
-          som en klassisk "cutaway".
+          som en klassisk "cutaway". Vill du bara ha en fristående B-roll-video att spara,
+          utan uppladdning eller klippningsplan: <Link to="/broll">öppna B-roll-verktyget</Link>.
         </p>
         <p className="clip-prompt">
           <strong>AI-effekt</strong> — ett ljuseffekt-lager ovanpå videon under första
