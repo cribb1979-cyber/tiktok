@@ -896,6 +896,7 @@ export default function Klippstudio() {
   // vilkendera leverantören.
   const [avatarProvider, setAvatarProvider] = useState('heygen')
   const [didSourceImageUrl, setDidSourceImageUrl] = useState(null)
+  const [didImageFileName, setDidImageFileName] = useState(null)
   const [didImageUploading, setDidImageUploading] = useState(false)
   const [didImageError, setDidImageError] = useState(null)
 
@@ -1193,16 +1194,21 @@ export default function Klippstudio() {
   }
 
   // Laddar upp fotot som D-ID ska animera — samma lagring (raw-clips) som uppladdat
-  // huvudmaterial, bucketen bryr sig inte om filtyp.
+  // huvudmaterial, bucketen bryr sig inte om filtyp. didImageFileName sätts direkt (INNAN
+  // uppladdningen ens startar) bara för att bekräfta att filväljaren faktiskt registrerade
+  // ett val — annars är det omöjligt att skilja "onChange utlöstes aldrig" från "uppladdningen
+  // fastnade/felade tyst" när något går fel.
   async function handleDidImageUpload(file) {
     if (!file) return
+    setDidImageFileName(file.name)
     setDidImageUploading(true)
     setDidImageError(null)
+    setDidSourceImageUrl(null)
     try {
       const publicUrl = await uploadRawClip(file)
       setDidSourceImageUrl(publicUrl)
     } catch (err) {
-      setDidImageError(err.message)
+      setDidImageError(err?.message || String(err))
     } finally {
       setDidImageUploading(false)
     }
@@ -2155,8 +2161,9 @@ export default function Klippstudio() {
               Sämre läppsynk/kvalitet än HeyGen enligt oberoende jämförelser, men mycket
               billigare (ingen dyr "skapa egen avatar"-nivå att betala för).
             </p>
+            {didImageFileName && <p className="clip-prompt">Vald fil: {didImageFileName}</p>}
             {didImageUploading && <p className="clip-prompt">Laddar upp foto…</p>}
-            {didImageError && <p className="error-banner">{didImageError}</p>}
+            {didImageError && <p className="error-banner">Kunde inte ladda upp fotot: {didImageError}</p>}
             {didSourceImageUrl && (
               <img
                 src={didSourceImageUrl}
