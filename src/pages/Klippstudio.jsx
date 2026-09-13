@@ -51,6 +51,10 @@ const BROLL_STATUS_LABELS = {
   RUNNING: 'Genererar video…',
 }
 
+// minimax/music-1.5 (se generate-music.ts) kräver riktig sångtext, 10–600 tecken.
+const MUSIC_LYRICS_MIN_LENGTH = 10
+const MUSIC_LYRICS_MAX_LENGTH = 600
+
 // Samma tidkodsformat som segments_plan.start/end (mm:ss eller hh:mm:ss) — bara för
 // klient-sidiga uppskattningar/gränser i glow-UI:t nedan, inte auktoritativt (rendering
 // klämmer fast värdena skarpt i render-clip.ts oavsett vad som skickas härifrån).
@@ -1067,9 +1071,11 @@ export default function Klippstudio() {
   const [glowColor, setGlowColor] = useState('gold')
   const [glowIntensity, setGlowIntensity] = useState('medium')
 
-  // AI-genererad bakgrundsmusik (valfritt) — se generate-music.ts (ACE-Step via Replicate).
-  // Mixas in på låg volym under HELA klippet i render-clip.ts, stänger inte av något annat
-  // ljud (till skillnad från berättarläget, som stänger av videons eget ljud helt).
+  // AI-genererad bakgrundsmusik (valfritt) — se generate-music.ts (minimax/music-1.5 via
+  // Replicate). Mixas in på låg volym under HELA klippet i render-clip.ts, stänger inte av
+  // något annat ljud (till skillnad från berättarläget, som stänger av videons eget ljud
+  // helt). Modellen kräver riktig sångtext (inget instrumental-läge) och har inget eget
+  // duration-fält — längden styrs av hur mycket text som skrivs i musicLyrics.
   const [musicEnabled, setMusicEnabled] = useState(false)
   const [musicStyleIdea, setMusicStyleIdea] = useState('')
   const [musicRefinedTags, setMusicRefinedTags] = useState('')
@@ -1800,7 +1806,14 @@ export default function Klippstudio() {
   }
 
   async function handleGenerateMusic() {
-    if (!musicRefinedTags && !musicStyleIdea.trim()) return
+    const lyricsLength = musicLyrics.trim().length
+    if (
+      (!musicRefinedTags && !musicStyleIdea.trim()) ||
+      lyricsLength < MUSIC_LYRICS_MIN_LENGTH ||
+      lyricsLength > MUSIC_LYRICS_MAX_LENGTH
+    ) {
+      return
+    }
     setMusicGenerating(true)
     setMusicStatus('PENDING')
     setError(null)
@@ -1809,7 +1822,6 @@ export default function Klippstudio() {
         styleIdea: musicStyleIdea,
         refinedTags: musicRefinedTags,
         lyrics: musicLyrics,
-        durationSeconds: Math.round(planTotalSeconds) || undefined,
         onStatus: setMusicStatus,
       })
       setMusicAudioUrl(result.url)
@@ -3405,8 +3417,8 @@ export default function Klippstudio() {
                     AI-genererad bakgrundsmusik (valfritt)
                   </span>
                   <span className="clip-prompt" style={{ display: 'block' }}>
-                    En AI-genererad låt (egen sångtext eller rent instrumentalt) mixas in som
-                    en tyst bakgrund under hela klippet — stör inte tal/berättarröst. Generera
+                    En AI-genererad låt (med egen sångtext — modellen stödjer inte rent
+                    instrumentalt) mixas in som en tyst bakgrund under hela klippet. Generera
                     innan du renderar om du vill ha den med.
                   </span>
                 </span>
@@ -3459,19 +3471,35 @@ export default function Klippstudio() {
                       </button>
                     )}
                     <label style={{ display: 'block', marginTop: 8 }}>
-                      Egen sångtext (valfritt — lämna tomt för rent instrumental musik)
+                      Egen sångtext (krävs — 10–600 tecken, stödjer [Verse]/[Chorus]/[Bridge])
                       <textarea
                         value={musicLyrics}
                         onChange={(e) => setMusicLyrics(e.target.value)}
                         rows={3}
+                        maxLength={MUSIC_LYRICS_MAX_LENGTH}
                         placeholder={'[Verse]\nDin egen text här…\n[Chorus]\n...'}
                       />
+                      <span
+                        className="clip-prompt"
+                        style={{
+                          display: 'block',
+                          color: musicLyrics.trim().length < MUSIC_LYRICS_MIN_LENGTH ? '#b91c1c' : undefined,
+                        }}
+                      >
+                        {musicLyrics.trim().length}/{MUSIC_LYRICS_MAX_LENGTH} tecken (minst{' '}
+                        {MUSIC_LYRICS_MIN_LENGTH})
+                      </span>
                     </label>
                     <button
                       className="btn-primary"
                       style={{ marginTop: 8 }}
                       onClick={handleGenerateMusic}
-                      disabled={musicGenerating || !(musicRefinedTags || musicStyleIdea.trim())}
+                      disabled={
+                        musicGenerating ||
+                        !(musicRefinedTags || musicStyleIdea.trim()) ||
+                        musicLyrics.trim().length < MUSIC_LYRICS_MIN_LENGTH ||
+                        musicLyrics.trim().length > MUSIC_LYRICS_MAX_LENGTH
+                      }
                     >
                       {musicGenerating ? BROLL_STATUS_LABELS[musicStatus] ?? 'Genererar…' : 'Generera musik'}
                     </button>

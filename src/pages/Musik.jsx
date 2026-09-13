@@ -5,29 +5,26 @@ import { saveGeneratedContent } from '../lib/generatedContent.js'
 import { useWakeLock } from '../lib/useWakeLock.js'
 
 // Fristående genväg till musikgeneratorn i Klippstudio (generate-music.ts) — för den som bara
-// vill ha en låt (egen sångtext eller instrumentalt) att spara/dela, utan att först behöva
-// ladda upp ett klipp och skapa en klippningsplan (som Klippstudios "Avancerat"-flöde annars
-// kräver, precis som B-roll behövde innan /broll byggdes). Samma edge function/pollning, bara
-// ett annat, mycket enklare UI runt den.
+// vill ha en låt att spara/dela, utan att först behöva ladda upp ett klipp och skapa en
+// klippningsplan (som Klippstudios "Avancerat"-flöde annars kräver, precis som B-roll behövde
+// innan /broll byggdes). Samma edge function/pollning, bara ett annat, mycket enklare UI runt
+// den.
 const MUSIC_STATUS_LABELS = {
   PENDING: 'I kö…',
   RUNNING: 'Genererar musik…',
 }
 
-const DURATION_OPTIONS = [
-  { value: 30, label: '30 sekunder' },
-  { value: 60, label: '1 minut' },
-  { value: 120, label: '2 minuter' },
-  { value: 180, label: '3 minuter' },
-  { value: 240, label: '4 minuter (max)' },
-]
+// minimax/music-1.5 (se generate-music.ts) har inget duration-fält — låtlängden styrs av hur
+// mycket text som skrivs i lyrics, inget separat reglage längre (till skillnad från ACE-Step
+// tidigare, som i praktiken ändå ignorerade det värdet).
+const LYRICS_MIN_LENGTH = 10
+const LYRICS_MAX_LENGTH = 600
 
 export default function Musik() {
   const [styleIdea, setStyleIdea] = useState('')
   const [refinedTags, setRefinedTags] = useState('')
   const [refining, setRefining] = useState(false)
   const [lyrics, setLyrics] = useState('')
-  const [durationSeconds, setDurationSeconds] = useState(60)
   const [audioUrl, setAudioUrl] = useState(null)
   const [tags, setTags] = useState(null)
   const [generating, setGenerating] = useState(false)
@@ -63,7 +60,10 @@ export default function Musik() {
   }
 
   async function handleGenerate() {
-    if (!refinedTags && !styleIdea.trim()) return
+    const lyricsLength = lyrics.trim().length
+    if ((!refinedTags && !styleIdea.trim()) || lyricsLength < LYRICS_MIN_LENGTH || lyricsLength > LYRICS_MAX_LENGTH) {
+      return
+    }
     setGenerating(true)
     setStatus('PENDING')
     setError(null)
@@ -72,7 +72,6 @@ export default function Musik() {
         styleIdea,
         refinedTags,
         lyrics,
-        durationSeconds,
         onStatus: setStatus,
       })
       setAudioUrl(result.url)
@@ -119,9 +118,11 @@ export default function Musik() {
       </header>
 
       <p className="placeholder-note">
-        Skapa en fristående AI-låt (egen sångtext eller rent instrumentalt) att spara och
-        använda var du vill. Ingen uppladdning, inget klipp, ingen klippningsplan — bara en
-        idé för stilen. Samma generator som "AI-genererad bakgrundsmusik" i Klippstudio.
+        Skapa en fristående AI-låt med egen sångtext att spara och använda var du vill. Ingen
+        uppladdning, inget klipp, ingen klippningsplan — bara en idé för stilen plus sångtext.
+        Samma generator som "AI-genererad bakgrundsmusik" i Klippstudio. Musikmodellen kräver
+        riktig sångtext (10–600 tecken) — inget renodlat instrumental-läge, och låtens längd
+        styrs av hur mycket text du skriver, inget separat längdval.
       </p>
 
       <div className="clip-card">
@@ -166,29 +167,31 @@ export default function Musik() {
               </button>
             )}
             <label style={{ display: 'block', marginTop: 8 }}>
-              Egen sångtext (valfritt — lämna tomt för rent instrumental musik)
+              Egen sångtext (krävs — 10–600 tecken, stödjer [Verse]/[Chorus]/[Bridge])
               <textarea
                 value={lyrics}
                 onChange={(e) => setLyrics(e.target.value)}
                 rows={4}
+                maxLength={LYRICS_MAX_LENGTH}
                 placeholder={'[Verse]\nDin egen text här…\n[Chorus]\n...'}
               />
-            </label>
-            <label style={{ display: 'block', marginTop: 8 }}>
-              Längd
-              <select value={durationSeconds} onChange={(e) => setDurationSeconds(Number(e.target.value))}>
-                {DURATION_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <span
+                className="clip-prompt"
+                style={{ display: 'block', color: lyrics.trim().length < LYRICS_MIN_LENGTH ? '#b91c1c' : undefined }}
+              >
+                {lyrics.trim().length}/{LYRICS_MAX_LENGTH} tecken (minst {LYRICS_MIN_LENGTH})
+              </span>
             </label>
             <button
               className="btn-primary"
               style={{ marginTop: 8 }}
               onClick={handleGenerate}
-              disabled={generating || !(refinedTags || styleIdea.trim())}
+              disabled={
+                generating ||
+                !(refinedTags || styleIdea.trim()) ||
+                lyrics.trim().length < LYRICS_MIN_LENGTH ||
+                lyrics.trim().length > LYRICS_MAX_LENGTH
+              }
             >
               {generating ? MUSIC_STATUS_LABELS[status] ?? 'Genererar…' : 'Generera musik'}
             </button>

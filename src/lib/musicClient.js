@@ -1,15 +1,17 @@
 import { errorMessage, parseJsonResponse } from './apiError.js'
 
 // Anropar Netlify Edge Function /api/generate-music — aldrig Replicate/Claude direkt från
-// klienten. Byggd mot ACE-Step 1.5 (Replicate) — se generate-music.ts för leverantörsvalet
-// (billigast med stöd för egen sångtext). Pollas via BEFINTLIGA /api/broll-status —
-// Replicates predictions-endpoint är modelloberoende, ingen ny statusendpoint behövdes.
+// klienten. Byggd mot minimax/music-1.5 (Replicate) — se generate-music.ts för
+// leverantörsvalet/historiken (bytt från ACE-Step efter bekräftade kvalitets-/längdproblem).
+// Ingen durationSeconds längre — MiniMax har inget sådant fält, låtlängden styrs av lyrics-
+// textens längd. Pollas via BEFINTLIGA /api/broll-status — Replicates predictions-endpoint är
+// modelloberoende, ingen ny statusendpoint behövdes.
 
-async function submitMusic({ styleIdea, refinedTags, lyrics, durationSeconds }) {
+async function submitMusic({ styleIdea, refinedTags, lyrics }) {
   const response = await fetch('/api/generate-music', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ styleIdea, refinedTags, lyrics, durationSeconds }),
+    body: JSON.stringify({ styleIdea, refinedTags, lyrics }),
   })
 
   const data = await parseJsonResponse(response)
@@ -29,8 +31,9 @@ async function getMusicStatus(taskId) {
 }
 
 // Låter Claude förfina/översätta en fri stilidé (t.ex. "mörk, spöklik stämning") till
-// ACE-Steps förväntade taggformat, UTAN att starta någon (betald) Replicate-generering — så
-// användaren kan se och redigera taggarna innan de bekräftar.
+// MiniMaxs förväntade prompt-format (kommaseparerade engelska taggar), UTAN att starta någon
+// (betald) Replicate-generering — så användaren kan se och redigera taggarna innan de
+// bekräftar.
 export async function refineMusicStyle(styleIdea) {
   const response = await fetch('/api/generate-music', {
     method: 'POST',
@@ -51,8 +54,8 @@ const MAX_POLL_ATTEMPTS = 60 // ~5 minuter — samma tålamodsgräns som B-roll
 // Startar musikgenerering (opt-in, aldrig automatiskt) och pollar tills den är klar.
 // refinedTags (valfritt): en redan Claude-förfinad/redigerad tagglista (se refineMusicStyle)
 // — skickas med för att slippa köra Claude-steget igen.
-export async function generateMusic({ styleIdea, refinedTags, lyrics, durationSeconds, onStatus }) {
-  const { taskId, tags } = await submitMusic({ styleIdea, refinedTags, lyrics, durationSeconds })
+export async function generateMusic({ styleIdea, refinedTags, lyrics, onStatus }) {
+  const { taskId, tags } = await submitMusic({ styleIdea, refinedTags, lyrics })
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))

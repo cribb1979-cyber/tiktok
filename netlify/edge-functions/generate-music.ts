@@ -1,34 +1,30 @@
-// Valfritt tillval: AI-genererad bakgrundsmusik (med egen text/sång eller rent instrumentalt)
-// via Replicate, modellen ACE-Step (`lucataco/ace-step`) — öppen källkod, valt efter research
-// (WebSearch, 2026-09) som det klart billigaste alternativet med stöd för EGEN TEXT + fri
-// stilbeskrivning: ~0,0002 USD/SEKUND genererat ljud (dvs. under 0,02 USD för en 60s-låt —
-// jämfört med Meta MusicGen ~0,06 USD/generering, som bara gör instrumental musik utan
-// sångtext-stöd, och ElevenLabs Music API, som har officiell API men kostar ~0,30-0,65 USD
-// PER MINUT och kräver en helt ny tjänst/nyckel). Suno (den mest kända sångtjänsten) har
-// ingen officiell publik API alls 2026 — bara opålitliga tredjepartswrappers, medvetet
-// undviket samma sätt som tidigare i den här appen.
+// Valfritt tillval: AI-genererad bakgrundsmusik/låt (egen sångtext) via Replicate.
 //
-// KORRIGERING #2 (skarpt test, samma fel igen): `fishaudio/ace-step-1.5` gav 404, rättat till
-// `lucataco/ace-step` (bekräftat via en riktad `site:replicate.com`-sökning) — men det gav
-// ETT NYTT 404 vid nästa skarpa test. Två felaktiga modellnamn i rad tyder på att namn-baserade
-// träffar från sökmotorresultat/AI-sammanfattningar av dem inte går att lita på här (kan vara
-// gamla/borttagna/privata modeller, eller AI-sammanfattningen kan ha konstruerat en plausibel
-// men fel URL av flera olika källor). Bytt strategi: istället för att gissa ett `ägare/namn`
-// och lita på "senaste versionen"-genvägen, används nu en EXPLICIT version-ID (en konkret
-// hash, hittad i en sökträff för `andreasjansson/ace-step:9fa9677d...`, inte bara ett namn)
-// via Replicates generella `/v1/predictions`-endpoint — mindre känsligt för att modellens
-// "senaste version" pekar om eller att ägar/namn-kombinationen är fel.
+// KORRIGERING #3 (2026-09, bytt modell helt efter kvalitetsklagomål): `andreasjansson/ace-step`
+// (den version-ID-pinnade modellen från Korrigering #2) gav tekniskt sett 200 OK och en spelbar
+// låt, MEN ignorerade `duration` helt — bekräftat direkt i användarens eget Replicate-konto
+// (Predictions-fliken): en begäran om 180 sekunder gav en låt på ~29 sekunder, med bara 27
+// diffusionssteg och 9 sekunders total GPU-tid, dvs. modellen kör alltid sin snabba
+// "förhandsgranskings"-konfiguration oavsett indata. Det förklarar även den upplevt låga
+// ljudkvaliteten (färre steg = sämre resultat). Detta är alltså en verklig begränsning i den
+// specifika community-porten, inte ett fel i vår egen kod.
+//
+// Bytt till **`minimax/music-1.5`** — en OFFICIELL Replicate-modell (114 800+ körningar,
+// "Official"-märkt), betydligt mer pålitlig än de tre tidigare gissade community-portarna.
+// Till skillnad från ACE-Step-sagan ovan är input-schemat denna gång bekräftat direkt av
+// användaren själv (skärmdumpar av Replicates egen schema-sida), INTE en sökmotorgissning:
+//   - `lyrics` (sträng, 10–600 tecken, stödjer [intro][verse][chorus][bridge][outro])
+//   - `prompt` (sträng, 10–300 tecken — stil/genre/stämning, ACE-Steps `tags`-motsvarighet)
+// VIKTIGA SKILLNADER mot ACE-Step (medvetet vald avvägning, se konversationen/README):
+//   - INGET `duration`-fält alls — låtens längd styrs implicit av hur mycket text som skrivs
+//     i `lyrics`, inget separat reglage för det.
+//   - INGET renodlat instrumental-läge — `lyrics` kräver riktig text (minst 10 tecken), till
+//     skillnad från ACE-Steps `[instrumental]`-konvention. All musik genererad här har sång.
+// Körs via Replicates genvägs-endpoint (`/v1/models/{ägare}/{namn}/predictions`, senaste
+// versionen) eftersom `minimax` är en etablerad, officiell modellägare — lägre risk än de
+// gissade enskilda användarnamnen som gav 404 tidigare.
 //
 // CLAUDE_API_KEY och REPLICATE_API_TOKEN exponeras aldrig i klienten.
-//
-// FORTFARANDE OSÄKERT (kunde inte verifieras mot ett skarpt svar härifrån —
-// replicate.com/api.replicate.com är blockerade från den här sandboxen, bara
-// forskningsresultat, inget faktiskt testanrop): om `REPLICATE_MODEL_VERSION` nedan
-// fortfarande ger 404/fel vid nästa test, är säkraste nästa steg att slå upp modellen direkt
-// i ditt eget Replicate-konto (replicate.com/explore, sök "ace-step") och skicka mig den
-// exakta `ägare/modellnamn`-sökvägen du ser där — det är mer tillförlitligt än ytterligare
-// sökmotorgissningar härifrån. Input-fältnamnen (`tags`/`lyrics`/`duration`) är oförändrade
-// och bekräftade av flera oberoende källor, sannolikt inte boven om felet kvarstår.
 //
 // Pollas via BEFINTLIGA /api/broll-status — Replicates predictions-endpoint är
 // modelloberoende, samma id fungerar oavsett vilken modell som skapade prediction, så ingen
@@ -37,23 +33,21 @@
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
 const CLAUDE_MODEL = 'claude-sonnet-5'
-const REPLICATE_PREDICTIONS_URL = 'https://api.replicate.com/v1/predictions'
-// andreasjansson/ace-step, version 9fa9677d... — se korrigeringskommentaren ovan för varför
-// ett explicit version-ID används istället för ägare/namn + "senaste version"-genvägen.
-const REPLICATE_MODEL_VERSION = '9fa9677db3357a7f1975ed49365e2825ab7e9a61ba659768534cef95a1ffb303'
+const REPLICATE_MODEL_PREDICTIONS_URL = 'https://api.replicate.com/v1/models/minimax/music-1.5/predictions'
 
-const DEFAULT_DURATION_SECONDS = 60
-const MAX_DURATION_SECONDS = 240
+const LYRICS_MIN_LENGTH = 10
+const LYRICS_MAX_LENGTH = 600
+const PROMPT_MAX_LENGTH = 300
 
 const PROMPT_SYSTEM_MUSIC_TAGS = `Du skriver en kort, kommaseparerad lista av taggar på ENGELSKA
-som beskriver en musikstil för en AI-musikmodell (ACE-Step) — samma format som
+som beskriver en musikstil för en AI-musikmodell (MiniMax Music) — samma format som
 Suno/musikgenereringsverktyg förväntar sig: genre, stämning, instrument, sångstil, tempo/BPM.
 
 Exempel på bra svar: "dark ambient, mystical, slow tempo, ethereal female vocals, atmospheric
 pads, 70 bpm" eller "upbeat pop, energetic, male vocals, synths, 120 bpm".
 
 KRITISKT: svara med BARA taggarna, kommaseparerat, inget annat — ingen förklaring, inga
-citattecken, ingen rubrik.`
+citattecken, ingen rubrik. Håll svaret under 250 tecken totalt.`
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -67,23 +61,10 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Ogiltig JSON i request-body.' }, 400)
   }
 
-  // Valfri fri idé för musikstilen (t.ex. "mörk, spöklik stämning") — skickas via Claude för
-  // att skrivas om till ACE-Steps förväntade taggformat (kommaseparerade engelska nyckelord).
   const styleIdea = typeof body.styleIdea === 'string' ? body.styleIdea.trim() : ''
-  // Om klienten redan har en Claude-förfinad tagglista (se refineOnly nedan) och användaren
-  // godkänt/redigerat den, skickas den igen här — hoppar då över Claude-steget.
   const refinedTags = typeof body.refinedTags === 'string' ? body.refinedTags.trim() : ''
-  // true = bara förfina/översätta stilidén via Claude och returnera taggarna, utan att starta
-  // någon (betald) Replicate-generering.
   const refineOnly = body.refineOnly === true
-  // Egen sångtext (helt valfritt) — skickas OFÖRÄNDRAD till ACE-Step, ingen Claude-omskrivning
-  // (användaren skriver sin EGEN text, precis som efterfrågat). Tomt/saknat värde = rent
-  // instrumental (ACE-Steps eget "[instrumental]"-läge).
   const lyrics = typeof body.lyrics === 'string' ? body.lyrics.trim() : ''
-  const durationSeconds =
-    typeof body.durationSeconds === 'number' && body.durationSeconds > 0
-      ? Math.min(body.durationSeconds, MAX_DURATION_SECONDS)
-      : DEFAULT_DURATION_SECONDS
 
   if (!refinedTags && !styleIdea) {
     return jsonResponse({ error: 'styleIdea (musikstil) krävs.' }, 400)
@@ -128,8 +109,23 @@ export default async (request: Request) => {
     }
   }
 
+  // Skyddsnät: MiniMax `prompt`-fältet tillåter max 300 tecken. Klipps defensivt om Claude
+  // (eller en användarredigerad tagglista) skulle överskrida det.
+  if (tags.length > PROMPT_MAX_LENGTH) {
+    tags = tags.slice(0, PROMPT_MAX_LENGTH)
+  }
+
   if (refineOnly) {
     return jsonResponse({ tags }, 200)
+  }
+
+  if (lyrics.length < LYRICS_MIN_LENGTH || lyrics.length > LYRICS_MAX_LENGTH) {
+    return jsonResponse(
+      {
+        error: `Sångtext krävs (MiniMax Music stödjer inte rent instrumentalt) — mellan ${LYRICS_MIN_LENGTH} och ${LYRICS_MAX_LENGTH} tecken. Just nu: ${lyrics.length} tecken.`,
+      },
+      400,
+    )
   }
 
   const replicateApiToken = Deno.env.get('REPLICATE_API_TOKEN')
@@ -139,18 +135,16 @@ export default async (request: Request) => {
 
   let replicateResponse: Response
   try {
-    replicateResponse = await fetch(REPLICATE_PREDICTIONS_URL, {
+    replicateResponse = await fetch(REPLICATE_MODEL_PREDICTIONS_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${replicateApiToken}`,
       },
       body: JSON.stringify({
-        version: REPLICATE_MODEL_VERSION,
         input: {
-          tags,
-          lyrics: lyrics || '[instrumental]',
-          duration: durationSeconds,
+          lyrics,
+          prompt: tags,
         },
       }),
     })

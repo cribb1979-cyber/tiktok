@@ -43,6 +43,11 @@ const MUSIC_STATUS_LABELS = {
   RUNNING: 'Genererar musik…',
 }
 
+// minimax/music-1.5 (se generate-music.ts) kräver riktig sångtext, 10–600 tecken — inget
+// instrumental-läge och inget eget duration-fält (längden styrs av textmängden).
+const MUSIC_LYRICS_MIN_LENGTH = 10
+const MUSIC_LYRICS_MAX_LENGTH = 600
+
 function formatTimecode(totalSeconds) {
   const s = Math.max(0, Math.round(totalSeconds))
   const hh = Math.floor(s / 3600)
@@ -75,6 +80,7 @@ export default function Berattare() {
   const [musicStyleIdea, setMusicStyleIdea] = useState('')
   const [musicRefinedTags, setMusicRefinedTags] = useState('')
   const [musicRefining, setMusicRefining] = useState(false)
+  const [musicLyrics, setMusicLyrics] = useState('')
   const [musicAudioUrl, setMusicAudioUrl] = useState(null)
   const [musicGenerating, setMusicGenerating] = useState(false)
   const [musicStatus, setMusicStatus] = useState(null)
@@ -141,7 +147,14 @@ export default function Berattare() {
   }
 
   async function handleGenerateMusic() {
-    if (!musicRefinedTags && !musicStyleIdea.trim()) return
+    const lyricsLength = musicLyrics.trim().length
+    if (
+      (!musicRefinedTags && !musicStyleIdea.trim()) ||
+      lyricsLength < MUSIC_LYRICS_MIN_LENGTH ||
+      lyricsLength > MUSIC_LYRICS_MAX_LENGTH
+    ) {
+      return
+    }
     setMusicGenerating(true)
     setMusicStatus('PENDING')
     setError(null)
@@ -149,7 +162,7 @@ export default function Berattare() {
       const result = await generateMusic({
         styleIdea: musicStyleIdea,
         refinedTags: musicRefinedTags,
-        durationSeconds: Math.round(videoDuration) || undefined,
+        lyrics: musicLyrics,
         onStatus: setMusicStatus,
       })
       setMusicAudioUrl(result.url)
@@ -157,7 +170,7 @@ export default function Berattare() {
       saveGeneratedContent({
         kind: 'music',
         prompt: musicStyleIdea,
-        metadata: { tags: result.tags },
+        metadata: { tags: result.tags, lyrics: musicLyrics },
         mediaUrl: result.url,
       })
     } catch (err) {
@@ -365,11 +378,35 @@ export default function Berattare() {
                   {musicRefining ? 'Förfinar…' : 'Förfina musikstil (valfritt, förhandsgranska)'}
                 </button>
               )}
+              <label style={{ display: 'block', marginTop: 8 }}>
+                Egen sångtext (krävs — 10–600 tecken, stödjer [Verse]/[Chorus]/[Bridge])
+                <textarea
+                  value={musicLyrics}
+                  onChange={(e) => setMusicLyrics(e.target.value)}
+                  rows={3}
+                  maxLength={MUSIC_LYRICS_MAX_LENGTH}
+                  placeholder={'[Verse]\nDin egen text här…\n[Chorus]\n...'}
+                />
+                <span
+                  className="clip-prompt"
+                  style={{
+                    display: 'block',
+                    color: musicLyrics.trim().length < MUSIC_LYRICS_MIN_LENGTH ? '#b91c1c' : undefined,
+                  }}
+                >
+                  {musicLyrics.trim().length}/{MUSIC_LYRICS_MAX_LENGTH} tecken (minst {MUSIC_LYRICS_MIN_LENGTH})
+                </span>
+              </label>
               <button
                 className="btn-primary"
                 style={{ marginTop: 8 }}
                 onClick={handleGenerateMusic}
-                disabled={musicGenerating || !(musicRefinedTags || musicStyleIdea.trim())}
+                disabled={
+                  musicGenerating ||
+                  !(musicRefinedTags || musicStyleIdea.trim()) ||
+                  musicLyrics.trim().length < MUSIC_LYRICS_MIN_LENGTH ||
+                  musicLyrics.trim().length > MUSIC_LYRICS_MAX_LENGTH
+                }
               >
                 {musicGenerating ? MUSIC_STATUS_LABELS[musicStatus] ?? 'Genererar musik…' : 'Generera musik'}
               </button>

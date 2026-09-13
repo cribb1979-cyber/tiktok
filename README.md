@@ -62,7 +62,7 @@ gamla versioner tills cachen går ut, vilket hade varit förvirrande under aktiv
 - **Tips & trix** – fungerande, statisk guide (`src/pages/Tips.jsx`, ingen AI/databas inblandad): för dig som filmar själv istället för Manus/AI-kortfilm — filmtips, vilka effekter som finns och vad de gör, hur du lägger till dem (under "Avancerat" i Klippstudio), i vilken ordning lagren läggs ovanpå varandra (praktiskt viktigt — en tankebubbla kan täcka undertexter om de hamnar på samma plats, se render-clip.ts's spårordning), och hur klippning/redigering (segment-trim, hastighet, "Redigera med vägledning") fungerar.
 - **B-roll** (`/broll`, `src/pages/Broll.jsx`) – fungerande, fristående genväg till samma B-roll-generator som Klippstudios "Avancerat"-flöde (`generate-broll.ts`/`replicateClient.js`, oförändrade), men UTAN kravet att först ladda upp ett klipp och skapa en klippningsplan — de behövs annars bara för att låsa upp `advancedOpen`-sektionen och ge B-roll ett category/subtopic/hookText-tema, inget B-roll:en faktiskt SKA innehålla (den visar aldrig personer). Skriv en egen idé (eller lämna helt tomt för ett generiskt förslag — se korrigeringen i "AI-effekt"-avsnittet, samma tema-krav togs bort helt), tryck "Generera B-roll", och spara/dela videon direkt (`fetchVideoAsFile`/`shareVideoFile` från `saveVideo.js`, samma "Spara video till telefonen"-mönster som Bibliotek). Länkad från både Klippstudio (ovanför formuläret) och Tips-sidans B-roll-beskrivning, men har ingen egen flik i bottennavigeringen — en Studio-undergenväg, inte ett eget huvudläge.
 - **Berättare** (`/berattare`, `src/pages/Berattare.jsx`) – fungerande, fristående genväg som hoppar över HELA klippningsplan-/transkriberingsflödet: ladda upp en färdig video, skriv en berättartext, generera en AI-uppläst röst (`generate-narration.ts`, OpenAIs text-till-tal) och rendera videon med rösten som ett eget ljudspår ovanpå (videons eget ljud stängs av automatiskt). Bygger en syntetisk ETT-segment-klippningsplan (hela videons längd, ingen AI-uppdelning) internt bara för att återanvända `/api/render-clip` oförändrat. Inga undertexter i det här läget (inget transkript att synka mot). Länkad från Klippstudio och Tips, ingen egen flik i bottennavigeringen — se "Berättarläge" nedan för detaljer.
-- **Musik** (`/musik`, `src/pages/Musik.jsx`) – fungerande, fristående genväg till samma musikgenerator som Klippstudios "Avancerat"-flöde (`generate-music.ts`/`musicClient.js`, oförändrade) — efterfrågat direkt av användaren efter att ha upptäckt att musikgenerering annars satt bakom "ladda upp ett klipp"-kravet i Klippstudio (samma mönster som B-roll/Berättare hade innan sina egna genvägar). Skriv en musikstil (eller lämna helt tomt och skriv bara egen sångtext), valfri längd (30 sek–4 min), och spara/dela låten direkt. Länkad från Klippstudio och Tips, ingen egen flik i bottennavigeringen.
+- **Musik** (`/musik`, `src/pages/Musik.jsx`) – fungerande, fristående genväg till samma musikgenerator som Klippstudios "Avancerat"-flöde (`generate-music.ts`/`musicClient.js`, oförändrade) — efterfrågat direkt av användaren efter att ha upptäckt att musikgenerering annars satt bakom "ladda upp ett klipp"-kravet i Klippstudio (samma mönster som B-roll/Berättare hade innan sina egna genvägar). Skriv en musikstil och egen sångtext (krävs, 10–600 tecken — modellen `minimax/music-1.5` stödjer inte instrumentalt och har inget eget längdfält, se "Bakgrundsmusik" nedan), och spara/dela låten direkt. Länkad från Klippstudio och Tips, ingen egen flik i bottennavigeringen.
 - **Inställningar** – fungerande: TikTok-koppling (mock, se nedan). API-nycklar hanteras i Netlify, inte här.
 
 ## iOS Safari-bugg: filuppladdning från Fotobiblioteket avfyrar inte "change" (skarpt rapporterat)
@@ -441,97 +441,79 @@ tom (`suggestedSubtitles`/`transcript` skickas som tomma listor, vilket redan ä
 `nova`/`shimmer`, OpenAIs egna TTS-röster — flerspråkiga, följer automatiskt textens eget
 språk, ingen separat svensk/engelsk inställning behövs).
 
-## Bakgrundsmusik: AI-genererad musik med egen text eller instrumentalt (valfritt)
+## Bakgrundsmusik: AI-genererad musik med egen sångtext (valfritt)
 
-Efterfrågat av användaren efter Berättarläget ovan. Tre leverantörer research:ades (WebSearch,
-2026-09) innan valet föll på **ACE-Step** (öppen källkod, Replicate — samma konto/nyckel som
-redan används för B-roll/AI-effekter, ingen ny tjänst/nyckel). Se korrigeringen längst ner i
-det här avsnittet för exakt vilken modell/version som faktiskt används — två gissade
-ägare/namn (`fishaudio/ace-step-1.5`, `lucataco/ace-step`) gav 404 vid skarpa test innan ett
-tredje, mer specifikt fynd (ett konkret version-ID) användes istället.
+Efterfrågat av användaren efter Berättarläget ovan. Har bytt leverantör en gång (se historik
+längst ner i det här avsnittet) — **minimax/music-1.5** på Replicate används nu, en officiell
+modell (114 800+ körningar, "Official"-märkt på Replicate).
 
 | Leverantör | Egen sångtext? | Officiell API? | Kostnad |
 |---|---|---|---|
-| **ACE-Step** (vald) | Ja | Ja (Replicate) | ~0,0002 USD/sekund (under 0,02 USD för en 60s-låt) |
+| **MiniMax Music 1.5** (vald) | Ja (10–600 tecken) | Ja (Replicate, officiell modell) | ~0,03 USD/genererad låt |
+| ACE-Step (tidigare vald, se historik) | Ja | Ja (Replicate) | ~0,0002 USD/sekund — men opålitlig i praktiken, se historik |
 | Meta MusicGen | Nej, bara instrumental | Ja (Replicate) | ~0,06 USD/generering |
 | ElevenLabs Music | Ja | Ja | ~0,30–0,65 USD/MINUT — betydligt dyrare, ny tjänst/nyckel |
 | Suno | Ja (bäst kända) | **Nej** — ingen offentlig API 2026, bara opålitliga tredjepartswrappers | Undvikt av samma ToS-/tillförlitlighetsskäl som andra "unofficial API"-tjänster i den här appen |
 
+**Viktiga begränsningar hos MiniMax Music 1.5** (medveten avvägning, användaren tillfrågad och
+valde detta 2026-09 efter att ACE-Step visat sig opålitligt, se historik):
+- **Inget instrumental-läge.** `lyrics`-fältet kräver riktig sångtext (10–600 tecken) — till
+  skillnad från ACE-Steps `[instrumental]`-konvention finns ingen renodlad instrumental-väg
+  längre. All AI-musik i appen har nu sång.
+- **Inget eget längdfält.** Modellens schema har inget `duration`-fält alls — låtens längd
+  styrs implicit av hur mycket text som skrivs i `lyrics`, inget separat reglage i UI:t.
+- **600 tecken är en hård gräns** på sångtexten — betydligt kortare än en fullständig
+  låttext med flera verser/refränger. Längre texter måste kortas ner av användaren.
+
 **Flöde:**
 1. Skriv en fri idé för musikstilen (t.ex. "mörk, spöklik stämning") i Klippstudios
-   "Avancerat"-panel eller i `Berattare.jsx`. `netlify/edge-functions/generate-music.ts`
-   skickar den via Claude (`PROMPT_SYSTEM_MUSIC_TAGS`) för att skrivas om till ACE-Steps
-   förväntade taggformat — en kommaseparerad lista engelska nyckelord (genre, stämning,
-   instrument, sångstil, BPM), samma "förfina innan generering"-mönster som B-roll
-   (`refineOnly`).
-2. Skriv EGEN sångtext (helt valfritt, skickas OFÖRÄNDRAD — ingen Claude-omskrivning,
-   användarens egna ord) med ACE-Steps `[Verse]`/`[Chorus]`-struktur, eller lämna tomt för
-   rent instrumental musik (`[instrumental]`, ACE-Steps egen konvention).
-3. Submittas till `POST https://api.replicate.com/v1/predictions` med ett explicit
-   `version`-ID (se korrigeringen nedan för varför, istället för ägare/namn-genvägen) plus
-   `{ tags, lyrics, duration }`. Pollas via BEFINTLIGA `/api/broll-status` — Replicates
-   predictions-endpoint är modelloberoende (samma mönster som redan dokumenterat för andra
-   Replicate-modeller i den här appen), ingen ny statusendpoint behövdes.
-4. `musicAudioUrl` (nytt fält i `render-clip.ts`) läggs som ett EGET ljudspår
-   (`musicClips`) på LÅG volym (`musicVolume`, default `0.25`) under HELA klippet — till
-   skillnad från `narrationAudioUrl` stängs INGET annat ljud av, musiken mixas bara in som
-   en bakgrund. Fungerar både i vanliga Klippstudio-flödet (Avancerat-tillval, kombinerbart
-   med B-roll/AI-effekt/glow/etc.) och i `Berattare.jsx` (kombinerbart med berättarrösten).
+   "Avancerat"-panel, `Berattare.jsx` eller den fristående `/musik`-sidan.
+   `netlify/edge-functions/generate-music.ts` skickar den via Claude
+   (`PROMPT_SYSTEM_MUSIC_TAGS`) för att skrivas om till en kommaseparerad lista engelska
+   nyckelord (genre, stämning, instrument, sångstil, BPM) — MiniMax `prompt`-fält (10–300
+   tecken, klipps defensivt server-side om det skulle bli längre). Samma "förfina innan
+   generering"-mönster som B-roll (`refineOnly`).
+2. Skriv EGEN sångtext (obligatoriskt, 10–600 tecken, validerat både i UI:t och server-side i
+   `generate-music.ts` — skickas OFÖRÄNDRAD, ingen Claude-omskrivning) med MiniMax egen
+   `[intro]`/`[verse]`/`[chorus]`/`[bridge]`/`[outro]`-struktur.
+3. Submittas till `POST https://api.replicate.com/v1/models/minimax/music-1.5/predictions`
+   (Replicates genvägs-endpoint, senaste versionen — `minimax` är en etablerad, officiell
+   modellägare) med `{ lyrics, prompt }`. Pollas via BEFINTLIGA `/api/broll-status` —
+   Replicates predictions-endpoint är modelloberoende, ingen ny statusendpoint behövdes.
+4. `musicAudioUrl` (fält i `render-clip.ts`) läggs som ett EGET ljudspår (`musicClips`) på
+   LÅG volym (`musicVolume`, default `0.25`) under HELA klippet — till skillnad från
+   `narrationAudioUrl` stängs INGET annat ljud av, musiken mixas bara in som en bakgrund.
+   Fungerar både i vanliga Klippstudio-flödet (Avancerat-tillval, kombinerbart med
+   B-roll/AI-effekt/glow/etc.) och i `Berattare.jsx` (kombinerbart med berättarrösten — obs:
+   eftersom musiken nu alltid har sång kan den konkurrera med berättarrösten mer än den
+   tidigare rent instrumentala varianten gjorde).
 
 **Fristående genväg (`/musik`, `Musik.jsx`):** rapporterat direkt av användaren — musik satt
 bakom "ladda upp ett klipp"-kravet i Klippstudio (samma problem B-roll/Berättare redan löst
 med sina egna genvägar). Samma UI-mönster som `Broll.jsx`: ingen video/klipp/klippningsplan
-alls, bara stil + valfri sångtext + längd (30 sek–4 min, `DURATION_OPTIONS`) → spara/dela
-direkt. Sparas också i "Genererat innehåll"-biblioteket (se nedan) precis som de andra
-vägarna in till samma generator.
+alls, bara stil + sångtext → spara/dela direkt. Sparas också i "Genererat innehåll"-
+biblioteket (se nedan) precis som de andra vägarna in till samma generator.
 
-**Korrigering #1 (skarpt test):** modellen hette ursprungligen `fishaudio/ace-step-1.5` här —
-gav `404 "The requested resource could not be found"` vid första riktiga användartestet.
-Rättat till `lucataco/ace-step`, verifierat via en riktad `site:replicate.com`-sökning att
-den modellen faktiskt existerar på Replicate under exakt den sökvägen.
+**Historik — varför ACE-Step byttes ut:** modellen hette ursprungligen `fishaudio/ace-step-1.5`
+(404 vid första testet), rättat till `lucataco/ace-step` (SAMMA 404 igen — två felaktiga
+ägare/namn i rad avslöjade att namn-baserade sökträffar inte gick att lita på här), sedan bytt
+till ett explicit version-ID (`andreasjansson/ace-step:9fa9677d...`) via Replicates generella
+`/v1/predictions`-endpoint, vilket äntligen gav en spelbar låt. MEN när användaren testade på
+riktigt (olika längder valda, 30 sek–4 min) blev resultatet KONSEKVENT ~30 sekunder oavsett
+val, och kvaliteten upplevdes som dålig. Användarens egna Replicate-konto (Predictions-fliken)
+gav den avgörande bekräftelsen den här gången — INTE fler sökmotorgissningar: `input` visade
+`duration: 180` skickat korrekt, men loggen visade bara 27 diffusionssteg och 9 sekunders total
+GPU-tid för en begärd 180-sekunderslåt, dvs. modellen kör alltid en snabb
+"förhandsgransknings"-konfiguration oavsett `duration`. En riktig begränsning i den specifika
+community-porten, inte ett fel i vår kod. Letade sedan upp en pålitligare ersättare via
+`replicate.com/collections/ai-music-generation` (Replicates egen samlingssida) och landade på
+`minimax/music-1.5` — den här gången bekräftades HELA input-schemat direkt av användaren via
+skärmdumpar av Replicates schema-sida (inte en sökmotorgissning), vilket är varför bytet kunde
+göras med hög säkerhet i ett enda steg. Se ovan för de nya begränsningarna (inget instrumental,
+inget duration-fält, 600 tecken sångtext-tak) som är den medvetna avvägningen för att få en
+pålitlig, bra låtkvalitet.
 
-**Korrigering #2 (SAMMA fel igen vid nästa test):** `lucataco/ace-step` gav ETT NYTT 404.
-Två felaktiga ägare/namn i rad avslöjade ett mönster: namn-baserade träffar i
-sökmotorresultat/AI-sammanfattningar av dem går inte att lita på för det här — troligen
-gamla/borttagna/privata Replicate-modeller, eller en AI-sammanfattning som konstruerat en
-plausibel men fel URL genom att blanda flera olika källor. Bytt strategi helt: istället för
-att gissa ett ägare/namn och lita på Replicates "senaste version"-genväg
-(`/v1/models/{ägare}/{namn}/predictions`, som en ändring i Replicates API 2025-08-05 gör
-tillgänglig för ALLA modeller, inte bara officiella — så genvägen i sig var inte problemet),
-används nu ett EXPLICIT version-ID (en konkret hash, hittad i en sökträff för
-`andreasjansson/ace-step:9fa9677d...`, inte bara ett namn) via Replicates generella
-`POST /v1/predictions`-endpoint med `{ version, input }` — mindre känsligt för att ägare/namn-
-kombinationen är fel, eftersom hashen i sig identifierar en specifik, exakt modellversion.
-
-**OSÄKERT/känt problem (rapporterat av användaren 2026-09, ej löst):** `duration` skickas
-korrekt från klienten (verifierat i `Musik.jsx`/`musicClient.js`/`generate-music.ts` — samma
-värde som valts i längd-väljaren skickas oförändrat i `input.duration`), men resultatet blir
-konsekvent ~30 sekunder oavsett vald längd (30 sek–4 min), och den upplevda ljudkvaliteten
-rapporteras som klart sämre än väntat. Research (WebSearch, replicate.com/api.replicate.com
-är blockerade från den här sandboxen så inget skarpt testanrop kunde göras) pekar mot att
-`andreasjansson/ace-step` är byggt på en snabb/billig "turbo"-variant av ACE-Step-modellen
-(nämnd i källor som genererar en 30-sekunders låt på ~10 sekunders GPU-tid) — `duration`-
-fältnamnet i sig är bekräftat korrekt (samma namn används konsekvent av WaveSpeedAI/fal.ai/
-officiella ACE-Step-dokumentationen), så det mest sannolika är antingen (a) den här specifika
-community-porten inte trådar igenom `duration` fullt ut till själva genereringsloopen, eller
-(b) någon annan begränsning specifik för just den här versionen/porten. Detta skulle även
-förklara den upplevt sämre kvaliteten (en snabb turbo-modell prioriterar hastighet/kostnad
-över kvalitet). **Säkraste nästa steg** (samma mönster som löste 404-felen): kolla
-Predictions-fliken i ditt eget Replicate-konto för en nyligen körd musikgenerering — där syns
-både exakt `input` som skickades OCH eventuella loggar/varningar från modellen, vilket är mer
-tillförlitligt än ytterligare sökmotorgissningar härifrån. Om `duration` verkligen ignoreras av
-den här specifika modellversionen är nästa steg att leta upp en annan Replicate-värd för
-ACE-Step (t.ex. via Replicates egen samlingssida "AI music generation") som fullt ut respekterar
-längdvalet — inte gjort än, väntar på bekräftelse av grundorsaken ovan.
-
-**Om felet kvarstår ändå:** säkraste nästa steg är att slå upp modellen direkt i ditt eget
-Replicate-konto (replicate.com/explore, sök "ace-step") och skicka den exakta sökvägen du ser
-där — mer tillförlitligt än ytterligare sökmotorgissningar härifrån (`replicate.com`/
-`api.replicate.com` är blockerade från den här utvecklingssandboxen, så inget av detta har
-kunnat verifieras mot ett skarpt svar). `tags`/`lyrics`/`duration`-fältnamnen är oförändrade
-genom båda korrigeringarna, bekräftade av flera oberoende källor — sannolikt inte boven om
-felet kvarstår. **Miljövariabler:** ingen ny — återanvänder `REPLICATE_API_TOKEN`/
-`CLAUDE_API_KEY`.
+**Miljövariabler:** ingen ny — återanvänder `REPLICATE_API_TOKEN`/`CLAUDE_API_KEY`.
 
 ## Wake Lock: håller skärmen tänd under generering/rendering
 
