@@ -436,8 +436,11 @@ språk, ingen separat svensk/engelsk inställning behövs).
 ## Bakgrundsmusik: AI-genererad musik med egen text eller instrumentalt (valfritt)
 
 Efterfrågat av användaren efter Berättarläget ovan. Tre leverantörer research:ades (WebSearch,
-2026-09) innan valet föll på **ACE-Step** (öppen källkod, `lucataco/ace-step` på Replicate —
-samma konto/nyckel som redan används för B-roll/AI-effekter, ingen ny tjänst/nyckel):
+2026-09) innan valet föll på **ACE-Step** (öppen källkod, Replicate — samma konto/nyckel som
+redan används för B-roll/AI-effekter, ingen ny tjänst/nyckel). Se korrigeringen längst ner i
+det här avsnittet för exakt vilken modell/version som faktiskt används — två gissade
+ägare/namn (`fishaudio/ace-step-1.5`, `lucataco/ace-step`) gav 404 vid skarpa test innan ett
+tredje, mer specifikt fynd (ett konkret version-ID) användes istället.
 
 | Leverantör | Egen sångtext? | Officiell API? | Kostnad |
 |---|---|---|---|
@@ -456,8 +459,9 @@ samma konto/nyckel som redan används för B-roll/AI-effekter, ingen ny tjänst/
 2. Skriv EGEN sångtext (helt valfritt, skickas OFÖRÄNDRAD — ingen Claude-omskrivning,
    användarens egna ord) med ACE-Steps `[Verse]`/`[Chorus]`-struktur, eller lämna tomt för
    rent instrumental musik (`[instrumental]`, ACE-Steps egen konvention).
-3. Submittas till `POST https://api.replicate.com/v1/models/lucataco/ace-step/predictions`
-   med `{ tags, lyrics, duration }`. Pollas via BEFINTLIGA `/api/broll-status` — Replicates
+3. Submittas till `POST https://api.replicate.com/v1/predictions` med ett explicit
+   `version`-ID (se korrigeringen nedan för varför, istället för ägare/namn-genvägen) plus
+   `{ tags, lyrics, duration }`. Pollas via BEFINTLIGA `/api/broll-status` — Replicates
    predictions-endpoint är modelloberoende (samma mönster som redan dokumenterat för andra
    Replicate-modeller i den här appen), ingen ny statusendpoint behövdes.
 4. `musicAudioUrl` (nytt fält i `render-clip.ts`) läggs som ett EGET ljudspår
@@ -473,19 +477,32 @@ alls, bara stil + valfri sångtext + längd (30 sek–4 min, `DURATION_OPTIONS`)
 direkt. Sparas också i "Genererat innehåll"-biblioteket (se nedan) precis som de andra
 vägarna in till samma generator.
 
-**Korrigering (skarpt test):** modellen hette ursprungligen `fishaudio/ace-step-1.5` här —
-den existerar INTE på Replicate (bekräftat skarpt: `404 "The requested resource could not
-be found"` vid första riktiga användartestet), troligen en sammanblandning i den ursprungliga
-research:en mellan flera olika ACE-Step-varianter på olika plattformar (FAL/WaveSpeedAI har
-egna, olikt namngivna versioner av samma modell). Rättat till `lucataco/ace-step` — verifierat
-via en riktad `site:replicate.com`-sökning att den modellen faktiskt existerar på Replicate
-under exakt den sökvägen. `tags`/`lyrics`/`duration`-fältnamnen (oförändrade) bekräftades
-samtidigt oberoende av flera källor (Replicates egen modellsida OCH ACE-Steps officiella
-dokumentation, samstämmiga) — högre confidence än tidigare, men fortfarande INTE testade mot
-ett skarpt anrop mot just `lucataco/ace-step` specifikt (replicate.com/api.replicate.com är
-blockerade från den här sandboxen). Justera enligt Replicates eget felmeddelande om något
-ändå visar sig fel vid nästa test, samma mönster som tidigare fältnamnsfixar i den här appen.
-**Miljövariabler:** ingen ny — återanvänder `REPLICATE_API_TOKEN`/`CLAUDE_API_KEY`.
+**Korrigering #1 (skarpt test):** modellen hette ursprungligen `fishaudio/ace-step-1.5` här —
+gav `404 "The requested resource could not be found"` vid första riktiga användartestet.
+Rättat till `lucataco/ace-step`, verifierat via en riktad `site:replicate.com`-sökning att
+den modellen faktiskt existerar på Replicate under exakt den sökvägen.
+
+**Korrigering #2 (SAMMA fel igen vid nästa test):** `lucataco/ace-step` gav ETT NYTT 404.
+Två felaktiga ägare/namn i rad avslöjade ett mönster: namn-baserade träffar i
+sökmotorresultat/AI-sammanfattningar av dem går inte att lita på för det här — troligen
+gamla/borttagna/privata Replicate-modeller, eller en AI-sammanfattning som konstruerat en
+plausibel men fel URL genom att blanda flera olika källor. Bytt strategi helt: istället för
+att gissa ett ägare/namn och lita på Replicates "senaste version"-genväg
+(`/v1/models/{ägare}/{namn}/predictions`, som en ändring i Replicates API 2025-08-05 gör
+tillgänglig för ALLA modeller, inte bara officiella — så genvägen i sig var inte problemet),
+används nu ett EXPLICIT version-ID (en konkret hash, hittad i en sökträff för
+`andreasjansson/ace-step:9fa9677d...`, inte bara ett namn) via Replicates generella
+`POST /v1/predictions`-endpoint med `{ version, input }` — mindre känsligt för att ägare/namn-
+kombinationen är fel, eftersom hashen i sig identifierar en specifik, exakt modellversion.
+
+**Om felet kvarstår ändå:** säkraste nästa steg är att slå upp modellen direkt i ditt eget
+Replicate-konto (replicate.com/explore, sök "ace-step") och skicka den exakta sökvägen du ser
+där — mer tillförlitligt än ytterligare sökmotorgissningar härifrån (`replicate.com`/
+`api.replicate.com` är blockerade från den här utvecklingssandboxen, så inget av detta har
+kunnat verifieras mot ett skarpt svar). `tags`/`lyrics`/`duration`-fältnamnen är oförändrade
+genom båda korrigeringarna, bekräftade av flera oberoende källor — sannolikt inte boven om
+felet kvarstår. **Miljövariabler:** ingen ny — återanvänder `REPLICATE_API_TOKEN`/
+`CLAUDE_API_KEY`.
 
 ## Wake Lock: håller skärmen tänd under generering/rendering
 

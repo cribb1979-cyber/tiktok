@@ -8,23 +8,27 @@
 // ingen officiell publik API alls 2026 — bara opålitliga tredjepartswrappers, medvetet
 // undviket samma sätt som tidigare i den här appen.
 //
-// KORRIGERING (skarpt test): modellen hette ursprungligen `fishaudio/ace-step-1.5` här —
-// den modellen existerar INTE på Replicate (bekräftat skarpt: 404 "The requested resource
-// could not be found"), troligen en sammanblandning i tidigare research mellan flera olika
-// ACE-Step-varianter på olika plattformar (FAL/WaveSpeedAI har egna, olikt namngivna
-// versioner). Rättat till `lucataco/ace-step` — bekräftat via en riktad `site:replicate.com`-
-// sökning att den modellen faktiskt existerar på Replicate under den exakta sökvägen.
+// KORRIGERING #2 (skarpt test, samma fel igen): `fishaudio/ace-step-1.5` gav 404, rättat till
+// `lucataco/ace-step` (bekräftat via en riktad `site:replicate.com`-sökning) — men det gav
+// ETT NYTT 404 vid nästa skarpa test. Två felaktiga modellnamn i rad tyder på att namn-baserade
+// träffar från sökmotorresultat/AI-sammanfattningar av dem inte går att lita på här (kan vara
+// gamla/borttagna/privata modeller, eller AI-sammanfattningen kan ha konstruerat en plausibel
+// men fel URL av flera olika källor). Bytt strategi: istället för att gissa ett `ägare/namn`
+// och lita på "senaste versionen"-genvägen, används nu en EXPLICIT version-ID (en konkret
+// hash, hittad i en sökträff för `andreasjansson/ace-step:9fa9677d...`, inte bara ett namn)
+// via Replicates generella `/v1/predictions`-endpoint — mindre känsligt för att modellens
+// "senaste version" pekar om eller att ägar/namn-kombinationen är fel.
 //
 // CLAUDE_API_KEY och REPLICATE_API_TOKEN exponeras aldrig i klienten.
 //
-// OSÄKERT (kunde inte verifieras mot ett skarpt svar härifrån — replicate.com är blockerad
-// från den här sandboxen, bara research/sökresultat, inget faktiskt testanrop mot DEN HÄR
-// specifika modellen): input-fältnamnen (`tags`/`lyrics`/`duration`) är sammanställda från
-// flera oberoende källor (Replicates egen modellsida, ACE-Steps officiella dokumentation)
-// som alla är eniga, så högre confidence än föregående gissning — men fortfarande INTE
-// testade mot ett skarpt anrop mot just `lucataco/ace-step`. Justera enligt Replicates eget
-// felmeddelande om något fältnamn ändå visar sig fel vid nästa test, samma mönster som
-// tidigare HeyGen/D-ID/Bria-fältnamnsfixar i den här appen.
+// FORTFARANDE OSÄKERT (kunde inte verifieras mot ett skarpt svar härifrån —
+// replicate.com/api.replicate.com är blockerade från den här sandboxen, bara
+// forskningsresultat, inget faktiskt testanrop): om `REPLICATE_MODEL_VERSION` nedan
+// fortfarande ger 404/fel vid nästa test, är säkraste nästa steg att slå upp modellen direkt
+// i ditt eget Replicate-konto (replicate.com/explore, sök "ace-step") och skicka mig den
+// exakta `ägare/modellnamn`-sökvägen du ser där — det är mer tillförlitligt än ytterligare
+// sökmotorgissningar härifrån. Input-fältnamnen (`tags`/`lyrics`/`duration`) är oförändrade
+// och bekräftade av flera oberoende källor, sannolikt inte boven om felet kvarstår.
 //
 // Pollas via BEFINTLIGA /api/broll-status — Replicates predictions-endpoint är
 // modelloberoende, samma id fungerar oavsett vilken modell som skapade prediction, så ingen
@@ -33,8 +37,10 @@
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
 const CLAUDE_MODEL = 'claude-sonnet-5'
-const REPLICATE_PREDICTIONS_URL = 'https://api.replicate.com/v1/models'
-const REPLICATE_MODEL = 'lucataco/ace-step'
+const REPLICATE_PREDICTIONS_URL = 'https://api.replicate.com/v1/predictions'
+// andreasjansson/ace-step, version 9fa9677d... — se korrigeringskommentaren ovan för varför
+// ett explicit version-ID används istället för ägare/namn + "senaste version"-genvägen.
+const REPLICATE_MODEL_VERSION = '9fa9677db3357a7f1975ed49365e2825ab7e9a61ba659768534cef95a1ffb303'
 
 const DEFAULT_DURATION_SECONDS = 60
 const MAX_DURATION_SECONDS = 240
@@ -133,13 +139,14 @@ export default async (request: Request) => {
 
   let replicateResponse: Response
   try {
-    replicateResponse = await fetch(`${REPLICATE_PREDICTIONS_URL}/${REPLICATE_MODEL}/predictions`, {
+    replicateResponse = await fetch(REPLICATE_PREDICTIONS_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${replicateApiToken}`,
       },
       body: JSON.stringify({
+        version: REPLICATE_MODEL_VERSION,
         input: {
           tags,
           lyrics: lyrics || '[instrumental]',
