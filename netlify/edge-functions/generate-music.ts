@@ -1,20 +1,30 @@
 // Valfritt tillval: AI-genererad bakgrundsmusik (med egen text/sång eller rent instrumentalt)
-// via Replicate, modellen ACE-Step 1.5 (`fishaudio/ace-step-1.5`) — öppen källkod, valt efter
-// research (WebSearch, 2026-09) som det klart billigaste alternativet med stöd för EGEN TEXT
-// + fri stilbeskrivning: ~0,04 USD/generering (jämfört med Meta MusicGen ~0,06 USD/generering,
-// som bara gör instrumental musik utan sångtext-stöd, och ElevenLabs Music API, som har officiell
-// API men kostar ~0,30-0,65 USD PER MINUT och kräver en helt ny tjänst/nyckel). Suno (den mest
-// kända sångtjänsten) har ingen officiell publik API alls 2026 — bara opålitliga
-// tredjepartswrappers, medvetet undviket samma sätt som tidigare i den här appen.
+// via Replicate, modellen ACE-Step (`lucataco/ace-step`) — öppen källkod, valt efter research
+// (WebSearch, 2026-09) som det klart billigaste alternativet med stöd för EGEN TEXT + fri
+// stilbeskrivning: ~0,0002 USD/SEKUND genererat ljud (dvs. under 0,02 USD för en 60s-låt —
+// jämfört med Meta MusicGen ~0,06 USD/generering, som bara gör instrumental musik utan
+// sångtext-stöd, och ElevenLabs Music API, som har officiell API men kostar ~0,30-0,65 USD
+// PER MINUT och kräver en helt ny tjänst/nyckel). Suno (den mest kända sångtjänsten) har
+// ingen officiell publik API alls 2026 — bara opålitliga tredjepartswrappers, medvetet
+// undviket samma sätt som tidigare i den här appen.
+//
+// KORRIGERING (skarpt test): modellen hette ursprungligen `fishaudio/ace-step-1.5` här —
+// den modellen existerar INTE på Replicate (bekräftat skarpt: 404 "The requested resource
+// could not be found"), troligen en sammanblandning i tidigare research mellan flera olika
+// ACE-Step-varianter på olika plattformar (FAL/WaveSpeedAI har egna, olikt namngivna
+// versioner). Rättat till `lucataco/ace-step` — bekräftat via en riktad `site:replicate.com`-
+// sökning att den modellen faktiskt existerar på Replicate under den exakta sökvägen.
 //
 // CLAUDE_API_KEY och REPLICATE_API_TOKEN exponeras aldrig i klienten.
 //
 // OSÄKERT (kunde inte verifieras mot ett skarpt svar härifrån — replicate.com är blockerad
-// från den här sandboxen): input-fältnamnen (`tags`/`lyrics`/`duration`) är sammanställda
-// från Replicates egen modellsida och ACE-Steps officiella dokumentation, men INTE testade
-// mot ett skarpt Replicate-anrop. Justera enligt Replicates eget felmeddelande om ett
-// fältnamn visar sig fel vid nästa test, samma mönster som tidigare HeyGen/D-ID/Bria-
-// fältnamnsfixar i den här appen.
+// från den här sandboxen, bara research/sökresultat, inget faktiskt testanrop mot DEN HÄR
+// specifika modellen): input-fältnamnen (`tags`/`lyrics`/`duration`) är sammanställda från
+// flera oberoende källor (Replicates egen modellsida, ACE-Steps officiella dokumentation)
+// som alla är eniga, så högre confidence än föregående gissning — men fortfarande INTE
+// testade mot ett skarpt anrop mot just `lucataco/ace-step`. Justera enligt Replicates eget
+// felmeddelande om något fältnamn ändå visar sig fel vid nästa test, samma mönster som
+// tidigare HeyGen/D-ID/Bria-fältnamnsfixar i den här appen.
 //
 // Pollas via BEFINTLIGA /api/broll-status — Replicates predictions-endpoint är
 // modelloberoende, samma id fungerar oavsett vilken modell som skapade prediction, så ingen
@@ -24,7 +34,7 @@
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
 const CLAUDE_MODEL = 'claude-sonnet-5'
 const REPLICATE_PREDICTIONS_URL = 'https://api.replicate.com/v1/models'
-const REPLICATE_MODEL = 'fishaudio/ace-step-1.5'
+const REPLICATE_MODEL = 'lucataco/ace-step'
 
 const DEFAULT_DURATION_SECONDS = 60
 const MAX_DURATION_SECONDS = 240

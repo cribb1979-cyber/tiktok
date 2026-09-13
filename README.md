@@ -436,13 +436,12 @@ språk, ingen separat svensk/engelsk inställning behövs).
 ## Bakgrundsmusik: AI-genererad musik med egen text eller instrumentalt (valfritt)
 
 Efterfrågat av användaren efter Berättarläget ovan. Tre leverantörer research:ades (WebSearch,
-2026-09) innan valet föll på **ACE-Step 1.5** (öppen källkod, `fishaudio/ace-step-1.5` på
-Replicate — samma konto/nyckel som redan används för B-roll/AI-effekter, ingen ny
-tjänst/nyckel):
+2026-09) innan valet föll på **ACE-Step** (öppen källkod, `lucataco/ace-step` på Replicate —
+samma konto/nyckel som redan används för B-roll/AI-effekter, ingen ny tjänst/nyckel):
 
 | Leverantör | Egen sångtext? | Officiell API? | Kostnad |
 |---|---|---|---|
-| **ACE-Step 1.5** (vald) | Ja | Ja (Replicate) | ~0,04 USD/generering |
+| **ACE-Step** (vald) | Ja | Ja (Replicate) | ~0,0002 USD/sekund (under 0,02 USD för en 60s-låt) |
 | Meta MusicGen | Nej, bara instrumental | Ja (Replicate) | ~0,06 USD/generering |
 | ElevenLabs Music | Ja | Ja | ~0,30–0,65 USD/MINUT — betydligt dyrare, ny tjänst/nyckel |
 | Suno | Ja (bäst kända) | **Nej** — ingen offentlig API 2026, bara opålitliga tredjepartswrappers | Undvikt av samma ToS-/tillförlitlighetsskäl som andra "unofficial API"-tjänster i den här appen |
@@ -457,7 +456,7 @@ tjänst/nyckel):
 2. Skriv EGEN sångtext (helt valfritt, skickas OFÖRÄNDRAD — ingen Claude-omskrivning,
    användarens egna ord) med ACE-Steps `[Verse]`/`[Chorus]`-struktur, eller lämna tomt för
    rent instrumental musik (`[instrumental]`, ACE-Steps egen konvention).
-3. Submittas till `POST https://api.replicate.com/v1/models/fishaudio/ace-step-1.5/predictions`
+3. Submittas till `POST https://api.replicate.com/v1/models/lucataco/ace-step/predictions`
    med `{ tags, lyrics, duration }`. Pollas via BEFINTLIGA `/api/broll-status` — Replicates
    predictions-endpoint är modelloberoende (samma mönster som redan dokumenterat för andra
    Replicate-modeller i den här appen), ingen ny statusendpoint behövdes.
@@ -474,12 +473,19 @@ alls, bara stil + valfri sångtext + längd (30 sek–4 min, `DURATION_OPTIONS`)
 direkt. Sparas också i "Genererat innehåll"-biblioteket (se nedan) precis som de andra
 vägarna in till samma generator.
 
-**OSÄKERT (kunde inte verifieras mot ett skarpt svar härifrån — replicate.com är blockerad
-från den här sandboxen):** `tags`/`lyrics`/`duration`-fältnamnen är sammanställda från
-Replicates modellsida och ACE-Steps officiella dokumentation, inte testade mot ett skarpt
-anrop. Justera enligt Replicates eget felmeddelande vid nästa test, samma mönster som
-tidigare fältnamnsfixar i den här appen. **Miljövariabler:** ingen ny — återanvänder
-`REPLICATE_API_TOKEN`/`CLAUDE_API_KEY`.
+**Korrigering (skarpt test):** modellen hette ursprungligen `fishaudio/ace-step-1.5` här —
+den existerar INTE på Replicate (bekräftat skarpt: `404 "The requested resource could not
+be found"` vid första riktiga användartestet), troligen en sammanblandning i den ursprungliga
+research:en mellan flera olika ACE-Step-varianter på olika plattformar (FAL/WaveSpeedAI har
+egna, olikt namngivna versioner av samma modell). Rättat till `lucataco/ace-step` — verifierat
+via en riktad `site:replicate.com`-sökning att den modellen faktiskt existerar på Replicate
+under exakt den sökvägen. `tags`/`lyrics`/`duration`-fältnamnen (oförändrade) bekräftades
+samtidigt oberoende av flera källor (Replicates egen modellsida OCH ACE-Steps officiella
+dokumentation, samstämmiga) — högre confidence än tidigare, men fortfarande INTE testade mot
+ett skarpt anrop mot just `lucataco/ace-step` specifikt (replicate.com/api.replicate.com är
+blockerade från den här sandboxen). Justera enligt Replicates eget felmeddelande om något
+ändå visar sig fel vid nästa test, samma mönster som tidigare fältnamnsfixar i den här appen.
+**Miljövariabler:** ingen ny — återanvänder `REPLICATE_API_TOKEN`/`CLAUDE_API_KEY`.
 
 ## Wake Lock: håller skärmen tänd under generering/rendering
 
