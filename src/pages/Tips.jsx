@@ -65,6 +65,11 @@ export default function Tips() {
           valt tidsintervall — bra för att få t.ex. en tatuering eller ett föremål att se ut
           att glöda. Ingen AI-spårning, så motivet behöver hålla sig still i bild.
         </p>
+        <p className="clip-prompt">
+          <strong>Bakgrundsmusik</strong> — en AI-genererad låt (egen sångtext eller
+          instrumentalt) som mixas in tyst under hela klippet. Vill du bara skapa en
+          fristående låt, utan klipp överhuvudtaget: <Link to="/musik">öppna Musik</Link>.
+        </p>
       </div>
 
       <div className="clip-card">

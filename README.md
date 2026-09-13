@@ -62,6 +62,7 @@ gamla versioner tills cachen går ut, vilket hade varit förvirrande under aktiv
 - **Tips & trix** – fungerande, statisk guide (`src/pages/Tips.jsx`, ingen AI/databas inblandad): för dig som filmar själv istället för Manus/AI-kortfilm — filmtips, vilka effekter som finns och vad de gör, hur du lägger till dem (under "Avancerat" i Klippstudio), i vilken ordning lagren läggs ovanpå varandra (praktiskt viktigt — en tankebubbla kan täcka undertexter om de hamnar på samma plats, se render-clip.ts's spårordning), och hur klippning/redigering (segment-trim, hastighet, "Redigera med vägledning") fungerar.
 - **B-roll** (`/broll`, `src/pages/Broll.jsx`) – fungerande, fristående genväg till samma B-roll-generator som Klippstudios "Avancerat"-flöde (`generate-broll.ts`/`replicateClient.js`, oförändrade), men UTAN kravet att först ladda upp ett klipp och skapa en klippningsplan — de behövs annars bara för att låsa upp `advancedOpen`-sektionen och ge B-roll ett category/subtopic/hookText-tema, inget B-roll:en faktiskt SKA innehålla (den visar aldrig personer). Skriv en egen idé (eller lämna helt tomt för ett generiskt förslag — se korrigeringen i "AI-effekt"-avsnittet, samma tema-krav togs bort helt), tryck "Generera B-roll", och spara/dela videon direkt (`fetchVideoAsFile`/`shareVideoFile` från `saveVideo.js`, samma "Spara video till telefonen"-mönster som Bibliotek). Länkad från både Klippstudio (ovanför formuläret) och Tips-sidans B-roll-beskrivning, men har ingen egen flik i bottennavigeringen — en Studio-undergenväg, inte ett eget huvudläge.
 - **Berättare** (`/berattare`, `src/pages/Berattare.jsx`) – fungerande, fristående genväg som hoppar över HELA klippningsplan-/transkriberingsflödet: ladda upp en färdig video, skriv en berättartext, generera en AI-uppläst röst (`generate-narration.ts`, OpenAIs text-till-tal) och rendera videon med rösten som ett eget ljudspår ovanpå (videons eget ljud stängs av automatiskt). Bygger en syntetisk ETT-segment-klippningsplan (hela videons längd, ingen AI-uppdelning) internt bara för att återanvända `/api/render-clip` oförändrat. Inga undertexter i det här läget (inget transkript att synka mot). Länkad från Klippstudio och Tips, ingen egen flik i bottennavigeringen — se "Berättarläge" nedan för detaljer.
+- **Musik** (`/musik`, `src/pages/Musik.jsx`) – fungerande, fristående genväg till samma musikgenerator som Klippstudios "Avancerat"-flöde (`generate-music.ts`/`musicClient.js`, oförändrade) — efterfrågat direkt av användaren efter att ha upptäckt att musikgenerering annars satt bakom "ladda upp ett klipp"-kravet i Klippstudio (samma mönster som B-roll/Berättare hade innan sina egna genvägar). Skriv en musikstil (eller lämna helt tomt och skriv bara egen sångtext), valfri längd (30 sek–4 min), och spara/dela låten direkt. Länkad från Klippstudio och Tips, ingen egen flik i bottennavigeringen.
 - **Inställningar** – fungerande: TikTok-koppling (mock, se nedan). API-nycklar hanteras i Netlify, inte här.
 
 ## iOS Safari-bugg: filuppladdning från Fotobiblioteket avfyrar inte "change" (skarpt rapporterat)
@@ -465,6 +466,13 @@ tjänst/nyckel):
    skillnad från `narrationAudioUrl` stängs INGET annat ljud av, musiken mixas bara in som
    en bakgrund. Fungerar både i vanliga Klippstudio-flödet (Avancerat-tillval, kombinerbart
    med B-roll/AI-effekt/glow/etc.) och i `Berattare.jsx` (kombinerbart med berättarrösten).
+
+**Fristående genväg (`/musik`, `Musik.jsx`):** rapporterat direkt av användaren — musik satt
+bakom "ladda upp ett klipp"-kravet i Klippstudio (samma problem B-roll/Berättare redan löst
+med sina egna genvägar). Samma UI-mönster som `Broll.jsx`: ingen video/klipp/klippningsplan
+alls, bara stil + valfri sångtext + längd (30 sek–4 min, `DURATION_OPTIONS`) → spara/dela
+direkt. Sparas också i "Genererat innehåll"-biblioteket (se nedan) precis som de andra
+vägarna in till samma generator.
 
 **OSÄKERT (kunde inte verifieras mot ett skarpt svar härifrån — replicate.com är blockerad
 från den här sandboxen):** `tags`/`lyrics`/`duration`-fältnamnen är sammanställda från
