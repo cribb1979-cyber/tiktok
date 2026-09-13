@@ -926,6 +926,10 @@ export default function Klippstudio() {
   const [filmIdea, setFilmIdea] = useState('')
   const [filmShotlisting, setFilmShotlisting] = useState(false)
   const [filmShotlist, setFilmShotlist] = useState(null)
+  // Platsbeskrivning per location_tag — återanvänds ORDAGRANT i varje scens bildprompt (se
+  // handleGenerateFilm) för att hålla miljön mer visuellt konsekvent mellan scener på samma
+  // plats, och visas i scenlistan nedan så "Filma själv istället" också kan följa den.
+  const filmLocationByTag = new Map((filmShotlist?.locations ?? []).map((l) => [l.tag, l.description]))
   const [filmGenerating, setFilmGenerating] = useState(false)
   const [filmProgress, setFilmProgress] = useState(null)
   const [filmError, setFilmError] = useState(null)
@@ -1427,7 +1431,14 @@ export default function Klippstudio() {
           const characterRefs = (shot.character_tags ?? [])
             .filter((tag) => imageByTag.has(tag))
             .map((tag) => ({ tag, imageUrl: imageByTag.get(tag) }))
-          const imageUrl = await generateShotImage({ imagePrompt: shot.image_prompt, characterRefs })
+          // Platsens beskrivning återanvänds ORDAGRANT för varje scen på samma plats (istället
+          // för att lita på att Claude råkar beskriva miljön likadant varje gång i egen text)
+          // — håller miljön mer visuellt konsekvent mellan scener, se README "AI-kortfilm".
+          const locationDescription = filmLocationByTag.get(shot.location_tag)
+          const imagePrompt = locationDescription
+            ? `${locationDescription}. ${shot.image_prompt}`
+            : shot.image_prompt
+          const imageUrl = await generateShotImage({ imagePrompt, characterRefs })
 
           setFilmProgress(`Scen ${i + 1}/${shots.length}: animerar till video…`)
           videoUrl = await generateShotVideo({
@@ -2484,6 +2495,9 @@ export default function Klippstudio() {
                   <p className="clip-category">
                     Scen {i + 1} ({shot.duration_seconds}s) — filminstruktion
                   </p>
+                  {filmLocationByTag.get(shot.location_tag) && (
+                    <p className="clip-prompt">📍 {filmLocationByTag.get(shot.location_tag)}</p>
+                  )}
                   <p className="clip-prompt">{shot.image_prompt}</p>
                   <p className="clip-prompt">🎬 {shot.motion_prompt}</p>
 

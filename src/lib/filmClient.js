@@ -24,7 +24,7 @@ export async function generateShotlist(idea) {
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte skapa scenlistan.'))
   }
-  return data // { title, characters: [{tag, description}], shots: [{image_prompt, motion_prompt, duration_seconds, character_tags}] }
+  return data // { title, characters: [{tag, description}], locations: [{tag, description}], shots: [{location_tag, image_prompt, motion_prompt, duration_seconds, character_tags}] }
 }
 
 async function getTaskStatus(taskId) {

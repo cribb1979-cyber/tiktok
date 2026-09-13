@@ -826,8 +826,10 @@ genererad video, billigast av de tre. En ~45-sekunders film med 5-6 scener kosta
 `/api/broll-status` — Replicates predictions-endpoint är modelloberoende, samma id fungerar
 oavsett vilken modell som skapade predictionen, så inga nya statusendpoints behövdes):**
 1. `generate-shotlist.ts` (Claude): idén blir en karaktärslista (1-3 st, generiska/påhittade —
-   se person-skyddet nedan) och en ordnad scenlista (4-8 scener, varje med en bildbeskrivning,
-   en rörelsebeskrivning, längd 5 eller 10 sekunder, och vilka karaktärer som syns).
+   se person-skyddet nedan), en platslista (1-4 st återkommande miljöer, se "Miljökonsistens"
+   nedan) och en ordnad scenlista (4-8 scener, varje med vilken plats den utspelar sig på, en
+   bildbeskrivning av HANDLINGEN, en rörelsebeskrivning, längd 5 eller 10 sekunder, och vilka
+   karaktärer som syns).
 2. `generate-character-image.ts`: EN referensbild per karaktär, via **FLUX Schnell** (rent
    text-till-bild — se korrigeringen nedan för varför INTE Gen-4 Image här).
 3. `generate-shot-image.ts`: en konsekvent bildruta per scen. Har scenen en karaktär: Runway
@@ -880,6 +882,24 @@ portrait, ..." — medvetet INTE genom att stänga av modellens säkerhetsfiltre
 (`disable_safety_checker`), som hade varit en trubbigare/mer riskabel lösning för samma
 symptom. OBS: kunde inte verifieras med ett nytt skarpt test i den här sessionen — dyker
 samma fel upp igen med den nya frasen behöver frasen justeras ytterligare.
+
+**Miljökonsistens (2026-09, rapporterat direkt av användaren):** användaren märkte att varje
+scen fick nya ansikten OCH nya miljöer — inte en bugg i meningen trasig kod, utan en känd,
+redan dokumenterad konsekvens av arkitekturen ovan: Gen-4 Image genererar varje scen som en
+HELT OBEROENDE bild (bara karaktärens ansikte hålls fast via referensbilden, ingenting håller
+fast miljön). `generate-shotlist.ts` skrev dessutom miljön som fri text separat för varje scen
+utan någon koppling till föregående scener, så samma plats kunde beskrivas olika varje gång.
+Delvis åtgärdat: `generate-shotlist.ts` returnerar nu även `locations` (1-4 återkommande
+platser, varje med en DETALJERAD beskrivning — arkitektur/färger/ljus/detaljer) och varje scen
+har ett `location_tag`. Klippstudio (`handleGenerateFilm`) slår upp platsens beskrivning och
+klistrar in den ORDAGRANT främst i varje scens bildprompt (istället för att lita på att Claude
+råkar återanvända samma formulering) — håller miljön betydligt mer konsekvent mellan scener på
+samma plats, eftersom textbeskrivningen nu är bokstavligen identisk. **Kvarstående
+begränsning:** det är fortfarande en NY, oberoende bildgenerering varje gång (ingen delad
+bild/seed), så miljön blir visuellt LIK men inte pixelidentisk — och karaktärens ansikte kan
+fortfarande drifta något mellan scener eftersom Gen-4 Images referensbild-konditionering är en
+stilmässig fingervisning, inte ett hårt identitetslås. En scen med FLERA karaktärer har
+fortfarande bara den första som hålls konsekvent (se korrigeringen ovan) — ingen ändring där.
 
 **Miljövariabler:** ingen ny — återanvänder `REPLICATE_API_TOKEN` och `CLAUDE_API_KEY` som
 redan krävs för B-roll respektive klippningsplanen.

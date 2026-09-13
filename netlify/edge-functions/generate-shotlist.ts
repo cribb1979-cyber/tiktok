@@ -26,12 +26,21 @@ Dela upp berättelsen i:
   som "Person A", används som @tag i bildprompter, inte ett riktigt namn i berättelsen) och en
   kort visuell beskrivning (kläder/hår/kroppstyp, INTE ansiktsdrag i detalj — bildmodellen
   fyller i det, vi vill bara ha en konsekvent SILHUETT/STIL).
+- locations: 1-4 återkommande platser/miljöer (t.ex. "ödehusets exteriör", "vardagsrummet
+  inuti"), varje med ett kort tag och en DETALJERAD visuell beskrivning (arkitektur, färger,
+  ljussättning, specifika föremål/detaljer) — detaljerad nog att kunna återanvändas ORDAGRANT
+  i flera scener för att hålla miljön så visuellt lik som möjligt mellan dem (bildmodellen
+  genererar varje scen oberoende, så en identisk textbeskrivning är det som håller ihop
+  miljön, inte en delad bild).
 - shots: 4-8 scener i ordning som tillsammans berättar historien med stigande spänning och ett
   tydligt slut. Varje scen:
-  - image_prompt: en filmisk beskrivning av EN bildruta (komposition, ljus, miljö) — beskriv
-    karaktärer med VANLIG text (t.ex. "en kvinna närmar sig ett förfallet hus i skymningen"),
-    ALDRIG @tag eller andra specialtecken i själva prompten (bildmodellen tar bara EN
-    referensbild per scen, se character_tags nedan — ingen tag-syntax stöds i prompttexten).
+  - location_tag: vilken locations[].tag scenen utspelar sig på (en scen = en plats).
+  - image_prompt: en filmisk beskrivning av EN bildruta (komposition, ljus, VAD SOM HÄNDER i
+    scenen) — beskriv karaktärer med VANLIG text (t.ex. "en kvinna närmar sig dörren i
+    skymningen"), ALDRIG @tag eller andra specialtecken (bildmodellen tar bara EN referensbild
+    per scen, se character_tags nedan — ingen tag-syntax stöds i prompttexten). Beskriv INTE
+    själva miljön/platsen i detalj här — det kommer automatiskt från locations[]-beskrivningen,
+    fokusera bara på handlingen/kompositionen i den här scenen.
   - motion_prompt: vad som händer när stillbilden animeras till video (rörelse/kamera/
     handling), kort och konkret, t.ex. "de går sakta mot dörren, kameran följer bakifrån".
   - duration_seconds: 5 eller 10 (Gen-4 Turbo stödjer bara dessa två längder).
@@ -58,11 +67,31 @@ const RESPONSE_SCHEMA = {
         additionalProperties: false,
       },
     },
+    locations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          tag: {
+            type: 'string',
+            description: 'Kort alfanumerisk platshållare utan mellanslag, t.ex. "odehuset".',
+          },
+          description: {
+            type: 'string',
+            description:
+              'Detaljerad visuell beskrivning (arkitektur, färger, ljus, detaljer) — återanvänds ORDAGRANT i varje scen på den platsen.',
+          },
+        },
+        required: ['tag', 'description'],
+        additionalProperties: false,
+      },
+    },
     shots: {
       type: 'array',
       items: {
         type: 'object',
         properties: {
+          location_tag: { type: 'string', description: 'Vilken locations[].tag scenen utspelar sig på.' },
           image_prompt: { type: 'string' },
           motion_prompt: { type: 'string' },
           duration_seconds: { type: 'integer', enum: [5, 10] },
@@ -72,12 +101,12 @@ const RESPONSE_SCHEMA = {
             description: 'Vilka characters[].tag som syns i den här scenen (kan vara tom).',
           },
         },
-        required: ['image_prompt', 'motion_prompt', 'duration_seconds', 'character_tags'],
+        required: ['location_tag', 'image_prompt', 'motion_prompt', 'duration_seconds', 'character_tags'],
         additionalProperties: false,
       },
     },
   },
-  required: ['title', 'characters', 'shots'],
+  required: ['title', 'characters', 'locations', 'shots'],
   additionalProperties: false,
 }
 
