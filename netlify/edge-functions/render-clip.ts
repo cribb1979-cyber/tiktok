@@ -139,7 +139,13 @@ type WordTiming = { word: string; start: number; end: number }
 // Ett uppladdat råklipp — flera kan vara aktuella samtidigt (se "Flera klipp" nedan).
 // transcript/words är samma form som tidigare (från Whisper via transcribe.ts), bara
 // nästlade per klipp istället för en enda global lista.
-type ClipInput = { id: string; url: string; transcript?: TranscriptSegment[]; words?: WordTiming[] }
+type ClipInput = {
+  id: string
+  url: string
+  transcript?: TranscriptSegment[]
+  words?: WordTiming[]
+  rotation?: number
+}
 
 // Ord-för-ord-undertexter byggs som korta html-klipp (ett ord i taget, stort och fetstilat) —
 // samma mönster som Shotstacks eget "kinetic-text"-exempel, verifierat schema. Undviker den
@@ -376,6 +382,12 @@ export default async (request: Request) => {
         fit: 'crop',
         effect,
         ...(typeof manualFilter === 'string' && manualFilter ? { filter: manualFilter } : {}),
+        // Manuell motrotation (Klippstudios "Rotera videon"-väljare per klipp) — vissa
+        // telefoninspelade videor har en rotations-flagga i filen som Shotstack tolkar fel,
+        // vilket ger en sidledes/upp-och-ner bildruta trots att förhandsvisningen på telefonen
+        // ser rätt ut. clip.rotation är gradtal (medurs positivt), samma konvention som
+        // Shotstacks transform.rotate.angle.
+        ...(clip?.rotation ? { transform: { rotate: { angle: clip.rotation } } } : {}),
         transition,
       })
     }

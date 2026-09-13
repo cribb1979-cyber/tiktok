@@ -45,6 +45,10 @@ export default function Berattare() {
   const [videoUrl, setVideoUrl] = useState(null)
   const [videoUploading, setVideoUploading] = useState(false)
   const [videoDuration, setVideoDuration] = useState(0)
+  // Motrotation (Shotstacks transform.rotate.angle, se render-clip.ts) — vissa telefon-
+  // inspelade videor har en rotations-flagga som Shotstack tolkar fel, trots att videon ser
+  // rätt ut i förhandsvisningen på telefonen/i <video>-elementet nedan.
+  const [videoRotation, setVideoRotation] = useState(0)
   const [narrationText, setNarrationText] = useState('')
   const [voice, setVoice] = useState('fable')
   const [narrationAudioUrl, setNarrationAudioUrl] = useState(null)
@@ -93,7 +97,7 @@ export default function Berattare() {
 
   function buildRenderParams() {
     return {
-      clips: [{ id: 'c1', url: videoUrl, transcript: [], words: [] }],
+      clips: [{ id: 'c1', url: videoUrl, transcript: [], words: [], rotation: videoRotation }],
       segmentsPlan: [{ clip_id: 'c1', start: '0:00', end: formatTimecode(videoDuration || 1) }],
       hookText: '',
       suggestedSubtitles: [],
@@ -196,6 +200,17 @@ export default function Berattare() {
         )}
         {videoDuration > 0 && (
           <p className="clip-prompt">Längd: ca {formatTimecode(videoDuration)}</p>
+        )}
+        {videoUrl && (
+          <label style={{ display: 'block', marginTop: 8 }}>
+            Rotera videon (om den blir sidledes/upp-och-ner i renderingen)
+            <select value={videoRotation} onChange={(e) => setVideoRotation(Number(e.target.value))}>
+              <option value={0}>Ingen rotation</option>
+              <option value={90}>90° medurs</option>
+              <option value={180}>180°</option>
+              <option value={-90}>90° moturs</option>
+            </select>
+          </label>
         )}
       </div>
 

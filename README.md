@@ -417,6 +417,19 @@ bildkanten — kapas vid senaste ordgränsen inom gränsen, aldrig mitt i ett or
 ger…" inte "Lugnet ger energin plats att flö…"). `generate-plan.ts` instrueras dessutom att
 hålla `suggested_subtitles` under ~30 tecken från början, så avkortning sällan triggas alls.
 
+**Manuell rotation (skarpt rapporterat fel):** en uppladdad telefonvideo renderades sidledes
+(ansiktet 90° roterat) trots att förhandsvisningen på telefonen såg helt normal ut — ett känt
+mönster där videofilens rotations-metadata inte tolkas som förväntat av rendermotorn (Shotstack
+har enligt deras community-forum en `probe`-endpoint som kan läsa av en fils faktiska
+rotationsvärde, men ingen automatisk detektion/korrigering är inbyggd i vårt anrop). Löst med
+en manuell "Rotera videon"-väljare per klipp (0°/90° medurs/180°/90° moturs) i Klippstudios
+klipplista och i `Berattare.jsx` — värdet skickas som `rotation` på klippobjektet till
+`/api/render-clip`, som lägger på Shotstacks dokumenterade
+`transform: { rotate: { angle } }`-klipptransform (verifierat via Shotstacks egen
+mall-dokumentation för rotate-transformationer). Ingen automatisk detektion byggd — användaren
+väljer själv om/hur mycket ett specifikt klipp behöver roteras, efter att ha sett en
+förhandsgranskning.
+
 **Effekter och övergångar:** varje segment cyklar igenom en lista effekter (`zoomInFast`,
 `zoomOutFast`, `slideLeftFast`, `slideRightFast`, `slideUpFast`, `slideDownFast`) och
 övergångar (`fadeFast`, `wipeLeft`, `wipeRight`, `slideLeft`, `slideRight`) — bara "Fast"-

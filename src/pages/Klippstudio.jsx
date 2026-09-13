@@ -1621,6 +1621,7 @@ export default function Klippstudio() {
           url: c.publicUrl,
           transcript: c.transcript?.segments ?? [],
           words: c.transcript?.words ?? [],
+          rotation: c.rotation ?? 0,
         })),
       segmentsPlan: plan.segments_plan ?? [],
       hookText: selectedHook?.text ?? '',
@@ -2440,6 +2441,20 @@ export default function Klippstudio() {
                   </p>
                 )}
                 {clip.error && <p className="error-banner">{clip.error}</p>}
+                {clip.publicUrl && (
+                  <label style={{ display: 'block', marginTop: 4 }}>
+                    Rotera videon (om den blir sidledes/upp-och-ner i förhandsgranskningen)
+                    <select
+                      value={clip.rotation ?? 0}
+                      onChange={(e) => updateClip(clip.id, { rotation: Number(e.target.value) })}
+                    >
+                      <option value={0}>Ingen rotation</option>
+                      <option value={90}>90° medurs</option>
+                      <option value={180}>180°</option>
+                      <option value={-90}>90° moturs</option>
+                    </select>
+                  </label>
+                )}
                 <button
                   type="button"
                   className="btn-danger"
