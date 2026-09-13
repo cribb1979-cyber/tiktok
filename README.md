@@ -304,6 +304,36 @@ video.ts`) behövde bytas till v3 för röstfixen ovan, inte statuskollen.
 historik — `clip_id` sätts inte automatiskt idag (kopplas inte till det sparade klippet i
 Bibliotek ännu), bara till för framtida bruk enligt spec-dokumentets datamodell.
 
+**D-ID som alternativ, billigare leverantör (research, 2026-09):** användaren efterfrågade en
+billigare väg till en "egen avatar" — HeyGens eget avatar-SKAPANDE (ladda upp ett foto/video
+och få ett återanvändbart Avatar-ID) sitter enligt oberoende prisjämförelser bakom
+Business-nivån (~149 USD/mån + extra per avatar-"slot"), en helt annan kostnad än att bara
+GENERERA videor med en redan befintlig avatar (HeyGens vanliga pay-as-you-go, se ovan). D-ID
+har ingen sådan spärr — vilket foto som helst kan användas direkt som `source_url` redan på
+den billiga Pro-nivån (~29 USD/mån, ger API-åtkomst), sämre läppsynk/kvalitet än HeyGen enligt
+jämförelserna men klart billigare för just det här specifika behovet.
+
+Löst som ett ANDRA, valbart läge i Manus-sektionen (`avatarProvider`-state i
+`Klippstudio.jsx`, `'heygen'`/`'did'`) istället för att ersätta HeyGen — ingen egen
+avatar-skapande-flow behövs alls med D-ID, användaren laddar bara upp ett foto direkt i
+Klippstudio (samma `uploadRawClip`/`raw-clips`-bucket som allt annat råmaterial) varje gång.
+`netlify/edge-functions/generate-did-video.ts` (`POST https://api.d-id.com/talks`) och
+`did-video-status.ts` (`GET /talks/{id}`, samma PENDING/RUNNING/SUCCEEDED/FAILED-normalisering
+som HeyGen/B-roll) speglar samma submit+poll-mönster som `generate-avatar-video.ts`/
+`avatar-video-status.ts` — `src/lib/didClient.js` har samma
+`generateDidVideo({ inputText, sourceImageUrl, onStatus })`-form som `generateAvatarVideo`.
+Röst: en Microsoft Azure-neural-röst (`script.provider`), default `sv-SE-SofieNeural`
+(styrbar via `DID_VOICE_ID`).
+
+**OSÄKERT (kunde inte verifieras mot ett skarpt svar härifrån — d-id.com är blockerad från
+den här sandboxen):** autentiseringsformatet (`Authorization: Basic ${apiKey}` rakt av, INTE
+en till base64-kodning av nyckeln — justera till `Basic ${btoa(apiKey + ':')}` om D-ID svarar
+401), samt `script.provider`/`config.stitch`-fältnamnen och om HeyGens `<break time="Xs"/>`-
+paustagg (se ovan) faktiskt respekteras av D-IDs "text"-script-typ. Justera enligt D-IDs eget
+felmeddelande vid nästa skarpa test, samma mönster som HeyGen v3/Bria/Replicate-
+fältnamnsfixarna i den här appen. **Miljövariabler:** `DID_API_KEY` (från D-IDs dashboard),
+valfri `DID_VOICE_ID`.
+
 ## Shotstack-integration (steg 6)
 
 Vid uppladdning sparas råmaterialet även i Supabase Storage-bucketen `raw-clips` (publik URL,

@@ -9,6 +9,7 @@ import { fetchSimilarPreviousClips, embedAndStoreClip } from '../lib/clipHistory
 import { generateBroll, refineBrollPrompt } from '../lib/replicateClient.js'
 import { generateBackgroundImage, matteVideo } from '../lib/backgroundClient.js'
 import { generateAvatarVideo, listAvatars, listVoices } from '../lib/heygenClient.js'
+import { generateDidVideo } from '../lib/didClient.js'
 import { generateShotlist, generateCharacterImage, generateShotImage, generateShotVideo } from '../lib/filmClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import {
@@ -888,6 +889,16 @@ export default function Klippstudio() {
   const [manusStatus, setManusStatus] = useState(null)
   const [manusError, setManusError] = useState(null)
 
+  // Leverantörsval för Manus-lägets avatar-video: HeyGen (avatarer/röster du redan skapat på
+  // HeyGens sajt) eller D-ID (billigare, se generate-did-video.ts — ladda upp VILKET FOTO SOM
+  // HELST direkt här istället, ingen dyr avatar-skapande-nivå att betala för). Samma
+  // sammanslagna talbara dialog (spokenText i handleGenerateAvatarVideo) skickas till
+  // vilkendera leverantören.
+  const [avatarProvider, setAvatarProvider] = useState('heygen')
+  const [didSourceImageUrl, setDidSourceImageUrl] = useState(null)
+  const [didImageUploading, setDidImageUploading] = useState(false)
+  const [didImageError, setDidImageError] = useState(null)
+
   // AI-kortfilm (valfritt fjärde inmatningssätt): en fri idé bryts ner av Claude till
   // återkommande karaktärer + en ordnad scenlista (generate-shotlist.ts), varje karaktär får
   // en referensbild (generate-character-image.ts), varje scen genereras i två steg — en
@@ -1181,6 +1192,22 @@ export default function Klippstudio() {
     setVideoFile(null)
   }
 
+  // Laddar upp fotot som D-ID ska animera — samma lagring (raw-clips) som uppladdat
+  // huvudmaterial, bucketen bryr sig inte om filtyp.
+  async function handleDidImageUpload(file) {
+    if (!file) return
+    setDidImageUploading(true)
+    setDidImageError(null)
+    try {
+      const publicUrl = await uploadRawClip(file)
+      setDidSourceImageUrl(publicUrl)
+    } catch (err) {
+      setDidImageError(err.message)
+    } finally {
+      setDidImageUploading(false)
+    }
+  }
+
   async function handleParseManus() {
     if (!manusText.trim()) return
     setManusParsing(true)
@@ -1195,19 +1222,25 @@ export default function Klippstudio() {
     setManusParsing(false)
   }
 
-  // Skickar den tolkade dialogen till HeyGen, pollar tills videon är klar, och lägger sedan
-  // till den som ett vanligt klipp i clips-listan (samma { id, name, publicUrl, transcript,
-  // transcribing, ... }-form som handleAddClip bygger) — transkriberas här via
-  // transcribeMp4Url (HeyGen levererar redan mp4, ingen Shotstack-konvertering behövs) så
-  // ord-för-ord-undertexter/klippningsplan fungerar identiskt med ett uppladdat klipp.
+  // Skickar den tolkade dialogen till vald leverantör (HeyGen eller D-ID, se avatarProvider),
+  // pollar tills videon är klar, och lägger sedan till den som ett vanligt klipp i
+  // clips-listan (samma { id, name, publicUrl, transcript, transcribing, ... }-form som
+  // handleAddClip bygger) — transkriberas här via transcribeMp4Url (båda leverantörerna
+  // levererar redan mp4, ingen Shotstack-konvertering behövs) så ord-för-ord-undertexter/
+  // klippningsplan fungerar identiskt med ett uppladdat klipp.
   async function handleGenerateAvatarVideo() {
     if (!manusBeats || manusBeats.length === 0) return
-    // HeyGen stödjer riktiga pauser via en <break time="Xs"/>-tagg inline i texten (den enda
-    // taggen den stödjer — INTE en full SSML-<speak>-inpackning, det ger enligt HeyGens egen
-    // dokumentation extra uppläst brus). Utan detta läste avataren upp replikerna rakt igenom
-    // utan att respektera tystnad/paus markerad i manuset (rapporterad bugg). Kräver att den
-    // valda HEYGEN_VOICE_ID faktiskt stödjer pauser (voice.support_pause via /v2/voices) —
-    // annars kan taggen ignoreras eller läsas upp bokstavligt.
+    if (avatarProvider === 'did' && !didSourceImageUrl) {
+      setManusError('Ladda upp ett foto att animera innan du genererar med D-ID.')
+      return
+    }
+    // <break time="Xs"/> inline i texten: HeyGens dokumenterade, enda stödda paus-tagg (INTE
+    // en full SSML-<speak>-inpackning, det ger enligt HeyGens egen dokumentation extra
+    // uppläst brus) — kräver att den valda HEYGEN_VOICE_ID stödjer pauser (voice.support_pause
+    // via /v2/voices). D-IDs Microsoft Azure-röster stödjer SSML-brytningar generellt, men om
+    // taggen faktiskt respekteras av D-IDs "text"-script-typ är INTE verifierat härifrån
+    // (nätverksbegränsningar) — kan behöva justeras om pauser visar sig ignoreras/läsas upp
+    // bokstavligt där.
     const spokenText = manusBeats
       .map((b) => {
         const line = typeof b.line === 'string' ? b.line.trim() : ''
@@ -1226,19 +1259,26 @@ export default function Klippstudio() {
     setManusError(null)
     setManusStatus(null)
     try {
-      const videoUrl = await generateAvatarVideo({
-        inputText: spokenText,
-        avatarId: selectedAvatarId || undefined,
-        voiceId: selectedVoiceId || undefined,
-        onStatus: setManusStatus,
-      })
+      const videoUrl =
+        avatarProvider === 'did'
+          ? await generateDidVideo({
+              inputText: spokenText,
+              sourceImageUrl: didSourceImageUrl,
+              onStatus: setManusStatus,
+            })
+          : await generateAvatarVideo({
+              inputText: spokenText,
+              avatarId: selectedAvatarId || undefined,
+              voiceId: selectedVoiceId || undefined,
+              onStatus: setManusStatus,
+            })
 
       const id = `c${nextClipIdRef.current++}`
       setClips((prev) => [
         ...prev,
         {
           id,
-          name: 'AI-avatar (manus)',
+          name: avatarProvider === 'did' ? 'AI-avatar (manus, D-ID)' : 'AI-avatar (manus)',
           publicUrl: videoUrl,
           transcript: null,
           transcribing: true,
@@ -2087,14 +2127,54 @@ export default function Klippstudio() {
           />
         </label>
 
-        {avatarOptionsError && (
+        <label style={{ display: 'block', marginTop: 12 }}>
+          Leverantör
+          <select
+            value={avatarProvider}
+            onChange={(e) => setAvatarProvider(e.target.value)}
+            disabled={manusGenerating}
+          >
+            <option value="heygen">HeyGen (avatarer/röster du skapat på HeyGen)</option>
+            <option value="did">D-ID (billigare — ladda upp ett eget foto här direkt)</option>
+          </select>
+        </label>
+
+        {avatarProvider === 'did' && (
+          <div style={{ marginTop: 8 }}>
+            <label style={{ display: 'block' }}>
+              Foto att animera
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleDidImageUpload(e.target.files?.[0])}
+                disabled={didImageUploading || manusGenerating}
+              />
+            </label>
+            <p className="placeholder-note">
+              D-ID animerar det här fotot till en talande video — ingen HeyGen-avatar behövs.
+              Sämre läppsynk/kvalitet än HeyGen enligt oberoende jämförelser, men mycket
+              billigare (ingen dyr "skapa egen avatar"-nivå att betala för).
+            </p>
+            {didImageUploading && <p className="clip-prompt">Laddar upp foto…</p>}
+            {didImageError && <p className="error-banner">{didImageError}</p>}
+            {didSourceImageUrl && (
+              <img
+                src={didSourceImageUrl}
+                alt="Foto att animera med D-ID"
+                style={{ width: '100%', maxWidth: 200, borderRadius: 10, marginTop: 4 }}
+              />
+            )}
+          </div>
+        )}
+
+        {avatarProvider === 'heygen' && avatarOptionsError && (
           <p className="clip-prompt">
             Kunde inte hämta avatar-/röstlistan från HeyGen ({avatarOptionsError}) — använder
             standardvalet från Netlify-miljövariablerna istället.
           </p>
         )}
 
-        {(avatarOptions.length > 0 || voiceOptions.length > 0) && (
+        {avatarProvider === 'heygen' && (avatarOptions.length > 0 || voiceOptions.length > 0) && (
           <div className="form-grid">
             {avatarOptions.length > 0 && (
               <label>
@@ -2156,7 +2236,8 @@ export default function Klippstudio() {
             ihop i en ren textlista. Ändrar inte listorna, bara ett facit bredvid valet. */}
         {/* Staplat under varandra, INTE .form-grids sida-vid-sida-kolumner — en smal
             högerkolumn klippte tidigare av ljudspelaren utanför skärmen på mobil. */}
-        {(selectedAvatarPreview?.previewImageUrl || selectedVoicePreview?.previewAudioUrl) && (
+        {avatarProvider === 'heygen' &&
+          (selectedAvatarPreview?.previewImageUrl || selectedVoicePreview?.previewAudioUrl) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {selectedAvatarPreview?.previewImageUrl && (
               <div>
@@ -2209,7 +2290,7 @@ export default function Klippstudio() {
                   className="btn-primary"
                   style={{ marginTop: 8 }}
                   onClick={handleGenerateAvatarVideo}
-                  disabled={manusGenerating}
+                  disabled={manusGenerating || (avatarProvider === 'did' && !didSourceImageUrl)}
                 >
                   {manusGenerating
                     ? BROLL_STATUS_LABELS[manusStatus] ?? 'Genererar AI-avatar-video…'
