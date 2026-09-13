@@ -1,9 +1,39 @@
-// Steg 5: transkribering med tidsstämplar via Whisper API (OpenAI).
-// Körs server-side som Netlify Edge Function — WHISPER_API_KEY exponeras aldrig i klienten.
+// Steg 5: transkribering med tidsstämplar via Whisper API.
+// Körs server-side som Netlify Edge Function — API-nycklarna exponeras aldrig i klienten.
+//
+// Leverantörsväxel (TRANSCRIPTION_PROVIDER=openai|groq, default openai — inget ändras i
+// produktion förrän variabeln flippas manuellt): Groqs transkriberingsendpoint
+// (api.groq.com/openai/v1/audio/transcriptions) är OpenAI-kompatibel rakt av — samma
+// multipart/form-data-fält, samma verbose_json-svarsform. Bekräftat via research (WebSearch,
+// 2026-09, groq.com är blockerad direkt från den här sandboxen så inget skarpt testanrop
+// gjordes): Groq har SAMMA 25 MB-filgräns som OpenAI, stödjer samma
+// `timestamp_granularities[]` (word OCH segment, kräver verbose_json precis som OpenAI), och
+// accepterar mp4 (en enda ljudspår läses av — precis vårt användningsfall). `no_speech_prob`
+// per segment (används för hallucinationsfiltret nedan) är del av Whisper-modellens
+// standardformat för verbose_json, så det ska följa med oförändrat eftersom Groq kör samma
+// underliggande Whisper-modellarkitektur — men EXAKT svarsschema är inte verifierat mot ett
+// skarpt anrop härifrån, justera om ett fält saknas/heter annorlunda vid nästa test.
+const TRANSCRIPTION_PROVIDER = (Deno.env.get('TRANSCRIPTION_PROVIDER') || 'openai').toLowerCase()
 
-const WHISPER_API_URL = 'https://api.openai.com/v1/audio/transcriptions'
+const PROVIDER_CONFIG: Record<string, { url: string; model: string; apiKeyEnvVar: string }> = {
+  openai: {
+    url: 'https://api.openai.com/v1/audio/transcriptions',
+    model: 'whisper-1',
+    apiKeyEnvVar: 'WHISPER_API_KEY',
+  },
+  // whisper-large-v3 (inte -turbo) vald för bäst noggrannhet — @stoffe_medium:s svenska
+  // innehåll transkriberas direkt (ingen engelsk översättning), och turbo-varianten har
+  // något högre felfrekvens (WER) enligt Groqs egen modelldokumentation.
+  groq: {
+    url: 'https://api.groq.com/openai/v1/audio/transcriptions',
+    model: 'whisper-large-v3',
+    apiKeyEnvVar: 'GROQ_API_KEY',
+  },
+}
 
-// OpenAIs whisper-1-endpoint har en hård gräns på 25 MB per fil.
+// OpenAIs OCH Groqs whisper-endpoints har båda en hård gräns på 25 MB per fil (verifierat
+// för Groq via research ovan, samma som OpenAIs sedan tidigare) — en enda gemensam gräns
+// fungerar alltså för båda leverantörerna oförändrat.
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 
 export default async (request: Request) => {
@@ -11,9 +41,10 @@ export default async (request: Request) => {
     return jsonResponse({ error: 'Method not allowed' }, 405)
   }
 
-  const whisperApiKey = Deno.env.get('WHISPER_API_KEY')
+  const providerConfig = PROVIDER_CONFIG[TRANSCRIPTION_PROVIDER] ?? PROVIDER_CONFIG.openai
+  const whisperApiKey = Deno.env.get(providerConfig.apiKeyEnvVar)
   if (!whisperApiKey) {
-    return jsonResponse({ error: 'WHISPER_API_KEY saknas i Netlify-miljövariabler.' }, 500)
+    return jsonResponse({ error: `${providerConfig.apiKeyEnvVar} saknas i Netlify-miljövariabler.` }, 500)
   }
 
   const contentType = request.headers.get('content-type') ?? ''
@@ -84,7 +115,7 @@ export default async (request: Request) => {
 
   const whisperForm = new FormData()
   whisperForm.set('file', fileToTranscribe, fileToTranscribe.name || 'upload')
-  whisperForm.set('model', 'whisper-1')
+  whisperForm.set('model', providerConfig.model)
   whisperForm.set('response_format', 'verbose_json')
   whisperForm.append('timestamp_granularities[]', 'segment')
   // Ord-nivå-tidsstämplar — används för ord-för-ord-animerade undertexter (CapCut/TikTok-stil)
@@ -93,18 +124,18 @@ export default async (request: Request) => {
 
   let whisperResponse: Response
   try {
-    whisperResponse = await fetch(WHISPER_API_URL, {
+    whisperResponse = await fetch(providerConfig.url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${whisperApiKey}` },
       body: whisperForm,
     })
   } catch (err) {
-    return jsonResponse({ error: 'Kunde inte nå Whisper API.', detail: String(err) }, 502)
+    return jsonResponse({ error: 'Kunde inte nå transkriberings-API:et.', detail: String(err) }, 502)
   }
 
   if (!whisperResponse.ok) {
     const errText = await whisperResponse.text()
-    return jsonResponse({ error: 'Whisper API-fel', detail: errText }, 502)
+    return jsonResponse({ error: 'Transkriberings-API-fel', detail: errText }, 502)
   }
 
   const rawWhisperText = await whisperResponse.text()

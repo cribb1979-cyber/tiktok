@@ -92,6 +92,26 @@ tidsstämplade segment. Nyckeln `WHISPER_API_KEY` (en OpenAI API-nyckel) exponer
 klienten. Transkriptet skickas vidare som `transcript` till `/api/generate-plan` så
 klippningsplanen kan baseras på faktiskt videoinnehåll, inte bara prompten.
 
+**Transkribering — alternativ leverantör (Groq):** `TRANSCRIPTION_PROVIDER` (miljövariabel,
+`openai` default — INGET ändras i produktion förrän den flippas manuellt) väljer mellan
+OpenAIs `whisper-1` (nuvarande) och Groqs `api.groq.com/openai/v1/audio/transcriptions`
+(`whisper-large-v3`, egen nyckel `GROQ_API_KEY`) — Groqs endpoint är OpenAI-kompatibel rakt
+av, samma multipart-fält och `verbose_json`-svarsform, så `PROVIDER_CONFIG` i `transcribe.ts`
+är den enda ändringen: bara URL/modellnamn/nyckel-miljövariabel skiljer, resten av filen
+(filgräns, `.mov`-hanteringen, hallucinationsfiltret, segment-/ord-parsningen som
+`generate-plan.ts`/`render-clip.ts` konsumerar) är orörd.
+
+Verifierat via research (WebSearch, 2026-09 — groq.com är blockerad direkt från
+utvecklingssandboxen, inget skarpt testanrop gjort): Groq har SAMMA 25 MB-filgräns som
+OpenAI (ingen ändring behövdes där), accepterar mp4 precis som OpenAI, och stödjer samma
+`timestamp_granularities[]` (`word` + `segment`, kräver `verbose_json`) som ord-för-ord-
+undertexterna bygger på. `whisper-large-v3` (inte `-turbo`) valdes för bäst noggrannhet på
+svenskt tal (@stoffe_medium transkriberar aldrig till engelska, och turbo-varianten har
+något högre felfrekvens enligt Groqs egen modelldokumentation). OSÄKERT: exakt
+svarsschema (t.ex. om `no_speech_prob` per segment, som hallucinationsfiltret bygger på,
+verkligen följer med identiskt) är inte verifierat mot ett skarpt anrop — kolla vid första
+skarpa testet med `TRANSCRIPTION_PROVIDER=groq` och justera om något fält saknas.
+
 **Filstorlek:** Whisper har en hård 25 MB-gräns per fil, satt av OpenAI — går inte att höja.
 Uppladdning/rendering (Shotstack) har ingen sådan gräns. Klippstudio skiljer därför på de
 två: filer över 25 MB laddas upp för rendering som vanligt, men hoppar över transkriberingen
