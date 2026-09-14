@@ -28,6 +28,48 @@ body {
   background: var(--bg);
   color: var(--text);
   -webkit-tap-highlight-color: transparent;
+  position: relative;
+}
+
+/* Levande bakgrund (efterfrågat direkt av användaren — den tidigare bakgrunden var en helt
+   platt färg). Två långsamt drivande, mjukt urblurrade glöd i appens egna accentfärger, fästa
+   bakom allt innehåll (z-index: -1, pointer-events: none — stör aldrig klick/scroll). Rent CSS,
+   ingen canvas/JS — försumbar prestandakostnad även på äldre mobiler. Respekterar
+   prefers-reduced-motion (fryser bara på plats istället för att stänga av helt, ser fortfarande
+   levande ut men utan rörelse som kan störa). */
+body::before {
+  content: '';
+  position: fixed;
+  /* Större än viewporten så att translate/scale nedan aldrig avslöjar en tom kant. */
+  top: -15vh;
+  left: -15vw;
+  right: -15vw;
+  bottom: -15vh;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 25% 25%, rgba(255, 45, 85, 0.18), transparent 40%),
+    radial-gradient(circle at 75% 70%, rgba(37, 244, 238, 0.14), transparent 40%);
+  animation: bg-drift 24s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes bg-drift {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(4vw, -3vh) scale(1.08);
+  }
+  100% {
+    transform: translate(-3vw, 3vh) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before {
+    animation: none;
+  }
 }
 
 .app {
