@@ -945,6 +945,9 @@ export default function Klippstudio() {
   const [manusBeats, setManusBeats] = useState(null)
   const [manusGenerating, setManusGenerating] = useState(false)
   const [manusStatus, setManusStatus] = useState(null)
+  // Synlig förfluten tid under D-ID/HeyGen-pollningen — efterfrågat efter upprepade "står det
+  // bara i kö, är det en bugg?"-rapporter där det inte gick att se om något faktiskt hände.
+  const [manusElapsedSeconds, setManusElapsedSeconds] = useState(null)
   const [manusError, setManusError] = useState(null)
 
   // Leverantörsval för Manus-lägets avatar-video: HeyGen (avatarer/röster du redan skapat på
@@ -1392,6 +1395,11 @@ export default function Klippstudio() {
     setManusGenerating(true)
     setManusError(null)
     setManusStatus(null)
+    setManusElapsedSeconds(null)
+    const onPollStatus = (status, elapsedSeconds) => {
+      setManusStatus(status)
+      if (elapsedSeconds != null) setManusElapsedSeconds(elapsedSeconds)
+    }
     try {
       let videoUrl
       if (avatarProvider === 'did') {
@@ -1399,7 +1407,7 @@ export default function Klippstudio() {
           inputText: spokenText,
           sourceImageUrl: didSourceImageUrl,
           voiceId: didVoiceId || undefined,
-          onStatus: setManusStatus,
+          onStatus: onPollStatus,
         })
       } else if (avatarProvider === 'figure') {
         // Ingen läppsynk: en stillbild med mjuk rörelse (samma teknik som Bildspel) +
@@ -1422,7 +1430,7 @@ export default function Klippstudio() {
           inputText: spokenText,
           avatarId: selectedAvatarId || undefined,
           voiceId: selectedVoiceId || undefined,
-          onStatus: setManusStatus,
+          onStatus: onPollStatus,
         })
       }
 
@@ -2729,7 +2737,11 @@ export default function Klippstudio() {
                   disabled={manusGenerating || (avatarProvider === 'did' && !didSourceImageUrl)}
                 >
                   {manusGenerating
-                    ? BROLL_STATUS_LABELS[manusStatus] ?? 'Genererar AI-avatar-video…'
+                    ? `${BROLL_STATUS_LABELS[manusStatus] ?? 'Genererar AI-avatar-video…'}${
+                        manusElapsedSeconds != null && (avatarProvider === 'did' || avatarProvider === 'heygen')
+                          ? ` (${manusElapsedSeconds}s)`
+                          : ''
+                      }`
                     : 'Generera AI-avatar-video'}
                 </button>
               </>

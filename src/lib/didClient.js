@@ -39,7 +39,10 @@ export async function generateDidVideo({ inputText, sourceImageUrl, voiceId, onS
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
     const result = await getDidVideoStatus(id)
-    onStatus?.(result.status)
+    // Andra argumentet (förfluten tid) är nytt — efterfrågat efter upprepade "står det bara i
+    // kö, är det en bugg?"-rapporter där det inte gick att se om något faktiskt hände. Extra
+    // argument stör inte anrop som bara använder status (t.ex. en enkel useState-setter).
+    onStatus?.(result.status, Math.round(((attempt + 1) * POLL_INTERVAL_MS) / 1000))
 
     if (result.status === 'SUCCEEDED') return result.url
     if (result.status === 'FAILED') {
@@ -47,5 +50,5 @@ export async function generateDidVideo({ inputText, sourceImageUrl, voiceId, onS
     }
   }
 
-  throw new Error('D-ID-genereringen tog för lång tid. Försök igen senare.')
+  throw new Error('D-ID-genereringen tog för lång tid (över 7,5 minuter). Försök igen senare.')
 }

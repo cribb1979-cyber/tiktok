@@ -524,7 +524,19 @@ transkriberas via `transcribeMp4Url` för ord-för-ord-undertexter i den vanliga
 klippningsplanen). Inget nytt Netlify-miljövariabelbehov — återanvänder `WHISPER_API_KEY`
 (OpenAI TTS) och `SHOTSTACK_API_KEY` som redan finns.
 
-## Berättarläge (`/berattare`): berättarröst istället för klippningsplan/transkribering
+**Synlig förfluten tid vid "I kö…"/"Genererar…" (2026-09, efter upprepade "är det här en
+bugg?"-rapporter):** både HeyGen- och D-ID-läget pollar client-side i max `MAX_POLL_ATTEMPTS`
+(90) × `POLL_INTERVAL_MS` (5000 ms) ≈ 7,5 minuter innan de ger upp med ett tydligt fel — men
+knappen visade bara en statisk text ("I kö…") utan något sätt att se om något faktiskt hände
+eller om det verkligen bara stod still. Användaren rapporterade en generering som "stått i kö"
+i 15 minuter (dubbelt den interna timeout-gränsen) med telefonen påstått olåst hela tiden —
+utan en synlig räknare gick det inte att avgöra om pollningen fortfarande gick (t.ex. tystnat
+av bakgrundsthrottling i webbläsaren, se Wake Lock-avsnittet) eller om något annat gick fel.
+`generateDidVideo`/`generateAvatarVideo` skickar nu ett andra argument till `onStatus`
+(förfluten tid i sekunder sedan starten) — bakåtkompatibelt, en enkel `useState`-setter som
+bara tar emot ETT argument bryr sig aldrig om det andra. Klippstudio visar tiden i knapptexten,
+t.ex. "I kö… (45s)", så en verkligt fastnad generering syns direkt (räknaren slutar öka) istället
+för att behöva gissa. (`/berattare`): berättarröst istället för klippningsplan/transkribering
 
 Efterfrågat direkt av användaren: en väg som helt hoppar över Claude-klippningsplanen OCH
 Whisper-transkriberingen — bara ladda upp en färdig video, skriv en berättartext, och få den

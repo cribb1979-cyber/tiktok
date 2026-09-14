@@ -62,7 +62,8 @@ export async function generateAvatarVideo({ inputText, avatarId, voiceId, onStat
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
     const result = await getAvatarVideoStatus(id)
-    onStatus?.(result.status)
+    // Andra argumentet (förfluten tid) är nytt — se motsvarande kommentar i didClient.js.
+    onStatus?.(result.status, Math.round(((attempt + 1) * POLL_INTERVAL_MS) / 1000))
 
     if (result.status === 'SUCCEEDED') return result.url
     if (result.status === 'FAILED') {
@@ -70,5 +71,5 @@ export async function generateAvatarVideo({ inputText, avatarId, voiceId, onStat
     }
   }
 
-  throw new Error('AI-avatar-genereringen tog för lång tid. Försök igen senare.')
+  throw new Error('AI-avatar-genereringen tog för lång tid (över 7,5 minuter). Försök igen senare.')
 }
