@@ -277,13 +277,19 @@ export default function Berattare() {
 
       <div className="clip-card">
         <p className="clip-category">1. Video</p>
-        <input
-          ref={videoInputRef}
-          type="file"
-          accept="video/*"
-          onChange={handleVideoUploadChange}
-          disabled={videoUploading}
-        />
+        <label style={{ display: 'block' }}>
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
+            onChange={handleVideoUploadChange}
+            disabled={videoUploading}
+            className="sr-only-file-input"
+          />
+          <span className="btn-primary" style={{ display: 'inline-block' }}>
+            Välj video
+          </span>
+        </label>
         {videoUploading && <p className="clip-prompt">Laddar upp video…</p>}
         {videoUrl && (
           <video

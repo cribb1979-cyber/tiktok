@@ -2546,7 +2546,11 @@ export default function Klippstudio() {
                     accept="image/*"
                     onChange={handleDidImageUploadChange}
                     disabled={didImageUploading || manusGenerating}
+                    className="sr-only-file-input"
                   />
+                  <span className="btn-primary" style={{ display: 'inline-block', marginTop: 6 }}>
+                    Välj bild
+                  </span>
                 </label>
                 {didImageFileName && <p className="clip-prompt">Vald fil: {didImageFileName}</p>}
                 {didImageUploading && <p className="clip-prompt">Laddar upp foto…</p>}
@@ -2829,7 +2833,11 @@ export default function Klippstudio() {
             accept="video/*,audio/*"
             onChange={handleAddClipChange}
             disabled={clips.some((c) => c.transcribing)}
+            className="sr-only-file-input"
           />
+          <span className="btn-primary" style={{ display: 'inline-block', marginTop: 6 }}>
+            Lägg till klipp
+          </span>
         </label>
 
         {clips.some((c) => c.transcribing) && (

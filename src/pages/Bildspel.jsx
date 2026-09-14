@@ -202,8 +202,16 @@ export default function Bildspel() {
               </div>
             ))}
             <label style={{ display: 'block', marginTop: 8 }}>
-              Lägg till bild
-              <input ref={imageInputRef} type="file" accept="image/*" onChange={handleAddImageChange} />
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleAddImageChange}
+                className="sr-only-file-input"
+              />
+              <span className="btn-primary" style={{ display: 'inline-block' }}>
+                Lägg till bild
+              </span>
             </label>
           </div>
 

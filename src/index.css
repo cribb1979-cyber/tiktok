@@ -285,6 +285,29 @@ body::before {
   margin-bottom: 10px;
 }
 
+/* Döljer input[type=file]'s EGEN "Välj fil / ingen fil vald"-etikett visuellt (men behåller
+   den klickbar/fokuserbar, wrapped i en <label> så hela label-ytan fortfarande öppnar
+   filväljaren) — rapporterad förvirring: efter en bekräftad iOS-bugg där "change" inte alltid
+   avfyras från Fotobiblioteket (se useFileInputFallback.js) nollställs input.value MEDVETET
+   efter att en fil hanterats (så samma fil kan väljas igen) — men webbläsarens EGEN
+   "ingen fil vald"-text återgår då till att se ut som att inget hänt, trots att appens EGEN
+   "Vald fil: ..."-text (som drivs av React-state, inte input.value) redan visar rätt fil.
+   Motsägelsefullt att se båda samtidigt. Native filändelse-text kan inte skrivas om med CSS,
+   så den göms helt istället — en egen "Välj fil"-knapp (btn-primary-utseende) inuti SAMMA
+   label visar var man klickar, och appens egen "Vald fil: ..."-text blir den enda källan till
+   sanning om vad som faktiskt är valt. */
+.sr-only-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .navbar {
   display: flex;
   border-top: 1px solid var(--border);

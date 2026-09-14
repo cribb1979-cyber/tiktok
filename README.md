@@ -89,14 +89,27 @@ aldrig behandlas två gånger av misstag — annars hade både ett fungerande "c
 input-elementets `.value` efter varje hanterad fil (samma beteende som redan fanns manuellt
 i huvuduppladdningen), så samma fil kan väljas igen om man vill lägga till den en gång till.
 
-Tillämpad på de tre vanligaste filuppladdningarna: huvudklippsuppladdningen i Klippstudio
+Tillämpad på de vanligaste filuppladdningarna: huvudklippsuppladdningen i Klippstudio
 (`handleAddClip`, som samtidigt omdefinierades från att ta emot hela `event` till att ta
 emot `file` direkt för att passa kroken), D-ID-fotouppladdningen (`handleDidImageUpload`),
-och Berättares videouppladdning (`handleVideoUpload`). **Inte** tillämpad ännu på
-per-scen-uppladdningen i AI-kortfilms "Filma själv istället" (`handleFilmShotUpload`) —
-den ligger i en `.map()`-loop där varje scen behöver sin egen input-ref, vilket kräver en
-något annorlunda lösning (en ref-karta istället för en enda ref) — lägg till om samma
-problem rapporteras där.
+Berättares videouppladdning (`handleVideoUpload`), och Bildspels bilduppladdning
+(`handleAddImage`). **Inte** tillämpad ännu på per-scen-uppladdningen i AI-kortfilms "Filma
+själv istället" (`handleFilmShotUpload`) — den ligger i en `.map()`-loop där varje scen
+behöver sin egen input-ref, vilket kräver en något annorlunda lösning (en ref-karta istället
+för en enda ref) — lägg till om samma problem rapporteras där.
+
+**KORRIGERING (2026-09, rapporterad förvirring — motsägelsefull text):** eftersom skyddsnätet
+medvetet nollställer `input.value` efter varje hanterad fil (se ovan, för att samma fil ska
+kunna väljas igen) återgår webbläsarens EGEN inbyggda etikett i filväljaren ("Välj fil / ingen
+fil vald") till att visa "ingen fil vald" direkt efteråt — SAMTIDIGT som appens EGEN
+"Vald fil: ..."-text (som drivs av React-state, inte av `input.value`) redan visar rätt
+filnamn. Två motsägelsefulla texter synliga samtidigt, trots att allt fungerade korrekt.
+Webbläsarens inbyggda filnamns-text kan inte skrivas om med CSS, så den göms nu helt istället
+(`.sr-only-file-input`-klassen i `index.css`, en standard visuellt-dold-men-klickbar-teknik) —
+en egen `.btn-primary`-styled knapp ("Välj bild"/"Lägg till klipp"/etc.) inuti SAMMA `<label>`
+visar var man klickar (native label→input-koppling fungerar identiskt, hela label-ytan öppnar
+fortfarande filväljaren), och appens egen "Vald fil: ..."-text blir den ENDA källan till
+sanning om vad som faktiskt är valt. Tillämpad på samma fyra uppladdningar som ovan.
 
 ## Claude API-integration (steg 4)
 
