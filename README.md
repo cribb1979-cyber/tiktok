@@ -452,13 +452,33 @@ with jpg|jpeg|png)"}`. Två orsaker, båda åtgärdade:
    återanvänt här för en helt annan filtyp.
 
 **Viktig avvägning (kommunicerad i UI:t):** D-IDs läppsynk är byggd/tränad för mänskliga
-ansikten. En figur med en tydligt icke-mänsklig ansiktsform (t.ex. en full djurnos) kan
-animeras konstigt eller opålitligt — **OSÄKERT**, kunde inte testas mot ett skarpt ljud-/
-videosvar härifrån. Diskuterat med användaren som en medveten avvägning: prova D-ID direkt
-(billigast att bara testa) snarare än att i förväg bygga en säkrare men mer begränsad fallback
-(stillbild + Gen-4-rörelse + separat berättarröst utan läppsynk, som AI-kortfilm/Berättare
-redan gör) — den fallbacken är INTE byggd, bara diskuterad, om D-ID-kvaliteten visar sig för
-dålig på tydligt icke-mänskliga figurer.
+ansikten. Bekräftat med ett skarpt test av användaren (en hund/varg-figur): D-ID avvisar en
+tydligt icke-mänsklig ansiktsform helt, med felet `"face not detected"` — inte bara sämre
+kvalitet, ett hårt stopp, ingen video alls genereras.
+
+**"Stillbild + rörelse, ingen läppsynk"-läge (byggt efter det skarpa testet ovan):** ett
+TREDJE `avatarProvider`-värde (`'figure'`) i Klippstudio, bredvid HeyGen/D-ID. Fungerar med
+VILKEN figur som helst eftersom det inte kräver någon ansiktsdetektering alls:
+1. Återanvänder SAMMA bildkälla som D-ID-läget (`didSourceImageUrl` — eget foto eller
+   `generateCharacterImage`, se ovan) — ingen duplicerad bilduppladdning/generering.
+2. Manusets dialog (utan HeyGens `<break>`-paustaggar, som OpenAI TTS inte tolkar — en ren
+   textversion, `plainSpokenText`, byggs separat för det här läget) skickas till
+   `generate-narration.ts` (OpenAI TTS, samma leverantör/röster som Berättare-läget — EN EGEN
+   röstväljare, `figureVoice`/`OPENAI_VOICE_OPTIONS`, eftersom D-IDs Azure-röster
+   Sofie/Mattias/Hillevi inte gäller här).
+3. Ljudlängden läses av client-side (`getAudioDuration`, samma `<audio>`/`loadedmetadata`-
+   teknik som redan används för videolängd i appen) — avgör hur länge stillbilden ska visas.
+4. **Återanvänder Bildspel** (`render-slideshow.ts`/`renderSlideshow`, se det avsnittet nedan)
+   rakt av med EN bild: `images: [{ url: didSourceImageUrl }]`,
+   `durationPerImageSeconds: <ljudlängden>`, och berättarrösten skickas in som
+   `musicAudioUrl` (samma mekanism, bara ett ljudspår oavsett om det kallas musik eller röst)
+   på full volym (`musicVolume: 1`). Ingen ny rendering-kod behövdes alls — samma Ken
+   Burns-rörelse som Bildspel ger en levande känsla utan riktig läppsynk.
+
+Resultatet läggs till i `clips`-listan precis som HeyGen/D-ID-klipp (`aiGenerated: true`,
+transkriberas via `transcribeMp4Url` för ord-för-ord-undertexter i den vanliga
+klippningsplanen). Inget nytt Netlify-miljövariabelbehov — återanvänder `WHISPER_API_KEY`
+(OpenAI TTS) och `SHOTSTACK_API_KEY` som redan finns.
 
 ## Berättarläge (`/berattare`): berättarröst istället för klippningsplan/transkribering
 

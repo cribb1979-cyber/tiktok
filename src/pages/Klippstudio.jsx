@@ -15,6 +15,8 @@ import { generateBackgroundImage, matteVideo } from '../lib/backgroundClient.js'
 import { generateAvatarVideo, listAvatars, listVoices } from '../lib/heygenClient.js'
 import { generateDidVideo } from '../lib/didClient.js'
 import { generateShotlist, generateCharacterImage, generateShotImage, generateShotVideo } from '../lib/filmClient.js'
+import { generateNarrationAudio } from '../lib/narrationClient.js'
+import { renderSlideshow } from '../lib/slideshowClient.js'
 import { fetchVideoAsFile, shareVideoFile } from '../lib/saveVideo.js'
 import {
   CATEGORIES,
@@ -54,6 +56,29 @@ const BROLL_STATUS_LABELS = {
 // minimax/music-1.5 (se generate-music.ts) kräver riktig sångtext, 10–600 tecken.
 const MUSIC_LYRICS_MIN_LENGTH = 10
 const MUSIC_LYRICS_MAX_LENGTH = 600
+
+// Samma röster som Berattare.jsx (OpenAIs gpt-4o-mini-tts, se generate-narration.ts) — inte
+// D-IDs Azure-röster (Sofie/Mattias/Hillevi), som bara gäller D-ID-läppsynk-provideren.
+const OPENAI_VOICE_OPTIONS = [
+  { value: 'fable', label: 'Fable — berättande, varm (standard)' },
+  { value: 'onyx', label: 'Onyx — djup' },
+  { value: 'nova', label: 'Nova — energisk' },
+  { value: 'alloy', label: 'Alloy — neutral' },
+  { value: 'echo', label: 'Echo — lugn' },
+  { value: 'shimmer', label: 'Shimmer — ljus' },
+]
+
+// Läser av ljudlängden på en genererad berättarröst (behövs för att veta hur länge
+// stillbilden ska visas i "figur, ingen läppsynk"-läget — se handleGenerateAvatarVideo).
+// Samma <audio>/loadedmetadata-teknik som redan används för videolängd (t.ex. Berattare.jsx).
+function getAudioDuration(url) {
+  return new Promise((resolve, reject) => {
+    const audio = new Audio()
+    audio.addEventListener('loadedmetadata', () => resolve(audio.duration))
+    audio.addEventListener('error', () => reject(new Error('Kunde inte läsa av ljudlängden.')))
+    audio.src = url
+  })
+}
 
 // Samma grova tumregel som generate-music.ts targetLyricsLength (~9 tecken/sekund) — bara en
 // riktlinje i UI:t för den som skriver sångtexten själv (inte via AI-förslag), så låten har en
@@ -922,6 +947,9 @@ export default function Klippstudio() {
   // bekräftade riktiga Microsoft Azure sv-SE-neural-röster (Mattias/Hillevi), samma
   // röstfamilj som redan används av D-ID:s "text"-script.
   const [didVoiceId, setDidVoiceId] = useState('')
+  // Röst för "figur, ingen läppsynk"-läget (OpenAI-röst, se OPENAI_VOICE_OPTIONS) — separat
+  // från didVoiceId eftersom det är en helt annan röstleverantör (OpenAI TTS, inte D-IDs Azure).
+  const [figureVoice, setFigureVoice] = useState('fable')
   const [didImageSource, setDidImageSource] = useState('upload') // 'upload' | 'figure'
   const [didSourceImageUrl, setDidSourceImageUrl] = useState(null)
   const [didImageFileName, setDidImageFileName] = useState(null)
@@ -1318,8 +1346,8 @@ export default function Klippstudio() {
   // klippningsplan fungerar identiskt med ett uppladdat klipp.
   async function handleGenerateAvatarVideo() {
     if (!manusBeats || manusBeats.length === 0) return
-    if (avatarProvider === 'did' && !didSourceImageUrl) {
-      setManusError('Ladda upp ett foto eller generera en AI-figur att animera innan du genererar med D-ID.')
+    if ((avatarProvider === 'did' || avatarProvider === 'figure') && !didSourceImageUrl) {
+      setManusError('Ladda upp ett foto eller generera en AI-figur att animera innan du genererar.')
       return
     }
     // <break time="Xs"/> inline i texten: HeyGens dokumenterade, enda stödda paus-tagg (INTE
@@ -1342,32 +1370,62 @@ export default function Klippstudio() {
       setManusError('Manuset innehåller ingen talbar dialog (bara regianvisningar?).')
       return
     }
+    // Ren textversion utan HeyGens <break>-paustaggar — OpenAI TTS (figur-läget,
+    // generate-narration.ts) tolkar ingen SSML, hade läst upp taggen bokstavligt.
+    const plainSpokenText = manusBeats
+      .map((b) => (typeof b.line === 'string' ? b.line.trim() : ''))
+      .filter(Boolean)
+      .join('\n\n')
 
     setManusGenerating(true)
     setManusError(null)
     setManusStatus(null)
     try {
-      const videoUrl =
-        avatarProvider === 'did'
-          ? await generateDidVideo({
-              inputText: spokenText,
-              sourceImageUrl: didSourceImageUrl,
-              voiceId: didVoiceId || undefined,
-              onStatus: setManusStatus,
-            })
-          : await generateAvatarVideo({
-              inputText: spokenText,
-              avatarId: selectedAvatarId || undefined,
-              voiceId: selectedVoiceId || undefined,
-              onStatus: setManusStatus,
-            })
+      let videoUrl
+      if (avatarProvider === 'did') {
+        videoUrl = await generateDidVideo({
+          inputText: spokenText,
+          sourceImageUrl: didSourceImageUrl,
+          voiceId: didVoiceId || undefined,
+          onStatus: setManusStatus,
+        })
+      } else if (avatarProvider === 'figure') {
+        // Ingen läppsynk: en stillbild med mjuk rörelse (samma teknik som Bildspel) +
+        // berättarrösten som eget ljudspår, hela vägen genom hela dialogen. Fungerar med
+        // VILKEN figur som helst, till skillnad från D-ID som kräver ett mänskligt ansikte.
+        setManusStatus('narration')
+        const narrationBlob = await generateNarrationAudio(plainSpokenText, figureVoice)
+        const narrationFile = new File([narrationBlob], 'figur-rost.mp3', { type: 'audio/mpeg' })
+        const narrationAudioUrl = await uploadRawClip(narrationFile)
+        const narrationDurationSeconds = await getAudioDuration(narrationAudioUrl)
+        videoUrl = await renderSlideshow({
+          images: [{ url: didSourceImageUrl }],
+          durationPerImageSeconds: narrationDurationSeconds,
+          musicAudioUrl: narrationAudioUrl,
+          musicVolume: 1,
+          onStatus: setManusStatus,
+        })
+      } else {
+        videoUrl = await generateAvatarVideo({
+          inputText: spokenText,
+          avatarId: selectedAvatarId || undefined,
+          voiceId: selectedVoiceId || undefined,
+          onStatus: setManusStatus,
+        })
+      }
 
+      const clipName =
+        avatarProvider === 'did'
+          ? 'AI-avatar (manus, D-ID)'
+          : avatarProvider === 'figure'
+            ? 'AI-figur (manus, ingen läppsynk)'
+            : 'AI-avatar (manus)'
       const id = `c${nextClipIdRef.current++}`
       setClips((prev) => [
         ...prev,
         {
           id,
-          name: avatarProvider === 'did' ? 'AI-avatar (manus, D-ID)' : 'AI-avatar (manus)',
+          name: clipName,
           publicUrl: videoUrl,
           transcript: null,
           transcribing: true,
@@ -2335,25 +2393,53 @@ export default function Klippstudio() {
             disabled={manusGenerating}
           >
             <option value="heygen">HeyGen (avatarer/röster du skapat på HeyGen)</option>
-            <option value="did">D-ID (billigare — ladda upp ett eget foto här direkt)</option>
+            <option value="did">D-ID (billigare — läppsynk, kräver ett mänskligt ansikte)</option>
+            <option value="figure">
+              Stillbild + rörelse, ingen läppsynk (för icke-mänskliga figurer)
+            </option>
           </select>
         </label>
 
-        {avatarProvider === 'did' && (
+        {avatarProvider === 'figure' && (
+          <p className="placeholder-note" style={{ marginTop: 8 }}>
+            D-IDs ansiktsdetektering avvisar tydligt icke-mänskliga figurer helt ("face not
+            detected") — fungerar inte alls för t.ex. en full djurnos. Det här läget kräver
+            ingen läppsynk: bilden får en mjuk zoom/rörelse (samma teknik som Bildspel) och
+            berättarrösten läggs som eget ljudspår ovanpå, hela vägen genom hela dialogen —
+            fungerar med VILKEN figur som helst.
+          </p>
+        )}
+
+        {(avatarProvider === 'did' || avatarProvider === 'figure') && (
           <div style={{ marginTop: 8 }}>
-            <p className="placeholder-note">
-              D-ID animerar en bild till en talande video — ingen HeyGen-avatar behövs. Sämre
-              läppsynk/kvalitet än HeyGen enligt oberoende jämförelser, men mycket billigare
-              (ingen dyr "skapa egen avatar"-nivå att betala för).
-            </p>
-            <label style={{ display: 'block', marginBottom: 8 }}>
-              Röst
-              <select value={didVoiceId} onChange={(e) => setDidVoiceId(e.target.value)} disabled={manusGenerating}>
-                <option value="">Sofie — kvinnlig (standard)</option>
-                <option value="sv-SE-MattiasNeural">Mattias — manlig</option>
-                <option value="sv-SE-HilleviNeural">Hillevi — kvinnlig (alternativ)</option>
-              </select>
-            </label>
+            {avatarProvider === 'did' && (
+              <p className="placeholder-note">
+                D-ID animerar en bild till en talande video — ingen HeyGen-avatar behövs. Sämre
+                läppsynk/kvalitet än HeyGen enligt oberoende jämförelser, men mycket billigare
+                (ingen dyr "skapa egen avatar"-nivå att betala för).
+              </p>
+            )}
+            {avatarProvider === 'did' ? (
+              <label style={{ display: 'block', marginBottom: 8 }}>
+                Röst
+                <select value={didVoiceId} onChange={(e) => setDidVoiceId(e.target.value)} disabled={manusGenerating}>
+                  <option value="">Sofie — kvinnlig (standard)</option>
+                  <option value="sv-SE-MattiasNeural">Mattias — manlig</option>
+                  <option value="sv-SE-HilleviNeural">Hillevi — kvinnlig (alternativ)</option>
+                </select>
+              </label>
+            ) : (
+              <label style={{ display: 'block', marginBottom: 8 }}>
+                Röst (berättarröst, samma som Berättare-läget)
+                <select value={figureVoice} onChange={(e) => setFigureVoice(e.target.value)} disabled={manusGenerating}>
+                  {OPENAI_VOICE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <button
                 type="button"
@@ -2385,7 +2471,7 @@ export default function Klippstudio() {
             {didImageSource === 'upload' ? (
               <>
                 <label style={{ display: 'block' }}>
-                  Foto att animera
+                  Foto/bild att animera
                   <input
                     ref={didImageInputRef}
                     type="file"
@@ -2407,7 +2493,11 @@ export default function Klippstudio() {
                     rows={3}
                     value={didFigureDescription}
                     onChange={(e) => setDidFigureDescription(e.target.value)}
-                    placeholder="Beskriv utseendet — ju mer human ansiktsformen är, desto bättre brukar läppsynken bli"
+                    placeholder={
+                      avatarProvider === 'did'
+                        ? 'Beskriv utseendet — ju mer human ansiktsformen är, desto bättre brukar läppsynken bli'
+                        : 'Beskriv utseendet fritt — funkar med vilken figur som helst, ingen läppsynk att ta hänsyn till'
+                    }
                     disabled={didFigureGenerating || manusGenerating}
                   />
                 </label>
@@ -2421,18 +2511,20 @@ export default function Klippstudio() {
                   {didFigureGenerating ? 'Genererar figur…' : 'Generera figur'}
                 </button>
                 {didFigureError && <p className="error-banner">{didFigureError}</p>}
-                <p className="placeholder-note" style={{ marginTop: 4 }}>
-                  OSÄKERT: D-IDs läppsynk är byggd för mänskliga ansikten — en tydligt
-                  icke-mänsklig figur (t.ex. en full djurnos) kan animeras konstigt. Generera om
-                  med en justerad beskrivning om resultatet inte känns bra.
-                </p>
+                {avatarProvider === 'did' && (
+                  <p className="placeholder-note" style={{ marginTop: 4 }}>
+                    OSÄKERT: D-IDs läppsynk är byggd för mänskliga ansikten — en tydligt
+                    icke-mänsklig figur (t.ex. en full djurnos) avvisas ofta direkt ("face not
+                    detected"). Byt till "Stillbild + rörelse, ingen läppsynk" ovan om det händer.
+                  </p>
+                )}
               </>
             )}
 
             {didSourceImageUrl && (
               <img
                 src={didSourceImageUrl}
-                alt="Bild att animera med D-ID"
+                alt="Bild att animera"
                 style={{ width: '100%', maxWidth: 200, borderRadius: 10, marginTop: 4 }}
               />
             )}
