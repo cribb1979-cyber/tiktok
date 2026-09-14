@@ -66,9 +66,11 @@ export default function Tips() {
           att glöda. Ingen AI-spårning, så motivet behöver hålla sig still i bild.
         </p>
         <p className="clip-prompt">
-          <strong>Bakgrundsmusik</strong> — en AI-genererad låt (egen sångtext eller
-          instrumentalt) som mixas in tyst under hela klippet. Vill du bara skapa en
-          fristående låt, utan klipp överhuvudtaget: <Link to="/musik">öppna Musik</Link>.
+          <strong>Bakgrundsmusik</strong> — en AI-genererad låt (egen sångtext krävs) som
+          mixas in tyst under hela klippet. Vill du bara skapa en fristående låt, utan klipp
+          överhuvudtaget: <Link to="/musik">öppna Musik</Link>. Har du bara bilder, inga
+          videoklipp? Ladda upp egna bilder, lägg till text på varje bild och få en färdig
+          video med musik under: <Link to="/bildspel">öppna Bildspel</Link>.
         </p>
       </div>
 

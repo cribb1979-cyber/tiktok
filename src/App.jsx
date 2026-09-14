@@ -9,6 +9,7 @@ import Tips from './pages/Tips.jsx'
 import Broll from './pages/Broll.jsx'
 import Berattare from './pages/Berattare.jsx'
 import Musik from './pages/Musik.jsx'
+import Bildspel from './pages/Bildspel.jsx'
 import { supabaseConfigured } from './lib/supabaseClient.js'
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/broll" element={<Broll />} />
           <Route path="/berattare" element={<Berattare />} />
           <Route path="/musik" element={<Musik />} />
+          <Route path="/bildspel" element={<Bildspel />} />
         </Routes>
       </main>
       <NavBar />

@@ -2305,7 +2305,9 @@ export default function Klippstudio() {
         klippningsplan)? <Link to="/broll">Öppna B-roll-verktyget</Link>. Vill du istället
         lägga en berättarröst ovanpå en färdig video, helt utan klippningsplan/transkribering?{' '}
         <Link to="/berattare">Öppna Berättare</Link>. Vill du bara skapa en fristående låt,
-        utan klipp överhuvudtaget? <Link to="/musik">Öppna Musik</Link>.
+        utan klipp överhuvudtaget? <Link to="/musik">Öppna Musik</Link>. Vill du göra en video
+        av egna bilder (med text och musik), utan video/klippningsplan?{' '}
+        <Link to="/bildspel">Öppna Bildspel</Link>.
       </p>
 
       {error && <p className="error-banner">{error}</p>}

@@ -63,6 +63,7 @@ gamla versioner tills cachen går ut, vilket hade varit förvirrande under aktiv
 - **B-roll** (`/broll`, `src/pages/Broll.jsx`) – fungerande, fristående genväg till samma B-roll-generator som Klippstudios "Avancerat"-flöde (`generate-broll.ts`/`replicateClient.js`, oförändrade), men UTAN kravet att först ladda upp ett klipp och skapa en klippningsplan — de behövs annars bara för att låsa upp `advancedOpen`-sektionen och ge B-roll ett category/subtopic/hookText-tema, inget B-roll:en faktiskt SKA innehålla (den visar aldrig personer). Skriv en egen idé (eller lämna helt tomt för ett generiskt förslag — se korrigeringen i "AI-effekt"-avsnittet, samma tema-krav togs bort helt), tryck "Generera B-roll", och spara/dela videon direkt (`fetchVideoAsFile`/`shareVideoFile` från `saveVideo.js`, samma "Spara video till telefonen"-mönster som Bibliotek). Länkad från både Klippstudio (ovanför formuläret) och Tips-sidans B-roll-beskrivning, men har ingen egen flik i bottennavigeringen — en Studio-undergenväg, inte ett eget huvudläge.
 - **Berättare** (`/berattare`, `src/pages/Berattare.jsx`) – fungerande, fristående genväg som hoppar över HELA klippningsplan-/transkriberingsflödet: ladda upp en färdig video, skriv en berättartext, generera en AI-uppläst röst (`generate-narration.ts`, OpenAIs text-till-tal) och rendera videon med rösten som ett eget ljudspår ovanpå (videons eget ljud stängs av automatiskt). Bygger en syntetisk ETT-segment-klippningsplan (hela videons längd, ingen AI-uppdelning) internt bara för att återanvända `/api/render-clip` oförändrat. Inga undertexter i det här läget (inget transkript att synka mot). Länkad från Klippstudio och Tips, ingen egen flik i bottennavigeringen — se "Berättarläge" nedan för detaljer.
 - **Musik** (`/musik`, `src/pages/Musik.jsx`) – fungerande, fristående genväg till samma musikgenerator som Klippstudios "Avancerat"-flöde (`generate-music.ts`/`musicClient.js`, oförändrade) — efterfrågat direkt av användaren efter att ha upptäckt att musikgenerering annars satt bakom "ladda upp ett klipp"-kravet i Klippstudio (samma mönster som B-roll/Berättare hade innan sina egna genvägar). Skriv en musikstil och egen sångtext (krävs, 10–600 tecken — modellen `minimax/music-1.5` stödjer inte instrumentalt och har inget eget längdfält, se "Bakgrundsmusik" nedan), och spara/dela låten direkt. Länkad från Klippstudio och Tips, ingen egen flik i bottennavigeringen.
+- **Bildspel** (`/bildspel`, `src/pages/Bildspel.jsx`) – fungerande, fristående verktyg efterfrågat direkt av användaren efter musikgenereringen ("nu kan jag generera musik, så vill jag kunna lägga bilder med text... bilderna som blir en video och musiken på de"). Ladda upp egna bilder (HELT egna stillbilder, ingen AI-bildgenerering), valfri text per bild, valfri musik (hämtad från "Genererat innehåll"-biblioteket) → en färdig video (`render-slideshow.ts`, en egen Shotstack-sammanställning, se "Bildspel"-avsnittet nedan). Länkad från Klippstudio och Tips, ingen egen flik i bottennavigeringen.
 - **Inställningar** – fungerande: TikTok-koppling (mock, se nedan). API-nycklar hanteras i Netlify, inte här.
 
 ## iOS Safari-bugg: filuppladdning från Fotobiblioteket avfyrar inte "change" (skarpt rapporterat)
@@ -653,6 +654,48 @@ inaktivitet. Den mer robusta (men betydligt större) lösningen — flytta submi
 server-drivna webhooks istället för klientstyrd pollning, så generering fortsätter oavsett
 om fliken är öppen — är inte byggd, se "Genererat innehåll"-biblioteket nedan för en
 delvis kompensation (resultatet går i alla fall inte förlorat om det HANN bli klart).
+
+## Bildspel (`/bildspel`): video av egna bilder + text + musik
+
+Efterfrågat direkt av användaren efter musikgenereringen: "nu kan jag generera musik, så vill
+jag kunna lägga bilder med text... bilderna som blir en video och musiken på de". Till
+skillnad från AI-kortfilm (AI-genererade bilder + AI-rörelse) är det här HELT egna, uppladdade
+stillbilder — appen sammanställer dem bara till en video, ingen bildgenerering inblandad.
+
+**Byggd som en egen, självständig edge function** (`render-slideshow.ts`) istället för att
+utöka `render-clip.ts` — den senare är hårt kopplad till segments_plan/klipp-datamodellen och
+hade blivit svårare att resonera om med en helt annan datamodell (bilder + valfri text,
+ingen video/transkript/segment) inbakad i samma fil. Återanvänder däremot BEFINTLIGA, redan
+verifierade Shotstack-mönster rakt av (kopierade, inte omskrivna, för att inte riskera att
+introducera nya fel i redan fungerande logik):
+- `image`-asset med `effect` (Ken Burns-liknande zoom/pan, samma `SEGMENT_EFFECTS`-lista som
+  render-clip.ts) och `transition` (fade mellan bilderna) för själva bildspelet.
+- `title`-asset (samma "minimal"-stil, vit text, halvgenomskinlig svart bakgrundsruta,
+  botten-position) för valfri text per bild — identisk TikTok-captionstil som resten av appen.
+- `audio`-asset för musiken, men på HÖGRE default-volym (0.7) än render-clip.ts's
+  `musicVolume` (0.25) — där ligger musiken under tal/berättarröst, här är musiken (om vald)
+  det enda ljudet, ingen konkurrerande dialog att hålla sig under.
+
+Pollas via BEFINTLIGA `/api/render-status` — Shotstacks render-id-kontrakt är oberoende av
+vilken edge function som submittade jobbet, ingen ny statusendpoint behövdes.
+
+**Flöde (`Bildspel.jsx`):**
+1. Lägg till bilder en i taget (`uploadRawClip`, samma `raw-clips`-bucket som allt annat
+   råmaterial) — via `useFileInputFallback` (samma iOS Fotobibliotek-skyddsnät som resten av
+   appen). Flytta ordning med ↑/↓, valfri textrad per bild, ta bort vid behov.
+2. Välj längd per bild (2–6 sekunder) och valfri musik — hämtad från
+   `generated_content`-biblioteket (`listGeneratedContent('music')`, se "Genererat innehåll"
+   nedan) istället för att skriva in en URL manuellt; låtar skapade i `/musik` eller
+   Klippstudio dyker upp automatiskt här.
+3. "Skapa bildspel" → `render-slideshow.ts` bygger tidslinjen (bild för bild i ordning, text
+   ovanpå, musik under hela) → samma "förhandsgranska → förbered → spara/dela"-mönster som
+   `Broll.jsx`/`Musik.jsx` (`fetchVideoAsFile`/`shareVideoFile`).
+
+**Medvetet uteslutet:** sparas INTE i Bibliotek/`clips`-tabellen — samma medvetna avgränsning
+som redan gäller för `Broll.jsx`/`Musik.jsx`/`Berattare.jsx` (alla fyra är "generera → spara
+till telefonen"-verktyg, ingen av dem skriver till `clips`). Konsekvent med den etablerade
+gränsen mellan Klippstudios fulla flöde (som SKA hamna i Bibliotek/Kalender) och de
+fristående genvägarna (som inte gör det).
 
 ## Genererat innehåll: bibliotek för B-roll/musik/berättarröst (auto-sparat)
 
