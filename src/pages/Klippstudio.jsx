@@ -916,6 +916,12 @@ export default function Klippstudio() {
   // sammanslagna talbara dialog (spokenText i handleGenerateAvatarVideo) skickas till
   // vilkendera leverantören.
   const [avatarProvider, setAvatarProvider] = useState('heygen')
+  // Röstval för D-ID (saknades helt tidigare — generateDidVideo fick aldrig något voiceId,
+  // så servern föll alltid tillbaka på DEFAULT_DID_VOICE_ID, sv-SE-SofieNeural, en kvinnlig
+  // röst, oavsett figur). Tomt värde = samma serverstandard som förut (Sofie). De andra två är
+  // bekräftade riktiga Microsoft Azure sv-SE-neural-röster (Mattias/Hillevi), samma
+  // röstfamilj som redan används av D-ID:s "text"-script.
+  const [didVoiceId, setDidVoiceId] = useState('')
   const [didImageSource, setDidImageSource] = useState('upload') // 'upload' | 'figure'
   const [didSourceImageUrl, setDidSourceImageUrl] = useState(null)
   const [didImageFileName, setDidImageFileName] = useState(null)
@@ -1346,6 +1352,7 @@ export default function Klippstudio() {
           ? await generateDidVideo({
               inputText: spokenText,
               sourceImageUrl: didSourceImageUrl,
+              voiceId: didVoiceId || undefined,
               onStatus: setManusStatus,
             })
           : await generateAvatarVideo({
@@ -2337,6 +2344,14 @@ export default function Klippstudio() {
               läppsynk/kvalitet än HeyGen enligt oberoende jämförelser, men mycket billigare
               (ingen dyr "skapa egen avatar"-nivå att betala för).
             </p>
+            <label style={{ display: 'block', marginBottom: 8 }}>
+              Röst
+              <select value={didVoiceId} onChange={(e) => setDidVoiceId(e.target.value)} disabled={manusGenerating}>
+                <option value="">Sofie — kvinnlig (standard)</option>
+                <option value="sv-SE-MattiasNeural">Mattias — manlig</option>
+                <option value="sv-SE-HilleviNeural">Hillevi — kvinnlig (alternativ)</option>
+              </select>
+            </label>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <button
                 type="button"

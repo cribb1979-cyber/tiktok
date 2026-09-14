@@ -375,9 +375,22 @@ Klippstudio (samma `uploadRawClip`/`raw-clips`-bucket som allt annat råmaterial
 `did-video-status.ts` (`GET /talks/{id}`, samma PENDING/RUNNING/SUCCEEDED/FAILED-normalisering
 som HeyGen/B-roll) speglar samma submit+poll-mönster som `generate-avatar-video.ts`/
 `avatar-video-status.ts` — `src/lib/didClient.js` har samma
-`generateDidVideo({ inputText, sourceImageUrl, onStatus })`-form som `generateAvatarVideo`.
-Röst: en Microsoft Azure-neural-röst (`script.provider`), default `sv-SE-SofieNeural`
-(styrbar via `DID_VOICE_ID`).
+`generateDidVideo({ inputText, sourceImageUrl, voiceId, onStatus })`-form som
+`generateAvatarVideo`. Röst: en Microsoft Azure-neural-röst (`script.provider`), default
+`sv-SE-SofieNeural` (styrbar via `DID_VOICE_ID`).
+
+**KORRIGERING (2026-09, rapporterat direkt av användaren — rösten blev alltid kvinnlig):**
+`generateDidVideo` tog emot ett `voiceId`-fält från början, men klientkoden i
+`Klippstudio.jsx` skickade aldrig något — anropet till `generateDidVideo` saknade helt
+`voiceId`-fältet, så servern föll alltid tillbaka på `DEFAULT_DID_VOICE_ID`
+(`sv-SE-SofieNeural`, kvinnlig) oavsett figur. Till skillnad från HeyGen-läget (som redan har
+en röstväljare via `list-voices.ts`) fanns ingen motsvarande UI för D-ID alls. Löst genom att
+lägga till en enkel röstväljare i D-ID-panelen (`didVoiceId`-state) med tre bekräftat riktiga
+Microsoft Azure sv-SE-neural-röster (samma röstfamilj som redan används av D-IDs "text"-
+script): Sofie (kvinnlig, standard/oförändrat beteende vid tomt val), Mattias (manlig),
+Hillevi (kvinnlig, alternativ) — hittade via WebSearch mot Microsofts egen röstlista, inte
+gissade. Ingen backend-ändring behövdes, bara att koppla ihop det redan existerande
+`voiceId`-fältet.
 
 **KORRIGERING #1 (2026-09, skarpt test — 401 Unauthorized):** den ursprungliga gissningen
 (nyckeln rakt av som `Authorization: Basic <nyckel>`, ingen egen base64-kodning) gav
