@@ -7,16 +7,14 @@
 //
 // D-ID_API_KEY exponeras aldrig i klienten.
 //
-// KORRIGERING (2026-09, skarpt test): nyckeln rakt av som `Authorization: Basic <nyckel>` gav
-// `401 Unauthorized` — precis det osäkra fallet som var flaggat här sedan tidigare. D-IDs
-// dashboard-nyckel är i formatet `<email>:<nyckel>` och måste base64-kodas själv (HTTP Basic
-// Auth-standard), den kommer INTE färdig-kodad. Bytt till `Basic ${btoa(apiKey)}` — OBS: det
-// är hela `DID_API_KEY`-värdet (redan i `email:nyckel`-formatet från D-IDs dashboard) som
-// base64-kodas, INTE `apiKey + ':'` (det hade lagt till ett extra kolon och gett en felaktigt
-// kodad sträng). Samma fix i did-video-status.ts (samma auth-header, samma bugg där).
-// `script.provider` (Microsoft Azure-röst) och `config.stitch` är fortfarande OSÄKRA — inte
-// verifierade mot ett skarpt svar, justera enligt D-IDs eget felmeddelande om något fältnamn
-// visar sig fel, samma mönster som tidigare HeyGen/Bria/Replicate-fältnamnsfixar.
+// KORRIGERING #2 (2026-09, kortlivad — ångrad): baserat på en första, ofullständig avläsning
+// ("nyckeln innehåller bara bokstäver") byttes headern tillfälligt till `Bearer ${apiKey}`.
+// När användaren sedan visade/kopierade HELA nyckelvärdet (D-IDs dashboard visar en ny nyckel
+// i klartext EN gång vid skapande) syntes ett kolon mitt i strängen
+// (`<användarnamn>:<lösenord>`) — den första avläsningen hade bara sett en avskuren del av
+// fältet. Det bekräftar att D-IDs egen dokumentation hade rätt hela tiden. Återställt till
+// `Basic ${btoa(apiKey)}` (hela nyckelsträngen, inklusive kolon, base64-kodad — standard HTTP
+// Basic Auth). Samma återställning i did-video-status.ts.
 const DID_TALKS_URL = 'https://api.d-id.com/talks'
 
 // Default: en svensk Microsoft Azure-neural-röst (samma TTS-leverantör som D-IDs "text"-

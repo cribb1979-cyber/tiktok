@@ -379,17 +379,28 @@ som HeyGen/B-roll) speglar samma submit+poll-mönster som `generate-avatar-video
 Röst: en Microsoft Azure-neural-röst (`script.provider`), default `sv-SE-SofieNeural`
 (styrbar via `DID_VOICE_ID`).
 
-**KORRIGERING (2026-09, skarpt test — 401 Unauthorized):** den ursprungliga gissningen
+**KORRIGERING #1 (2026-09, skarpt test — 401 Unauthorized):** den ursprungliga gissningen
 (nyckeln rakt av som `Authorization: Basic <nyckel>`, ingen egen base64-kodning) gav
-`401 Unauthorized` vid första skarpa användartestet — precis det osäkra fallet som redan var
-flaggat. Löst genom att base64-koda hela `DID_API_KEY`-värdet själva (`Basic
-${btoa(apiKey)}`), bekräftat mot D-IDs egen dokumentation
+`401 Unauthorized` vid första skarpa användartestet. D-IDs egen dokumentation
 (docs.d-id.com/reference/basic-authentication, hittad via WebSearch — d-id.com-domänen är
-blockerad från den här sandboxen så inget skarpt testanrop kunde göras härifrån, men
-dokumentationen är otvetydig): dashboard-nyckeln är redan i formatet `API_USERNAME:API_PASSWORD`,
-och det är HELA den strängen (inte `apiKey + ':'`, ett extra kolon hade gett fel resultat) som
-ska base64-kodas — standard HTTP Basic Auth. Samma fix i BÅDA `generate-did-video.ts` och
-`did-video-status.ts` (samma header, samma bugg i båda).
+blockerad från den här sandboxen så inget skarpt testanrop kunde göras härifrån) beskriver en
+nyckeltyp i formatet `API_USERNAME:API_PASSWORD` som ska base64-kodas i sin helhet. Bytt till
+`Basic ${btoa(apiKey)}`.
+
+**KORRIGERING #2 (samma dag, SAMMA 401 igen — kortlivad felspår, sedan löst):** korrigering #1
+löste INTE problemet vid nästa skarpa test. Istället för att fortsätta gissa via sökmotorträffar
+(samma misstag som gav två felaktiga ACE-Step-modellnamn i rad tidigare i det här projektet) bad
+jag användaren kolla sitt eget D-ID-dashboard (Account settings → API keys) direkt. Ett första,
+ofullständigt svar ("nyckeln innehåller bara bokstäver, inget kolon") tolkades som att nyckeln
+var en enkel opak token snarare än ett `användarnamn:lösenord`-par, och headern byttes
+tillfälligt till `Bearer ${apiKey}` — men när användaren sedan visade/kopierade HELA
+nyckelvärdet (D-ID visar en ny nyckel i klartext EN gång vid skapande, med en tydlig
+"copy before closing"-varning) syntes ett kolon mitt i strängen efter allt — den första
+avläsningen hade bara sett en avskuren del av fältet. Det bekräftade att D-IDs dokumentation
+hade rätt hela tiden. **Återställt till `Basic ${btoa(apiKey)}`** (korrigering #1:s lösning).
+Lärdomen: när ett konkret kontobevis (en skärmdump) verkar motsäga dokumentationen är det värt
+att dubbelkolla att beviset verkligen visar HELA värdet, inte bara vad som råkar synas i en
+liten skärmyta, innan man byter riktning på en redan verifierad lösning.
 
 **Fortfarande OSÄKERT:** `script.provider`/`config.stitch`-fältnamnen och om HeyGens
 `<break time="Xs"/>`-paustagg (se ovan) faktiskt respekteras av D-IDs "text"-script-typ —
