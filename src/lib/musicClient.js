@@ -51,11 +51,15 @@ export async function refineMusicStyle(styleIdea) {
 // AI-förslag: föreslår BÅDE musikstil och sångtext utifrån en fri textkontext — antingen ett
 // klipps kategori/ämne/hook (Klippstudio) eller ett fritt tema (fristående /musik-sidan).
 // Efterfrågat av användaren efter MiniMax-bytet, som gjorde sångtext obligatorisk.
-export async function suggestMusicIdea(context) {
+// targetDurationSeconds (valfritt): klippets/videons längd — MiniMax har inget eget
+// duration-fält, så det enda sättet att grovt anpassa låtens längd är att styra HUR MYCKET
+// sångtext som skrivs (se generate-music.ts targetLyricsLength). Bara ett riktmärke, ingen
+// garanti för exakt matchning.
+export async function suggestMusicIdea(context, targetDurationSeconds) {
   const response = await fetch('/api/generate-music', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ suggestOnly: true, context }),
+    body: JSON.stringify({ suggestOnly: true, context, targetDurationSeconds }),
   })
 
   const data = await parseJsonResponse(response)

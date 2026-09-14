@@ -55,6 +55,14 @@ const BROLL_STATUS_LABELS = {
 const MUSIC_LYRICS_MIN_LENGTH = 10
 const MUSIC_LYRICS_MAX_LENGTH = 600
 
+// Samma grova tumregel som generate-music.ts targetLyricsLength (~9 tecken/sekund) — bara en
+// riktlinje i UI:t för den som skriver sångtexten själv (inte via AI-förslag), så låten har en
+// chans att bli ungefär lika lång som klippet. Ingen garanti, MiniMax har inget duration-fält.
+function suggestedLyricsLength(seconds) {
+  if (!seconds || seconds <= 0) return null
+  return Math.min(Math.max(Math.round(seconds * 9), MUSIC_LYRICS_MIN_LENGTH + 20), MUSIC_LYRICS_MAX_LENGTH - 50)
+}
+
 // Samma tidkodsformat som segments_plan.start/end (mm:ss eller hh:mm:ss) — bara för
 // klient-sidiga uppskattningar/gränser i glow-UI:t nedan, inte auktoritativt (rendering
 // klämmer fast värdena skarpt i render-clip.ts oavsett vad som skickas härifrån).
@@ -1812,7 +1820,7 @@ export default function Klippstudio() {
     try {
       const selectedHook = plan?.hook_variants?.[selectedHookIndex]
       const context = `Kategori: ${plan?.category || category}. Ämne: ${plan?.subtopic || subtopic || 'okänt'}. Hook/tema: "${selectedHook?.text || ''}".`
-      const suggestion = await suggestMusicIdea(context)
+      const suggestion = await suggestMusicIdea(context, planTotalSeconds || undefined)
       setMusicStyleIdea(suggestion.styleIdea)
       setMusicRefinedTags('')
       setMusicLyrics(suggestion.lyrics)
@@ -3517,6 +3525,13 @@ export default function Klippstudio() {
                     )}
                     <label style={{ display: 'block', marginTop: 8 }}>
                       Egen sångtext (krävs — 10–600 tecken, stödjer [Verse]/[Chorus]/[Bridge])
+                      {suggestedLyricsLength(planTotalSeconds) && (
+                        <span className="clip-prompt" style={{ display: 'block' }}>
+                          Klippet är ca {Math.round(planTotalSeconds)}s — sikta på ungefär{' '}
+                          {suggestedLyricsLength(planTotalSeconds)} tecken för en låt i ungefär
+                          samma längd (ingen exakt vetenskap, MiniMax har inget eget längdval).
+                        </span>
+                      )}
                       <textarea
                         value={musicLyrics}
                         onChange={(e) => setMusicLyrics(e.target.value)}

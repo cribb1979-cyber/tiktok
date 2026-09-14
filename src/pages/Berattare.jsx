@@ -48,6 +48,14 @@ const MUSIC_STATUS_LABELS = {
 const MUSIC_LYRICS_MIN_LENGTH = 10
 const MUSIC_LYRICS_MAX_LENGTH = 600
 
+// Samma grova tumregel som generate-music.ts targetLyricsLength (~9 tecken/sekund) — bara en
+// riktlinje för den som skriver sångtexten själv, så låten har en chans att bli ungefär lika
+// lång som videon. Ingen garanti, MiniMax har inget duration-fält.
+function suggestedLyricsLength(seconds) {
+  if (!seconds || seconds <= 0) return null
+  return Math.min(Math.max(Math.round(seconds * 9), MUSIC_LYRICS_MIN_LENGTH + 20), MUSIC_LYRICS_MAX_LENGTH - 50)
+}
+
 function formatTimecode(totalSeconds) {
   const s = Math.max(0, Math.round(totalSeconds))
   const hh = Math.floor(s / 3600)
@@ -380,6 +388,13 @@ export default function Berattare() {
               )}
               <label style={{ display: 'block', marginTop: 8 }}>
                 Egen sångtext (krävs — 10–600 tecken, stödjer [Verse]/[Chorus]/[Bridge])
+                {suggestedLyricsLength(videoDuration) && (
+                  <span className="clip-prompt" style={{ display: 'block' }}>
+                    Videon är ca {Math.round(videoDuration)}s — sikta på ungefär{' '}
+                    {suggestedLyricsLength(videoDuration)} tecken för en låt i ungefär samma
+                    längd (ingen exakt vetenskap, MiniMax har inget eget längdval).
+                  </span>
+                )}
                 <textarea
                   value={musicLyrics}
                   onChange={(e) => setMusicLyrics(e.target.value)}

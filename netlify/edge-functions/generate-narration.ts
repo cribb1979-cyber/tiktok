@@ -21,9 +21,18 @@ const OPENAI_TTS_URL = 'https://api.openai.com/v1/audio/speech'
 // om tydligt, naturligt uttal.
 const TTS_MODEL = 'gpt-4o-mini-tts'
 
+// KORRIGERING (2026-09, klagomål om engelsk brytning i svenskt uttal): förstärkt instruktionen
+// med en uttrycklig begäran om äkta svenskt uttal/fonetik, inte bara "naturligt". OSÄKERT hur
+// mycket detta faktiskt hjälper — forumtrådar om gpt-4o-mini-tts rapporterar att
+// accent-instruktioner inte alltid följs tillförlitligt för alla språk (modellens röster är i
+// grunden optimerade för engelska, kvaliteten varierar per språk). Om uttalet fortfarande
+// känns bruten efter det här: nästa steg vore en dedikerad svensk röstleverantör (t.ex. Azure
+// Cognitive Services, samma sv-SE-SofieNeural-röst som redan används för D-ID i Manus-läget)
+// — men det kräver en ny tjänst/nyckel/kostnad, inte gjort här.
 const NARRATION_INSTRUCTIONS =
-  'Tala varmt och engagerande, som en berättarröst i en kort video. Uttala orden tydligt och ' +
-  'naturligt (texten kan vara på svenska) — undvik robotaktig eller forcerad betoning.'
+  'Texten är skriven på svenska. Uttala ALLA ord med äkta svenskt uttal och svensk fonetik — ' +
+  'som en infödd svensktalande, INTE med engelsk brytning eller engelska vokalljud. Tala varmt ' +
+  'och engagerande, som en berättarröst i en kort video, med tydlig och naturlig betoning.'
 
 // "fable" beskrivs i OpenAIs egen dokumentation som en varm, berättande röst — bäst passform
 // för en berättarröst jämfört med de mer neutrala alternativen (alloy/echo/nova/shimmer/onyx).

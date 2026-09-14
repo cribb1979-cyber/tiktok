@@ -419,6 +419,20 @@ Klippstudios fullständiga flöde, inte en ersättning för det.
    `tts-1`/`tts-1-hd`) som styr leveransen i naturligt språk — satt till en instruktion om
    att tala varmt/tydligt och undvika robotaktig betoning. Samma endpoint, samma röster
    (`fable` m.fl. finns kvar), ingen klientändring behövdes.
+
+   **KORRIGERING #2 (2026-09, kvarstående klagomål — engelsk brytning i svenskt uttal):**
+   förstärkt `instructions` med en uttrycklig begäran om äkta svenskt uttal/fonetik ("som en
+   infödd svensktalande, INTE med engelsk brytning"), inte bara "naturligt" som tidigare.
+   **OSÄKERT** hur mycket detta faktiskt hjälper — forumtrådar om `gpt-4o-mini-tts`
+   rapporterar att accent-instruktioner inte alltid följs tillförlitligt för alla språk
+   (modellens röster är i grunden optimerade för engelska, kvaliteten varierar per språk,
+   och Svenska är inte bland de mest omtalat välstödda). Kunde inte verifieras med ett skarpt
+   lyssningstest härifrån (ingen ljuduppspelning i den här sandboxen). Om uttalet fortfarande
+   känns bruten efter det här: nästa steg vore en dedikerad svensk röstleverantör — appen
+   använder redan en bekräftat bra svensk röst (Microsoft Azures `sv-SE-SofieNeural`) för
+   D-ID i Manus-läget, så samma leverantör (direkt via Azure Cognitive Services, inte via
+   D-ID) vore ett rimligt nästa steg — men det kräver en ny tjänst/nyckel/kostnad, inte gjort
+   här.
 4. Klienten laddar upp den mottagna mp3-filen till `raw-clips` (samma `uploadRawClip`) för
    att få en URL, precis som allt annat råmaterial.
 5. Rendering återanvänder `/api/render-clip` OFÖRÄNDRAT genom att bygga en syntetisk
@@ -509,6 +523,20 @@ Kontexten skiljer sig åt beroende på var knappen trycks:
   (valfritt — tomt ger Claude fria händer att hitta på ett tema själv).
 Förslaget fyller i både Musikstil- och Sångtext-fälten, som användaren sedan kan redigera
 innan de förfinar/genererar som vanligt — ersätter inget, bara ett startförslag.
+
+**Låtlängd anpassad efter klippets längd:** efterfrågat direkt av användaren — MiniMax har som
+sagt inget `duration`-fält, så det enda sättet att grovt styra hur lång den genererade låten
+blir är att styra HUR MYCKET sångtext som skickas in (mer text/fler verser ≈ längre låt).
+`generate-music.ts` har en ny `targetLyricsLength(targetDurationSeconds)`-tumregel (~9 tecken
+sångtext per önskad sekund, en uppskattning för pop/pop-rock-tempo — **OSÄKERT, ingen exakt
+vetenskap**, bara en riktlinje till Claude, ingen garanti för exakt låtlängd eftersom MiniMax
+inte har något att mäta mot). Klippstudios "AI-förslag utifrån klippet" skickar automatiskt med
+klippets `planTotalSeconds` som `targetDurationSeconds`; för den som skriver sångtexten helt
+själv (i Klippstudio ELLER `Berattare.jsx`, där låten är kopplad till en uppladdad videos
+längd) visas istället en hjälptext ovanför sångtext-fältet ("klippet är ca Xs — sikta på
+ungefär Y tecken"), med samma tumregel beräknad client-side. Gäller INTE `/musik`
+(`Musik.jsx`) — den fristående sidan har inget klipp/video att utgå ifrån, så ingen
+längdanpassning där.
 
 **Historik — varför ACE-Step byttes ut:** modellen hette ursprungligen `fishaudio/ace-step-1.5`
 (404 vid första testet), rättat till `lucataco/ace-step` (SAMMA 404 igen — två felaktiga

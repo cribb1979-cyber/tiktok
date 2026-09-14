@@ -58,13 +58,31 @@ const PROMPT_SYSTEM_MUSIC_SUGGESTION = `Du är en kreativ låtskrivare. Utifrån
 (ett klipps tema/kategori, eller en fri idé) föreslår du en musikstil och en sångtext på
 SVENSKA som matchar känslan/temat.
 
+Om kontexten anger en "Målsatt tecken-mängd", ANVÄND DEN — skriv sångtexten så att den
+hamnar nära det angivna tecken-antalet (räkna in radbrytningar och [Verse]/[Chorus]-taggar).
+MiniMax Music (musikmodellen som får texten) har inget eget längd-fält — låtens faktiska
+längd styrs av hur mycket text som skrivs, så det här är enda sättet att grovt anpassa låten
+efter en viss längd (t.ex. ett klipps längd).
+
 Svara EXAKT i detta format, inget annat före eller efter:
 STIL: <kort stilbeskrivning, 1-2 meningar, gärna på svenska — genre/stämning/instrument>
 TEXT:
-<sångtext med riktiga radbrytningar, strukturerad med [Verse]/[Chorus]/[Bridge], maximalt
-ca 500 tecken totalt>`
+<sångtext med riktiga radbrytningar, strukturerad med [Verse]/[Chorus]/[Bridge]>`
 
 const SUGGESTION_LYRICS_MAX_LENGTH = LYRICS_MAX_LENGTH - 50 // marginal innan 600-teckensgränsen
+const SUGGESTION_LYRICS_DEFAULT_LENGTH = 500 // används om ingen targetDurationSeconds anges
+
+// Grov tumregel (OSÄKERT, ingen exakt vetenskap — MiniMax har ingen egen duration-parameter
+// att mäta mot): ca 9 tecken sångtext per önskad sekund, en rimlig uppskattning för
+// pop/pop-rock-tempo inklusive radbrytningar/struktur-taggar. Fungerar bara som en riktlinje
+// till Claude, ingen garanti för exakt låtlängd.
+const SUGGESTION_CHARS_PER_SECOND = 9
+
+function targetLyricsLength(targetDurationSeconds: number | null): number {
+  if (!targetDurationSeconds || targetDurationSeconds <= 0) return SUGGESTION_LYRICS_DEFAULT_LENGTH
+  const estimate = Math.round(targetDurationSeconds * SUGGESTION_CHARS_PER_SECOND)
+  return Math.min(Math.max(estimate, LYRICS_MIN_LENGTH + 20), SUGGESTION_LYRICS_MAX_LENGTH)
+}
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -84,6 +102,10 @@ export default async (request: Request) => {
   const lyrics = typeof body.lyrics === 'string' ? body.lyrics.trim() : ''
   const suggestOnly = body.suggestOnly === true
   const context = typeof body.context === 'string' ? body.context.trim() : ''
+  const targetDurationSeconds =
+    typeof body.targetDurationSeconds === 'number' && body.targetDurationSeconds > 0
+      ? body.targetDurationSeconds
+      : null
 
   const claudeApiKey = Deno.env.get('CLAUDE_API_KEY')
   if (!claudeApiKey) {
@@ -95,6 +117,11 @@ export default async (request: Request) => {
       return jsonResponse({ error: 'context krävs för ett AI-förslag.' }, 400)
     }
     try {
+      const targetLength = targetLyricsLength(targetDurationSeconds)
+      const userContent = targetDurationSeconds
+        ? `Kontext: ${context}\n\nMålsatt tecken-mängd: ca ${targetLength} tecken (motsvarar ungefär ${Math.round(targetDurationSeconds)} sekunders låt).`
+        : `Kontext: ${context}`
+
       const claudeResponse = await fetch(CLAUDE_API_URL, {
         method: 'POST',
         headers: {
@@ -106,7 +133,7 @@ export default async (request: Request) => {
           model: CLAUDE_MODEL,
           max_tokens: 500,
           system: PROMPT_SYSTEM_MUSIC_SUGGESTION,
-          messages: [{ role: 'user', content: `Kontext: ${context}` }],
+          messages: [{ role: 'user', content: userContent }],
         }),
       })
 
