@@ -56,7 +56,7 @@ gamla versioner tills cachen går ut, vilket hade varit förvirrande under aktiv
 ## Sidor
 
 - **Idébank** – fungerande: trenddata (hashtags/ljud/kategori) läggs in manuellt på två sätt — antingen ett fält i taget, eller genom att klistra in en hashtag-lista (t.ex. kopierad direkt från TikTok Creative Centers webbgränssnitt) som tolkas till klickbara kandidater du väljer bland innan de sparas i bulk. Visas sedan ett kort i taget — "Hoppa över" eller "Bygg vidare" (skickar dig till Klippstudio med prompt/kategori förifyllda utifrån trenden). Automatisk skrapning/API-hämtning av trenddata byggs inte — TikTok har ingen öppen API för det (Research API är akademisk/icke-kommersiell, Creative Center har ingen offentlig API), så tredjepartsskrapning skulle innebära löpande kostnad och osäker ToS-status. Klistra-in-flödet är den medvetna kompromissen: du hittar trenden själv på riktiga TikTok/Creative Center, appen sköter bara tolkning och urval.
-- **Klippstudio** – fungerande: ladda upp ett eller flera korta råklipp (video/ljud, valfritt — "Lägg till klipp" för fler, se "Flera klipp" nedan), ELLER skriv ett manus som blir en AI-avatar-video (se "Manus-läge" nedan) — båda vägarna landar i samma `clips`-lista. Skriv prompt + kategori/underämne → Claude föreslår en klippningsplan (som kan klippa ihop segment från flera olika klipp, oavsett om de är uppladdade eller AI-avatar-genererade) och 2-3 hook-alternativ. Om råmaterial finns kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek. De valfria AI-tilläggen (B-roll, AI-effekt, bakgrundsbyte, tankebubblor, glow, bakgrundsmusik — se respektive avsnitt nedan) döljs bakom en hopfälld "Avancerat"-knapp under klippningsplanen (`advancedOpen`-state, default stängd) — infört efter att standardflödet blivit rörigt med fem separata korta synliga samtidigt. Allt finns kvar, bara ur vägen tills man aktivt öppnar sektionen.
+- **Klippstudio** – fungerande: ladda upp ett eller flera korta råklipp (video/ljud, valfritt — "Lägg till klipp" för fler, se "Flera klipp" nedan), ELLER skriv ett manus som blir en AI-avatar-video (se "Manus-läge" nedan) — båda vägarna landar i samma `clips`-lista. Skriv prompt + kategori/underämne → Claude föreslår en klippningsplan (som kan klippa ihop segment från flera olika klipp, oavsett om de är uppladdade eller AI-avatar-genererade) och 2-3 hook-alternativ — ELLER hoppa över Claude helt med "Rendera utan klippningsplan" (se "Klippningsplan utan AI" nedan), som lägger alla klipp efter varandra i sin HELA längd istället. Om råmaterial finns kan klippet renderas (undertexter inbrända från transkriptet, zoom-effekt per segment, hook-text som textöverlägg) via Shotstack, med förhandsgranskning innan det sparas som utkast i Bibliotek. De valfria AI-tilläggen (B-roll, AI-effekt, bakgrundsbyte, tankebubblor, glow, bakgrundsmusik — se respektive avsnitt nedan) döljs bakom en hopfälld "Avancerat"-knapp under klippningsplanen (`advancedOpen`-state, default stängd) — infört efter att standardflödet blivit rörigt med fem separata korta synliga samtidigt. Allt finns kvar, bara ur vägen tills man aktivt öppnar sektionen.
 - **Bibliotek** – fungerande: lista, lägg till och ta bort klipp manuellt, sortera på bäst presterande, filtrera på kategori. "Visa genererad text" expanderar kortet med sparade hook-alternativ och segmentplan i sin helhet, "Generera om" kör Claude-genereringen igen för klippets sparade prompt/kategori/underämne och skriver över hook-alternativ/segmentplan/hashtags med ett nytt förslag. Utkast kan "Publiceras (mock)" och publicerade klipp kan få simulerade resultat via "Uppdatera resultat (mock)".
 - **Kalender** – fungerande (tidigare platshållare, byggd direkt på användarens begäran): läser BEFINTLIGA `clips`-fält (`status`/`posted_at`/`scheduled_at`/`views_24h` m.fl., redan satta av `tiktokAdapter.js`/Bibliotek — ingen ny tabell/migration behövdes), grupperar publicerade/schemalagda klipp per kalendervecka (måndag–söndag), och räknar ut en "bästa tid att posta"-rekommendation genom att gruppera publicerade klipp med sparad statistik på veckodag+dygnsdel och lyfta fram den bucketen med högst snittvisningar (kräver minst 3 sådana klipp). Visar en tydlig varningstext i UI:t om att statistiken är slumpmässig mock-data (`tiktokAdapter.js`) tills en riktig TikTok-koppling finns — rekommendationen är annars redan fullt fungerande logik, bara väntande på riktiga siffror.
 - **Tips & trix** – fungerande, statisk guide (`src/pages/Tips.jsx`, ingen AI/databas inblandad): för dig som filmar själv istället för Manus/AI-kortfilm — filmtips, vilka effekter som finns och vad de gör, hur du lägger till dem (under "Avancerat" i Klippstudio), i vilken ordning lagren läggs ovanpå varandra (praktiskt viktigt — en tankebubbla kan täcka undertexter om de hamnar på samma plats, se render-clip.ts's spårordning), och hur klippning/redigering (segment-trim, hastighet, "Redigera med vägledning") fungerar.
@@ -247,6 +247,37 @@ bildruta, bakgrundsbytets källvideo) använder `primaryClip` — det uppladdade
 finns) — istället för ett fast, enda klipp. `captureGuidanceFrames` (Redigera med
 vägledning) går längre och slår upp RÄTT klipp per segment individuellt, eftersom Claude kan
 blanda segment från olika klipp i samma reviderade plan.
+
+## Klippningsplan utan AI: "Rendera utan klippningsplan" (valfritt)
+
+Efterfrågat direkt av användaren: "Gör klippningsplanen som ett alternativ utan eller med."
+Fram tills nu krävde ALLA klipp (uppladdade, HeyGen/D-ID-avatarer, AI-kortfilm-scener) en
+Claude-genererad klippningsplan innan de kunde renderas — även om man bara ville ha klippet
+rakt av, utan AI-trimning/hook. Löst med en ny knapp, "Rendera utan klippningsplan", bredvid
+"Föreslå klippningsplan".
+
+**Vald variant** (av två diskuterade — alla klipp rakt av valdes framför "bara första
+klippet"): `handleSkipPlan` (`Klippstudio.jsx`) bygger en SYNTETISK klippningsplan med exakt
+samma fältform som `generate-plan.ts` returnerar (`segments_plan`/`hook_variants`/
+`suggested_subtitles`/`suggested_hashtags`/`thought_bubbles`/`category`/`subtopic`) — utan
+att anropa Claude alls:
+- Varje klipp i `clips`-listan (i den ordning de lagts till) blir ETT segment i sin HELA
+  längd (`start: '0:00'`, `end: <klippets fulla längd>`) — ingen AI-trimning.
+- Klippets längd läses av client-side (`getVideoDuration`, samma `<video>`/
+  `loadedmetadata`-teknik som redan används för ljudlängd i figur-läget ovan), en per klipp,
+  parallellt (`Promise.all`).
+- `hook_variants`/`suggested_subtitles`/`suggested_hashtags`/`thought_bubbles` är tomma
+  listor — ingen hook, inga AI-nyckelfras-textöverlägg. Ord-för-ord-undertexter fungerar ÄNDÅ
+  (render-clip.ts matchar mot Whisper-transkriptet direkt, oberoende av var segmentsPlan kom
+  ifrån) — efterfrågat uttryckligen av användaren.
+
+**Eftersom plan-objektet har EXAKT samma form som ett AI-genererat gäller all nedströms logik
+helt oförändrad** — Avancerat-panelen (B-roll/effekt/bakgrundsbyte/glow/musik/etc.), canvasen,
+rendering, `persistClip` (sparning till Bibliotek) — ingen av dem bryr sig om HUR planen
+skapades. Ingen ny renderingskod behövdes. Den gemensamma nollställningen inför en ny plan
+(bröt tidigare bara ut i `handleGenerate`) flyttades till en delad `resetPlanState()`-funktion
+så B-roll/effekt/bakgrundsbyte/glow-val från ett TIDIGARE förslag aldrig läcker in i en ny
+plan, oavsett vilken väg (AI eller inte) som väljs.
 
 ## Manus-läge (steg 7): dialog → AI-avatar-video (valfritt)
 

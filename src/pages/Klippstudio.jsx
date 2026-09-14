@@ -80,6 +80,18 @@ function getAudioDuration(url) {
   })
 }
 
+// Samma teknik som getAudioDuration ovan, men för video — används av handleSkipPlan för att
+// bygga en syntetisk klippningsplan utan att fråga Claude om varje klipps längd.
+function getVideoDuration(url) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.addEventListener('loadedmetadata', () => resolve(video.duration))
+    video.addEventListener('error', () => reject(new Error('Kunde inte läsa av videolängden.')))
+    video.src = url
+  })
+}
+
 // Samma grova tumregel som generate-music.ts targetLyricsLength (~9 tecken/sekund) — bara en
 // riktlinje i UI:t för den som skriver sångtexten själv (inte via AI-förslag), så låten har en
 // chans att bli ungefär lika lång som klippet. Ingen garanti, MiniMax har inget duration-fält.
@@ -1599,11 +1611,11 @@ export default function Klippstudio() {
     setFilmGenerating(false)
   }
 
-  async function handleGenerate(event) {
-    event.preventDefault()
-    if (!prompt.trim()) return
-
-    setLoading(true)
+  // Delad nollställning inför en ny klippningsplan — används av BÅDE den AI-genererade planen
+  // (handleGenerate) och "Rendera utan klippningsplan" (handleSkipPlan), så ett tidigare
+  // förslags Avancerat-val (B-roll/effekt/bakgrundsbyte/glow/etc.) aldrig läcker in i den nya
+  // planen oavsett vilken väg som valdes.
+  function resetPlanState() {
     setError(null)
     setPlan(null)
     setRenderedVideoUrl(null)
@@ -1645,6 +1657,14 @@ export default function Klippstudio() {
     setSaved(false)
     setSavedClipId(null)
     setAutoSaveError(null)
+  }
+
+  async function handleGenerate(event) {
+    event.preventDefault()
+    if (!prompt.trim()) return
+
+    setLoading(true)
+    resetPlanState()
 
     // Few-shot-kontext: semantiskt liknande tidigare publicerade klipp (steg 10, pgvector)
     // när det finns tillräckligt med embeddad data, annars enkel kategorisortering (steg 9).
@@ -1677,6 +1697,54 @@ export default function Klippstudio() {
       setSegmentStarts((result.segments_plan ?? []).map((seg) => seg.start))
       setSegmentEnds((result.segments_plan ?? []).map((seg) => seg.end))
       setSegmentSpeeds((result.segments_plan ?? []).map(() => ''))
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Alternativ till den AI-genererade klippningsplanen (efterfrågat direkt av användaren:
+  // "Gör klippningsplanen som ett alternativ utan eller med") — bygger en SYNTETISK plan med
+  // exakt samma fältform som generate-plan.ts (segments_plan/hook_variants/...) utan att
+  // anropa Claude alls: varje uppladdat/genererat klipp blir ETT segment i sin HELA längd, i
+  // den ordning de ligger i clips-listan — ingen AI-trimning, ingen hook, inga
+  // nyckelfras-textöverlägg (suggested_subtitles tomt). Ord-för-ord-undertexter fungerar ändå
+  // (render-clip.ts matchar mot Whisper-transkriptet oavsett var segmentsPlan kom ifrån).
+  // Eftersom plan-objektet har exakt samma form som ett AI-genererat gäller all nedströms
+  // logik (Avancerat-panelen, canvas, rendering, persistClip) oförändrat — den bryr sig aldrig
+  // om HUR planen skapades.
+  async function handleSkipPlan() {
+    const readyClips = clips.filter((c) => c.publicUrl)
+    if (readyClips.length === 0) return
+
+    setLoading(true)
+    resetPlanState()
+
+    try {
+      const durations = await Promise.all(readyClips.map((c) => getVideoDuration(c.publicUrl)))
+      const segmentsPlan = readyClips.map((c, i) => ({
+        clip_id: c.id,
+        start: '0:00',
+        end: formatTimecode(durations[i]),
+        description: '',
+        order: i,
+      }))
+      setPlan({
+        segments_plan: segmentsPlan,
+        hook_variants: [],
+        suggested_subtitles: [],
+        suggested_hashtags: [],
+        thought_bubbles: [],
+        category,
+        subtopic,
+      })
+      setSelectedHookIndex(0)
+      setSegmentEffects(segmentsPlan.map(() => ''))
+      setSegmentFilters(segmentsPlan.map(() => ''))
+      setSegmentStarts(segmentsPlan.map((seg) => seg.start))
+      setSegmentEnds(segmentsPlan.map((seg) => seg.end))
+      setSegmentSpeeds(segmentsPlan.map(() => ''))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -2874,9 +2942,25 @@ export default function Klippstudio() {
             : 'Ladda upp råmaterial för tidsstämplad transkribering, eller lämna tomt och basera planen enbart på prompten.'}
         </p>
 
-        <button className="btn-primary" type="submit" disabled={loading || clips.some((c) => c.transcribing)}>
-          {loading ? 'Genererar…' : 'Föreslå klippningsplan'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn-primary" type="submit" disabled={loading || clips.some((c) => c.transcribing)}>
+            {loading ? 'Genererar…' : 'Föreslå klippningsplan'}
+          </button>
+          <button
+            className="btn-primary"
+            type="button"
+            style={{ opacity: 0.8 }}
+            onClick={handleSkipPlan}
+            disabled={loading || clips.some((c) => c.transcribing) || !clips.some((c) => c.publicUrl)}
+          >
+            Rendera utan klippningsplan
+          </button>
+        </div>
+        <p className="placeholder-note" style={{ marginTop: 4 }}>
+          "Rendera utan klippningsplan" hoppar över Claude helt — alla klipp läggs efter
+          varandra i sin HELA längd, i den ordning du lagt till dem, ingen AI-trimning eller
+          hook. Ord-för-ord-undertexter fungerar ändå (baseras på transkriptet, inte planen).
+        </p>
       </form>
 
       {plan && (
@@ -2890,6 +2974,7 @@ export default function Klippstudio() {
             </p>
           )}
 
+          {(plan.hook_variants ?? []).length > 0 && (
           <div>
             <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Välj hook</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -2927,6 +3012,7 @@ export default function Klippstudio() {
               ))}
             </div>
           </div>
+          )}
 
           <div>
             <p style={{ color: 'var(--text-muted)', marginBottom: 6 }}>Segmentplan</p>
