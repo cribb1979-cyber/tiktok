@@ -940,8 +940,18 @@ export default function Klippstudio() {
     setDidFigureError(null)
     setDidSourceImageUrl(null)
     try {
-      const imageUrl = await generateCharacterImage(didFigureDescription.trim())
-      setDidSourceImageUrl(imageUrl)
+      const replicateImageUrl = await generateCharacterImage(didFigureDescription.trim())
+      // D-ID validerar `source_url` strikt mot att den SLUTAR på jpg/jpeg/png — Replicates
+      // signerade URL har query-parametrar (X-Amz-...) efter filändelsen och underkänns därför
+      // direkt (skarpt fel: "must be a valid image URL (ending with jpg|jpeg|png)"), trots att
+      // filen faktiskt är en bild. Löst genom att ladda ner bilden (samma download-video-proxy
+      // som redan används för att undvika CORS mot extern S3-lagring, trots namnet helt
+      // filtypsagnostisk) och ladda upp den till EGEN Supabase Storage (samma `raw-clips`-
+      // bucket/uploadRawClip som fotouppladdningen redan använder) — ger en ren, publik URL
+      // som faktiskt slutar på filändelsen, ingen query-sträng.
+      const file = await fetchVideoAsFile(replicateImageUrl, 'figur.png')
+      const publicUrl = await uploadRawClip(file)
+      setDidSourceImageUrl(publicUrl)
     } catch (err) {
       setDidFigureError(err.message)
     } finally {

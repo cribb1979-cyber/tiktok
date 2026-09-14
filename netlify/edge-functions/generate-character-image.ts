@@ -1,9 +1,10 @@
 // AI-kortfilm, steg 2: genererar EN referensbild per karaktär (se generate-shotlist.ts) —
 // återanvänds sedan som `image` i generate-shot-image.ts (Runway Gen-4 Image) för att hålla
-// samma "person" konsekvent genom alla scener. Bara submit, pollas via BEFINTLIGA
-// /api/broll-status (Replicates predictions-endpoint är modelloberoende — samma id fungerar
-// oavsett vilken modell som skapade predictionen). REPLICATE_API_TOKEN exponeras aldrig i
-// klienten.
+// samma "person" konsekvent genom alla scener. ÅTERANVÄNDS ÄVEN som AI-genererad D-ID-
+// avatarkälla (Klippstudio, se generate-did-video.ts) — samma funktion, två användningar. Bara
+// submit, pollas via BEFINTLIGA /api/broll-status (Replicates predictions-endpoint är
+// modelloberoende — samma id fungerar oavsett vilken modell som skapade predictionen).
+// REPLICATE_API_TOKEN exponeras aldrig i klienten.
 //
 // Använder FLUX Schnell (samma modell/fält som generate-background.ts, verifierade direkt
 // mot Replicates öppna källkod för modellen) istället för Runway Gen-4 Image här — ett skarpt
@@ -44,9 +45,13 @@ export default async (request: Request) => {
   // medelåldern... lugn och samlad hållning") — ett känt falskt-positivt-mönster för den
   // typen av frasering. "Editorial character reference photo" + uttryckligt "fully clothed"
   // undviker samma träffbild utan att stänga av modellens säkerhetsfiltrering.
+  // output_format: 'png' — FLUX Schnells eget default är webp (cog-flux, predict.py).
+  // Tillagt efter ett skarpt fel: D-ID (se generate-did-video.ts, återanvänder den här bilden
+  // som avatarkälla) kräver uttryckligen en URL som slutar på jpg/jpeg/png.
   const replicateInput = {
     prompt: `Editorial character reference photo, fully clothed, neutral studio background, cinematic lighting: ${description}`,
     aspect_ratio: '9:16',
+    output_format: 'png',
   }
 
   let replicateResponse: Response

@@ -419,6 +419,24 @@ redan finns för AI-kortfilms karaktärsporträtt (`generate-character-image.ts`
 uppladdningsvägen redan skrev till). Ingen ny edge function eller nedströms-ändring behövdes —
 `handleGenerateAvatarVideo` bryr sig aldrig om varifrån `didSourceImageUrl` kom.
 
+**KORRIGERING (2026-09, skarpt test):** Replicates URL för den genererade bilden gav
+`D-ID API-fel: {"kind":"ValidationError",...,"message":"must be a valid image URL (ending
+with jpg|jpeg|png)"}`. Två orsaker, båda åtgärdade:
+1. FLUX Schnells eget default-format är **webp**, inte png/jpg — lagt till `output_format:
+   'png'` i `generate-character-image.ts`s Replicate-anrop (samma modell/fält-mönster som
+   `generate-background.ts` redan verifierat mot cog-flux källkod, men `output_format` i sig
+   är inte omtestat mot ett skarpt svar just för DEN HÄR ändringen).
+2. Replicates URL är SIGNERAD (`?X-Amz-Expires=...&X-Amz-Signature=...` efter filändelsen) —
+   D-IDs validering kollar bokstavligen att URL-strängen SLUTAR på `jpg`/`jpeg`/`png`, vilket
+   en query-sträng efter ändelsen alltid underkänner, oavsett faktiskt filformat. Löst genom
+   att i `handleGenerateDidFigure` (Klippstudio.jsx) hämta bilden via BEFINTLIGA
+   `/api/download-video`-proxyn (trots namnet helt filtypsagnostisk — bara en ren
+   CORS-undvikande passthrough) och ladda upp den till EGEN Supabase Storage (samma
+   `raw-clips`/`uploadRawClip` som fotouppladdningen redan använder, filnamn `figur.png`) —
+   ger en ren, publik URL utan query-sträng som faktiskt slutar på `.png`. Samma mönster som
+   redan används för att undvika CORS mot Shotstack/Runway-lagring vid video-nedladdning,
+   återanvänt här för en helt annan filtyp.
+
 **Viktig avvägning (kommunicerad i UI:t):** D-IDs läppsynk är byggd/tränad för mänskliga
 ansikten. En figur med en tydligt icke-mänsklig ansiktsform (t.ex. en full djurnos) kan
 animeras konstigt eller opålitligt — **OSÄKERT**, kunde inte testas mot ett skarpt ljud-/
