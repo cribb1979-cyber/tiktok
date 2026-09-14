@@ -916,6 +916,7 @@ export default function Klippstudio() {
   // sammanslagna talbara dialog (spokenText i handleGenerateAvatarVideo) skickas till
   // vilkendera leverantören.
   const [avatarProvider, setAvatarProvider] = useState('heygen')
+  const [didImageSource, setDidImageSource] = useState('upload') // 'upload' | 'figure'
   const [didSourceImageUrl, setDidSourceImageUrl] = useState(null)
   const [didImageFileName, setDidImageFileName] = useState(null)
   const [didImageUploading, setDidImageUploading] = useState(false)
@@ -923,6 +924,30 @@ export default function Klippstudio() {
   const didImageInputRef = useRef(null)
   // Se kommentaren vid handleAddClipChange ovan — samma iOS-skyddsnät.
   const handleDidImageUploadChange = useFileInputFallback(didImageInputRef, handleDidImageUpload)
+
+  // AI-genererad figur som D-ID-källbild (efterfrågat direkt av användaren — t.ex. en
+  // fantasifigur/hybrid som inte är ett riktigt foto av någon). Återanvänder EXAKT samma
+  // FLUX-generator som AI-kortfilms karaktärsbilder (generate-character-image.ts/
+  // generateCharacterImage) — D-ID bryr sig inte om en källbild kommer från en uppladdning
+  // eller en AI-generering, samma didSourceImageUrl-state används nedströms oavsett källa.
+  const [didFigureDescription, setDidFigureDescription] = useState('')
+  const [didFigureGenerating, setDidFigureGenerating] = useState(false)
+  const [didFigureError, setDidFigureError] = useState(null)
+
+  async function handleGenerateDidFigure() {
+    if (!didFigureDescription.trim()) return
+    setDidFigureGenerating(true)
+    setDidFigureError(null)
+    setDidSourceImageUrl(null)
+    try {
+      const imageUrl = await generateCharacterImage(didFigureDescription.trim())
+      setDidSourceImageUrl(imageUrl)
+    } catch (err) {
+      setDidFigureError(err.message)
+    } finally {
+      setDidFigureGenerating(false)
+    }
+  }
 
   // AI-kortfilm (valfritt fjärde inmatningssätt): en fri idé bryts ner av Claude till
   // återkommande karaktärer + en ordnad scenlista (generate-shotlist.ts), varje karaktär får
@@ -1278,7 +1303,7 @@ export default function Klippstudio() {
   async function handleGenerateAvatarVideo() {
     if (!manusBeats || manusBeats.length === 0) return
     if (avatarProvider === 'did' && !didSourceImageUrl) {
-      setManusError('Ladda upp ett foto att animera innan du genererar med D-ID.')
+      setManusError('Ladda upp ett foto eller generera en AI-figur att animera innan du genererar med D-ID.')
       return
     }
     // <break time="Xs"/> inline i texten: HeyGens dokumenterade, enda stödda paus-tagg (INTE
@@ -2248,7 +2273,8 @@ export default function Klippstudio() {
     backgroundMatting ||
     musicRefining ||
     musicGenerating ||
-    musicSuggesting
+    musicSuggesting ||
+    didFigureGenerating
   useWakeLock(isGeneratingSomething)
 
   return (
@@ -2296,28 +2322,90 @@ export default function Klippstudio() {
 
         {avatarProvider === 'did' && (
           <div style={{ marginTop: 8 }}>
-            <label style={{ display: 'block' }}>
-              Foto att animera
-              <input
-                ref={didImageInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleDidImageUploadChange}
-                disabled={didImageUploading || manusGenerating}
-              />
-            </label>
             <p className="placeholder-note">
-              D-ID animerar det här fotot till en talande video — ingen HeyGen-avatar behövs.
-              Sämre läppsynk/kvalitet än HeyGen enligt oberoende jämförelser, men mycket
-              billigare (ingen dyr "skapa egen avatar"-nivå att betala för).
+              D-ID animerar en bild till en talande video — ingen HeyGen-avatar behövs. Sämre
+              läppsynk/kvalitet än HeyGen enligt oberoende jämförelser, men mycket billigare
+              (ingen dyr "skapa egen avatar"-nivå att betala för).
             </p>
-            {didImageFileName && <p className="clip-prompt">Vald fil: {didImageFileName}</p>}
-            {didImageUploading && <p className="clip-prompt">Laddar upp foto…</p>}
-            {didImageError && <p className="error-banner">Kunde inte ladda upp fotot: {didImageError}</p>}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ opacity: didImageSource === 'upload' ? 1 : 0.5 }}
+                onClick={() => {
+                  setDidImageSource('upload')
+                  setDidSourceImageUrl(null)
+                  setDidFigureError(null)
+                }}
+              >
+                Eget foto
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ opacity: didImageSource === 'figure' ? 1 : 0.5 }}
+                onClick={() => {
+                  setDidImageSource('figure')
+                  setDidSourceImageUrl(null)
+                  setDidImageFileName(null)
+                  setDidImageError(null)
+                }}
+              >
+                AI-genererad figur
+              </button>
+            </div>
+
+            {didImageSource === 'upload' ? (
+              <>
+                <label style={{ display: 'block' }}>
+                  Foto att animera
+                  <input
+                    ref={didImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleDidImageUploadChange}
+                    disabled={didImageUploading || manusGenerating}
+                  />
+                </label>
+                {didImageFileName && <p className="clip-prompt">Vald fil: {didImageFileName}</p>}
+                {didImageUploading && <p className="clip-prompt">Laddar upp foto…</p>}
+                {didImageError && <p className="error-banner">Kunde inte ladda upp fotot: {didImageError}</p>}
+              </>
+            ) : (
+              <>
+                <label style={{ display: 'block' }}>
+                  Beskriv figuren (t.ex. "en hybrid av varg och människa, humanoid kroppsform,
+                  gråbrun päls, gula ögon, mystisk stämning")
+                  <textarea
+                    rows={3}
+                    value={didFigureDescription}
+                    onChange={(e) => setDidFigureDescription(e.target.value)}
+                    placeholder="Beskriv utseendet — ju mer human ansiktsformen är, desto bättre brukar läppsynken bli"
+                    disabled={didFigureGenerating || manusGenerating}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ marginTop: 4 }}
+                  onClick={handleGenerateDidFigure}
+                  disabled={didFigureGenerating || !didFigureDescription.trim()}
+                >
+                  {didFigureGenerating ? 'Genererar figur…' : 'Generera figur'}
+                </button>
+                {didFigureError && <p className="error-banner">{didFigureError}</p>}
+                <p className="placeholder-note" style={{ marginTop: 4 }}>
+                  OSÄKERT: D-IDs läppsynk är byggd för mänskliga ansikten — en tydligt
+                  icke-mänsklig figur (t.ex. en full djurnos) kan animeras konstigt. Generera om
+                  med en justerad beskrivning om resultatet inte känns bra.
+                </p>
+              </>
+            )}
+
             {didSourceImageUrl && (
               <img
                 src={didSourceImageUrl}
-                alt="Foto att animera med D-ID"
+                alt="Bild att animera med D-ID"
                 style={{ width: '100%', maxWidth: 200, borderRadius: 10, marginTop: 4 }}
               />
             )}

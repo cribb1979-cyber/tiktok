@@ -388,6 +388,26 @@ felmeddelande vid nästa skarpa test, samma mönster som HeyGen v3/Bria/Replicat
 fältnamnsfixarna i den här appen. **Miljövariabler:** `DID_API_KEY` (från D-IDs dashboard),
 valfri `DID_VOICE_ID`.
 
+**AI-genererad figur som D-ID-källbild (2026-09, efterfrågat direkt av användaren):**
+användaren ville skapa en helt egen, fantasifull avatar (nämnde uttryckligen en varg/
+människa-hybrid) istället för att ladda upp ett riktigt foto. D-IDs `sourceImageUrl` bryr sig
+inte om bildens ursprung, så lösningen återanvänder EXAKT samma FLUX Schnell-generator som
+redan finns för AI-kortfilms karaktärsporträtt (`generate-character-image.ts`/
+`generateCharacterImage`, oförändrad) — i D-ID-läget i Klippstudio finns nu en väljare mellan
+"Eget foto" (befintlig uppladdning) och "AI-genererad figur" (en textbeskrivning →
+`generateCharacterImage` → resultatet sätts som `didSourceImageUrl`, samma state som
+uppladdningsvägen redan skrev till). Ingen ny edge function eller nedströms-ändring behövdes —
+`handleGenerateAvatarVideo` bryr sig aldrig om varifrån `didSourceImageUrl` kom.
+
+**Viktig avvägning (kommunicerad i UI:t):** D-IDs läppsynk är byggd/tränad för mänskliga
+ansikten. En figur med en tydligt icke-mänsklig ansiktsform (t.ex. en full djurnos) kan
+animeras konstigt eller opålitligt — **OSÄKERT**, kunde inte testas mot ett skarpt ljud-/
+videosvar härifrån. Diskuterat med användaren som en medveten avvägning: prova D-ID direkt
+(billigast att bara testa) snarare än att i förväg bygga en säkrare men mer begränsad fallback
+(stillbild + Gen-4-rörelse + separat berättarröst utan läppsynk, som AI-kortfilm/Berättare
+redan gör) — den fallbacken är INTE byggd, bara diskuterad, om D-ID-kvaliteten visar sig för
+dålig på tydligt icke-mänskliga figurer.
+
 ## Berättarläge (`/berattare`): berättarröst istället för klippningsplan/transkribering
 
 Efterfrågat direkt av användaren: en väg som helt hoppar över Claude-klippningsplanen OCH
