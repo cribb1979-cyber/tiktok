@@ -1,7 +1,11 @@
-// Pollar status för en pågående D-ID-videogenerering (se generate-did-video.ts). Samma
-// osäkerhet som där kring autentiseringsformatet — justera enligt D-IDs eget felmeddelande om
-// den skarpa nyckeln behöver base64-kodas här också (`Basic ${apiKey}` som den är, inte
-// omkodad).
+// Pollar status för en pågående D-ID-videogenerering (se generate-did-video.ts).
+// KORRIGERING (2026-09, skarpt test): samma auth-bugg som där — D-IDs dashboard-nyckel är
+// redan i formatet `email:nyckel` och måste base64-kodas själv (`Basic ${btoa(apiKey)}`),
+// den kommer INTE färdig-kodad. Bekräftat via D-IDs egen dokumentation
+// (docs.d-id.com/reference/basic-authentication, hittad via WebSearch — själva domänen är
+// blockerad från den här sandboxen så inget skarpt testanrop kunde göras HÄRIFRÅN, men
+// användarens eget skarpa test av generate-did-video.ts gav `401 Unauthorized` med den
+// gamla, okodade varianten).
 const DID_TALKS_URL = 'https://api.d-id.com/talks'
 
 // D-IDs statusvärden (created/started/done/error) skiljer sig från vårt klient-kontrakt
@@ -33,7 +37,7 @@ export default async (request: Request) => {
   let response: Response
   try {
     response = await fetch(`${DID_TALKS_URL}/${encodeURIComponent(id)}`, {
-      headers: { Authorization: `Basic ${apiKey}` },
+      headers: { Authorization: `Basic ${btoa(apiKey)}` },
     })
   } catch (err) {
     return jsonResponse({ error: 'Kunde inte nå D-ID API.', detail: String(err) }, 502)

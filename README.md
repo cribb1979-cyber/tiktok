@@ -379,14 +379,23 @@ som HeyGen/B-roll) speglar samma submit+poll-mönster som `generate-avatar-video
 Röst: en Microsoft Azure-neural-röst (`script.provider`), default `sv-SE-SofieNeural`
 (styrbar via `DID_VOICE_ID`).
 
-**OSÄKERT (kunde inte verifieras mot ett skarpt svar härifrån — d-id.com är blockerad från
-den här sandboxen):** autentiseringsformatet (`Authorization: Basic ${apiKey}` rakt av, INTE
-en till base64-kodning av nyckeln — justera till `Basic ${btoa(apiKey + ':')}` om D-ID svarar
-401), samt `script.provider`/`config.stitch`-fältnamnen och om HeyGens `<break time="Xs"/>`-
-paustagg (se ovan) faktiskt respekteras av D-IDs "text"-script-typ. Justera enligt D-IDs eget
-felmeddelande vid nästa skarpa test, samma mönster som HeyGen v3/Bria/Replicate-
-fältnamnsfixarna i den här appen. **Miljövariabler:** `DID_API_KEY` (från D-IDs dashboard),
-valfri `DID_VOICE_ID`.
+**KORRIGERING (2026-09, skarpt test — 401 Unauthorized):** den ursprungliga gissningen
+(nyckeln rakt av som `Authorization: Basic <nyckel>`, ingen egen base64-kodning) gav
+`401 Unauthorized` vid första skarpa användartestet — precis det osäkra fallet som redan var
+flaggat. Löst genom att base64-koda hela `DID_API_KEY`-värdet själva (`Basic
+${btoa(apiKey)}`), bekräftat mot D-IDs egen dokumentation
+(docs.d-id.com/reference/basic-authentication, hittad via WebSearch — d-id.com-domänen är
+blockerad från den här sandboxen så inget skarpt testanrop kunde göras härifrån, men
+dokumentationen är otvetydig): dashboard-nyckeln är redan i formatet `API_USERNAME:API_PASSWORD`,
+och det är HELA den strängen (inte `apiKey + ':'`, ett extra kolon hade gett fel resultat) som
+ska base64-kodas — standard HTTP Basic Auth. Samma fix i BÅDA `generate-did-video.ts` och
+`did-video-status.ts` (samma header, samma bugg i båda).
+
+**Fortfarande OSÄKERT:** `script.provider`/`config.stitch`-fältnamnen och om HeyGens
+`<break time="Xs"/>`-paustagg (se ovan) faktiskt respekteras av D-IDs "text"-script-typ —
+justera enligt D-IDs eget felmeddelande vid nästa skarpa test, samma mönster som
+HeyGen v3/Bria/Replicate-fältnamnsfixarna i den här appen. **Miljövariabler:** `DID_API_KEY`
+(från D-IDs dashboard), valfri `DID_VOICE_ID`.
 
 **AI-genererad figur som D-ID-källbild (2026-09, efterfrågat direkt av användaren):**
 användaren ville skapa en helt egen, fantasifull avatar (nämnde uttryckligen en varg/

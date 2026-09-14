@@ -7,15 +7,16 @@
 //
 // D-ID_API_KEY exponeras aldrig i klienten.
 //
-// OSÄKERT (kunde inte verifieras mot ett skarpt svar härifrån — nätverksbegränsningar,
-// d-id.com är blockerad från den här sandboxen): D-IDs eget dashboard ger API-nyckeln redan
-// färdig att användas rakt av som `Authorization: Basic <nyckel>` (INTE en till
-// base64-kodning av nyckeln som vi själva behöver göra) — justera till
-// `Basic ${btoa(apiKey + ':')}` om D-ID svarar 401 på nyckeln som den är. `script.provider`
-// (Microsoft Azure-röst) och `config.stitch` är sammanställda från allmänt kända D-ID-
-// integrationsmönster, inte verifierade mot ett skarpt svar — justera enligt D-IDs eget
-// felmeddelande om något fältnamn visar sig fel, samma mönster som tidigare
-// HeyGen/Bria/Replicate-fältnamnsfixar i den här appen.
+// KORRIGERING (2026-09, skarpt test): nyckeln rakt av som `Authorization: Basic <nyckel>` gav
+// `401 Unauthorized` — precis det osäkra fallet som var flaggat här sedan tidigare. D-IDs
+// dashboard-nyckel är i formatet `<email>:<nyckel>` och måste base64-kodas själv (HTTP Basic
+// Auth-standard), den kommer INTE färdig-kodad. Bytt till `Basic ${btoa(apiKey)}` — OBS: det
+// är hela `DID_API_KEY`-värdet (redan i `email:nyckel`-formatet från D-IDs dashboard) som
+// base64-kodas, INTE `apiKey + ':'` (det hade lagt till ett extra kolon och gett en felaktigt
+// kodad sträng). Samma fix i did-video-status.ts (samma auth-header, samma bugg där).
+// `script.provider` (Microsoft Azure-röst) och `config.stitch` är fortfarande OSÄKRA — inte
+// verifierade mot ett skarpt svar, justera enligt D-IDs eget felmeddelande om något fältnamn
+// visar sig fel, samma mönster som tidigare HeyGen/Bria/Replicate-fältnamnsfixar.
 const DID_TALKS_URL = 'https://api.d-id.com/talks'
 
 // Default: en svensk Microsoft Azure-neural-röst (samma TTS-leverantör som D-IDs "text"-
@@ -58,7 +59,7 @@ export default async (request: Request) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Basic ${apiKey}`,
+        Authorization: `Basic ${btoa(apiKey)}`,
       },
       body: JSON.stringify({
         source_url: sourceImageUrl,
