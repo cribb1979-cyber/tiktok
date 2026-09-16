@@ -57,7 +57,7 @@ const IMAGE_MAX_POLL_ATTEMPTS = 40 // ~2 minuter
 const VIDEO_POLL_INTERVAL_MS = 5000
 const VIDEO_MAX_POLL_ATTEMPTS = 60 // ~5 minuter
 
-export async function generateCharacterImage(description, onStatus) {
+async function submitCharacterImage(description) {
   const response = await fetch('/api/generate-character-image', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -67,12 +67,35 @@ export async function generateCharacterImage(description, onStatus) {
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte starta karaktärsbild-generering.'))
   }
-  return pollUntilDone(data.taskId, {
-    intervalMs: IMAGE_POLL_INTERVAL_MS,
-    maxAttempts: IMAGE_MAX_POLL_ATTEMPTS,
-    onStatus,
-    failMessage: 'Karaktärsbilden kunde inte genereras hos Replicate.',
-  })
+  return data.taskId
+}
+
+// FLUX Schnells inbyggda säkerhetsklassificerare bedömer den FÄRDIGA bilden, inte bara
+// prompten, och kan ge falska NSFW-larm på helt vardagliga, fullt påklädda beskrivningar
+// (rapporterat direkt av användaren: "en ung kvinna... klädd i en enkel mörk stickad tröja,
+// smal och spänd kroppshållning" — redan omskriven via "fully clothed"-prompten i
+// generate-character-image.ts, ändå flaggad). Klassificeringen är stokastisk (ny slumpmässig
+// bild-seed per generering), så samma beskrivning går ofta igenom vid ett nytt försök. Ett par
+// automatiska återförsök ENDAST vid just NSFW-felet (inte andra fel) är en billig, väl beprövad
+// lösning på just den här typen av falsklarm.
+const NSFW_RETRY_ATTEMPTS = 2
+
+export async function generateCharacterImage(description, onStatus) {
+  for (let attempt = 0; ; attempt++) {
+    const taskId = await submitCharacterImage(description)
+    try {
+      return await pollUntilDone(taskId, {
+        intervalMs: IMAGE_POLL_INTERVAL_MS,
+        maxAttempts: IMAGE_MAX_POLL_ATTEMPTS,
+        onStatus,
+        failMessage: 'Karaktärsbilden kunde inte genereras hos Replicate.',
+      })
+    } catch (err) {
+      const isNsfwFalsePositive = /nsfw/i.test(err.message)
+      if (!isNsfwFalsePositive || attempt >= NSFW_RETRY_ATTEMPTS) throw err
+      onStatus?.('RETRYING_NSFW')
+    }
+  }
 }
 
 // characterRefs: [{ tag, imageUrl }] — bara de karaktärer som faktiskt syns i DEN HÄR scenen.

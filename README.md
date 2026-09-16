@@ -1101,6 +1101,21 @@ portrait, ..." — medvetet INTE genom att stänga av modellens säkerhetsfiltre
 symptom. OBS: kunde inte verifieras med ett nytt skarpt test i den här sessionen — dyker
 samma fel upp igen med den nya frasen behöver frasen justeras ytterligare.
 
+**Korrigering #4 (skarpt test, precis den befarade situationen ovan):** samma NSFW-falsklarm
+dök upp igen trots den omskrivna prompten, den här gången på en annan helt vardaglig,
+fullt påklädd beskrivning ("en ung kvinna med mörkt axellångt hår, klädd i en enkel mörk
+stickad tröja, smal och spänd kroppshållning"). Bekräftar att ytterligare prompt-omskrivning
+inte är en hållbar lösning — FLUX Schnells klassificerare bedömer den FÄRDIGA BILDEN (inte
+bara prompt-texten) och är stokastisk: samma beskrivning kan ge en annan slumpmässig bild-seed
+(och därmed ett annat utfall) vid varje nytt anrop. Löst i `src/lib/filmClient.js`:
+`generateCharacterImage` gör nu automatiskt upp till `NSFW_RETRY_ATTEMPTS` (2) nya försök
+(helt nya Replicate-prediktioner, alltså nya seeds) ENDAST när felmeddelandet innehåller
+"NSFW" — andra fel (t.ex. ett riktigt API-fel) ger fortfarande upp direkt utan att slösa
+onödiga Replicate-anrop. Klippstudio (`handleGenerateFilm`) visar "flaggades som NSFW (falskt
+larm) — försöker igen…" i statusraden under ett sådant återförsök, så det inte ser ut som att
+generingen bara hänger. Fortfarande medvetet INTE `disable_safety_checker` — samma resonemang
+som korrigering #3, en riktig träff ska fortfarande stoppas, bara falsklarmen ska självläka.
+
 **Miljökonsistens (2026-09, rapporterat direkt av användaren):** användaren märkte att varje
 scen fick nya ansikten OCH nya miljöer — inte en bugg i meningen trasig kod, utan en känd,
 redan dokumenterad konsekvens av arkitekturen ovan: Gen-4 Image genererar varje scen som en

@@ -1535,7 +1535,11 @@ export default function Klippstudio() {
       let doneCount = 0
       const characterImages = await Promise.all(
         charactersToGenerate.map(async (c) => {
-          const imageUrl = await generateCharacterImage(c.description)
+          const imageUrl = await generateCharacterImage(c.description, (status) => {
+            if (status === 'RETRYING_NSFW') {
+              setFilmProgress(`"${c.tag}" flaggades som NSFW (falskt larm) — försöker igen…`)
+            }
+          })
           doneCount += 1
           setFilmProgress(`Genererar karaktärsbilder (${doneCount}/${charactersToGenerate.length})…`)
           return [c.tag, imageUrl]
