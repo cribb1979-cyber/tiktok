@@ -1107,14 +1107,24 @@ fullt påklädd beskrivning ("en ung kvinna med mörkt axellångt hår, klädd i
 stickad tröja, smal och spänd kroppshållning"). Bekräftar att ytterligare prompt-omskrivning
 inte är en hållbar lösning — FLUX Schnells klassificerare bedömer den FÄRDIGA BILDEN (inte
 bara prompt-texten) och är stokastisk: samma beskrivning kan ge en annan slumpmässig bild-seed
-(och därmed ett annat utfall) vid varje nytt anrop. Löst i `src/lib/filmClient.js`:
-`generateCharacterImage` gör nu automatiskt upp till `NSFW_RETRY_ATTEMPTS` (2) nya försök
-(helt nya Replicate-prediktioner, alltså nya seeds) ENDAST när felmeddelandet innehåller
-"NSFW" — andra fel (t.ex. ett riktigt API-fel) ger fortfarande upp direkt utan att slösa
-onödiga Replicate-anrop. Klippstudio (`handleGenerateFilm`) visar "flaggades som NSFW (falskt
-larm) — försöker igen…" i statusraden under ett sådant återförsök, så det inte ser ut som att
-generingen bara hänger. Fortfarande medvetet INTE `disable_safety_checker` — samma resonemang
-som korrigering #3, en riktig träff ska fortfarande stoppas, bara falsklarmen ska självläka.
+(och därmed ett annat utfall) vid varje nytt anrop.
+
+Kort därefter ett ANNAT skarpt fel i samma steg: `Replicate API-fel: {"detail":"Internal
+server error","status":503}` — ett vanligt, övergående Replicate-driftfel, inte NSFW-relaterat
+alls, men samma princip (ett nytt försök löser det oftast).
+
+Löst gemensamt i `src/lib/filmClient.js`: en delad `submitAndPollWithRetry`-hjälpfunktion
+används nu av alla tre Replicate-genereringsstegen (karaktärsbild, scenbild, scenvideo) — upp
+till `RETRY_ATTEMPTS` (2) helt nya försök (nya Replicate-prediktioner, alltså nya seeds för
+NSFW-fallet, plus en kort `RETRY_DELAY_MS` (2s) paus för driftfels-fallet) ENDAST när
+felmeddelandet matchar `RETRYABLE_ERROR_PATTERN` ("nsfw", "internal server error", eller en
+5xx-statuskod) — andra fel (t.ex. ett riktigt valideringsfel eller fel API-nyckel) ger
+fortfarande upp direkt utan att slösa onödiga Replicate-anrop. Klippstudio
+(`handleGenerateFilm`) visar felmeddelandet + "— försöker igen…" i statusraden under ett sådant
+återförsök (för alla tre stegen, inte bara karaktärsbilder), så det inte ser ut som att
+genereringen bara hänger. Fortfarande medvetet INTE `disable_safety_checker` för NSFW-fallet —
+samma resonemang som korrigering #3, en riktig träff ska fortfarande stoppas, bara falsklarmen
+och driftfelen ska självläka.
 
 **Miljökonsistens (2026-09, rapporterat direkt av användaren):** användaren märkte att varje
 scen fick nya ansikten OCH nya miljöer — inte en bugg i meningen trasig kod, utan en känd,

@@ -57,6 +57,36 @@ const IMAGE_MAX_POLL_ATTEMPTS = 40 // ~2 minuter
 const VIDEO_POLL_INTERVAL_MS = 5000
 const VIDEO_MAX_POLL_ATTEMPTS = 60 // ~5 minuter
 
+// Två skilda, båda övergående feltyper från Replicate som är värda att pröva om automatiskt
+// istället för att direkt ge upp:
+// 1. NSFW-falsklarm: FLUX Schnells säkerhetsklassificerare bedömer den FÄRDIGA bilden, inte
+//    bara prompten, och kan flagga helt vardagliga, fullt påklädda beskrivningar (rapporterat
+//    direkt av användaren, se generate-character-image.ts). Klassificeringen är stokastisk (ny
+//    slumpmässig bild-seed per generering), så samma beskrivning går ofta igenom nästa gång.
+// 2. Tillfälliga Replicate-driftfel (t.ex. "Internal server error"/503 — rapporterat direkt av
+//    användaren vid ett skarpt test), som normalt löser sig av sig själva vid ett nytt försök.
+// Andra fel (valideringsfel, fel API-nyckel, m.m.) ger fortfarande upp direkt utan onödiga
+// extra Replicate-anrop.
+const RETRY_ATTEMPTS = 2
+const RETRY_DELAY_MS = 2000
+const RETRYABLE_ERROR_PATTERN = /nsfw|internal server error|\b50[234]\b/i
+
+// Delad submit+poll-med-återförsök för alla tre Replicate-stegen nedan. `submit` startar EN NY
+// prediction varje försök (viktigt för NSFW-fallet — en ny prediction ger en ny slumpmässig
+// seed, ett omförsök mot SAMMA taskId hade inte hjälpt).
+async function submitAndPollWithRetry(submit, pollOptions, onStatus) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const taskId = await submit()
+      return await pollUntilDone(taskId, { ...pollOptions, onStatus })
+    } catch (err) {
+      if (!RETRYABLE_ERROR_PATTERN.test(err.message) || attempt >= RETRY_ATTEMPTS) throw err
+      onStatus?.('RETRYING', err.message)
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+    }
+  }
+}
+
 async function submitCharacterImage(description) {
   const response = await fetch('/api/generate-character-image', {
     method: 'POST',
@@ -70,36 +100,16 @@ async function submitCharacterImage(description) {
   return data.taskId
 }
 
-// FLUX Schnells inbyggda säkerhetsklassificerare bedömer den FÄRDIGA bilden, inte bara
-// prompten, och kan ge falska NSFW-larm på helt vardagliga, fullt påklädda beskrivningar
-// (rapporterat direkt av användaren: "en ung kvinna... klädd i en enkel mörk stickad tröja,
-// smal och spänd kroppshållning" — redan omskriven via "fully clothed"-prompten i
-// generate-character-image.ts, ändå flaggad). Klassificeringen är stokastisk (ny slumpmässig
-// bild-seed per generering), så samma beskrivning går ofta igenom vid ett nytt försök. Ett par
-// automatiska återförsök ENDAST vid just NSFW-felet (inte andra fel) är en billig, väl beprövad
-// lösning på just den här typen av falsklarm.
-const NSFW_RETRY_ATTEMPTS = 2
-
-export async function generateCharacterImage(description, onStatus) {
-  for (let attempt = 0; ; attempt++) {
-    const taskId = await submitCharacterImage(description)
-    try {
-      return await pollUntilDone(taskId, {
-        intervalMs: IMAGE_POLL_INTERVAL_MS,
-        maxAttempts: IMAGE_MAX_POLL_ATTEMPTS,
-        onStatus,
-        failMessage: 'Karaktärsbilden kunde inte genereras hos Replicate.',
-      })
-    } catch (err) {
-      const isNsfwFalsePositive = /nsfw/i.test(err.message)
-      if (!isNsfwFalsePositive || attempt >= NSFW_RETRY_ATTEMPTS) throw err
-      onStatus?.('RETRYING_NSFW')
-    }
-  }
+export function generateCharacterImage(description, onStatus) {
+  return submitAndPollWithRetry(
+    () => submitCharacterImage(description),
+    { intervalMs: IMAGE_POLL_INTERVAL_MS, maxAttempts: IMAGE_MAX_POLL_ATTEMPTS, failMessage: 'Karaktärsbilden kunde inte genereras hos Replicate.' },
+    onStatus
+  )
 }
 
 // characterRefs: [{ tag, imageUrl }] — bara de karaktärer som faktiskt syns i DEN HÄR scenen.
-export async function generateShotImage({ imagePrompt, characterRefs }, onStatus) {
+async function submitShotImage({ imagePrompt, characterRefs }) {
   const response = await fetch('/api/generate-shot-image', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -109,15 +119,18 @@ export async function generateShotImage({ imagePrompt, characterRefs }, onStatus
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte starta scenbild-generering.'))
   }
-  return pollUntilDone(data.taskId, {
-    intervalMs: IMAGE_POLL_INTERVAL_MS,
-    maxAttempts: IMAGE_MAX_POLL_ATTEMPTS,
-    onStatus,
-    failMessage: 'Scenbilden kunde inte genereras hos Replicate.',
-  })
+  return data.taskId
 }
 
-export async function generateShotVideo({ imageUrl, motionPrompt, durationSeconds }, onStatus) {
+export function generateShotImage({ imagePrompt, characterRefs }, onStatus) {
+  return submitAndPollWithRetry(
+    () => submitShotImage({ imagePrompt, characterRefs }),
+    { intervalMs: IMAGE_POLL_INTERVAL_MS, maxAttempts: IMAGE_MAX_POLL_ATTEMPTS, failMessage: 'Scenbilden kunde inte genereras hos Replicate.' },
+    onStatus
+  )
+}
+
+async function submitShotVideo({ imageUrl, motionPrompt, durationSeconds }) {
   const response = await fetch('/api/generate-shot-video', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -127,10 +140,13 @@ export async function generateShotVideo({ imageUrl, motionPrompt, durationSecond
   if (!response.ok) {
     throw new Error(errorMessage(data, 'Kunde inte starta scenvideo-generering.'))
   }
-  return pollUntilDone(data.taskId, {
-    intervalMs: VIDEO_POLL_INTERVAL_MS,
-    maxAttempts: VIDEO_MAX_POLL_ATTEMPTS,
-    onStatus,
-    failMessage: 'Scenvideon kunde inte genereras hos Replicate.',
-  })
+  return data.taskId
+}
+
+export function generateShotVideo({ imageUrl, motionPrompt, durationSeconds }, onStatus) {
+  return submitAndPollWithRetry(
+    () => submitShotVideo({ imageUrl, motionPrompt, durationSeconds }),
+    { intervalMs: VIDEO_POLL_INTERVAL_MS, maxAttempts: VIDEO_MAX_POLL_ATTEMPTS, failMessage: 'Scenvideon kunde inte genereras hos Replicate.' },
+    onStatus
+  )
 }

@@ -1531,15 +1531,17 @@ export default function Klippstudio() {
       })
       const charactersToGenerate = characters.filter((c) => neededTags.has(c.tag))
 
+      // Visar VARFÖR ett steg tar en extra stund istället för att bara se ut att hänga — se
+      // submitAndPollWithRetry i filmClient.js (NSFW-falsklarm/tillfälliga Replicate-fel).
+      const onRetry = (label) => (status, detail) => {
+        if (status === 'RETRYING') setFilmProgress(`${label}: ${detail} — försöker igen…`)
+      }
+
       setFilmProgress(`Genererar karaktärsbilder (0/${charactersToGenerate.length})…`)
       let doneCount = 0
       const characterImages = await Promise.all(
         charactersToGenerate.map(async (c) => {
-          const imageUrl = await generateCharacterImage(c.description, (status) => {
-            if (status === 'RETRYING_NSFW') {
-              setFilmProgress(`"${c.tag}" flaggades som NSFW (falskt larm) — försöker igen…`)
-            }
-          })
+          const imageUrl = await generateCharacterImage(c.description, onRetry(`"${c.tag}"`))
           doneCount += 1
           setFilmProgress(`Genererar karaktärsbilder (${doneCount}/${charactersToGenerate.length})…`)
           return [c.tag, imageUrl]
@@ -1570,14 +1572,20 @@ export default function Klippstudio() {
           const imagePrompt = locationDescription
             ? `${locationDescription}. ${shot.image_prompt}`
             : shot.image_prompt
-          const imageUrl = await generateShotImage({ imagePrompt, characterRefs })
+          const imageUrl = await generateShotImage(
+            { imagePrompt, characterRefs },
+            onRetry(`Scen ${i + 1}, bildruta`)
+          )
 
           setFilmProgress(`Scen ${i + 1}/${shots.length}: animerar till video…`)
-          videoUrl = await generateShotVideo({
-            imageUrl,
-            motionPrompt: shot.motion_prompt,
-            durationSeconds: shot.duration_seconds,
-          })
+          videoUrl = await generateShotVideo(
+            {
+              imageUrl,
+              motionPrompt: shot.motion_prompt,
+              durationSeconds: shot.duration_seconds,
+            },
+            onRetry(`Scen ${i + 1}, video`)
+          )
           clipName = `AI-kortfilm scen ${i + 1}`
         }
 
